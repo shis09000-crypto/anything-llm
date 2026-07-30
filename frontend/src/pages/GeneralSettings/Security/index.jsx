@@ -21,6 +21,11 @@ import {
   SoftCard,
   SoftSettingsLayout,
 } from "@/components/SoftSettings";
+import {
+  browserUserRootStatus,
+  initializeBrowserUserRoot,
+  migrateBrowserUserDomainWraps,
+} from "@/utils/security/browserUserRoot";
 
 export default function GeneralSecurity() {
   const { t } = useTranslation();
@@ -28,8 +33,150 @@ export default function GeneralSecurity() {
     <SoftSettingsLayout title={t("security.title")}>
       <MultiUserMode />
       <PasswordProtection />
+      <BrowserUserRoot />
       <KeyGovernance />
     </SoftSettingsLayout>
+  );
+}
+
+function BrowserUserRoot() {
+  const [status, setStatus] = useState(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [migration, setMigration] = useState(null);
+
+  const refresh = async () => {
+    setBusy(true);
+    try {
+      const result = await browserUserRootStatus();
+      setStatus(result);
+    } catch (error) {
+      setStatus({
+        success: false,
+        error: error?.raw?.error || error?.message || "状态检查失败",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const initialize = async () => {
+    setBusy(true);
+    try {
+      const result = await initializeBrowserUserRoot(password);
+      setPassword("");
+      setMigration(null);
+      showToast(
+        result.localReady
+          ? "浏览器 User Root 已初始化并绑定当前设备。"
+          : "服务器 Root 已存在，但当前浏览器尚未获得本地材料。",
+        result.localReady ? "success" : "warning"
+      );
+      await refresh();
+    } catch (error) {
+      showToast(
+        error?.raw?.error || error?.message || "Root 初始化失败",
+        "error"
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const migrate = async () => {
+    setBusy(true);
+    try {
+      const result = await migrateBrowserUserDomainWraps(password);
+      setPassword("");
+      setMigration(result);
+      showToast(
+        result.failed
+          ? `完成 ${result.completed} 项，失败 ${result.failed} 项。`
+          : `已完成 ${result.completed} 项用户域包装。`,
+        result.failed ? "warning" : "success"
+      );
+      await refresh();
+    } catch (error) {
+      showToast(error?.raw?.error || error?.message || "密钥迁移失败", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const initialized = status?.initialized === true;
+  const stateLabel = initialized
+    ? `已初始化 · Epoch ${status.rootEpoch}`
+    : status?.error || "尚未初始化";
+
+  return (
+    <SoftCard
+      title="用户根密钥"
+      description="在当前浏览器本地生成 User Root，并通过 X-Wing + ML-DSA-65 绑定设备。Root 原文不会上传服务器。"
+      actions={
+        <SoftButton type="button" onClick={refresh} disabled={busy}>
+          刷新状态
+        </SoftButton>
+      }
+    >
+      <div className="space-y-4 text-sm text-[var(--soft-text-primary)]">
+        <div className="grid gap-3 md:grid-cols-2">
+          <KeyState
+            label="Root 状态"
+            value={stateLabel}
+            bad={Boolean(status?.error)}
+          />
+          <KeyState
+            label="传输与签名"
+            value="X-Wing (ML-KEM-768 + X25519) / ML-DSA-65"
+          />
+        </div>
+        <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-[var(--soft-text-secondary)]">
+          浏览器的格密码私钥由不可导出的 WebCrypto 包装密钥加密后保存在
+          IndexedDB。清除站点数据前应先授权另一设备，否则该浏览器无法恢复 Root。
+        </div>
+        <div className="flex max-w-xl flex-wrap items-end gap-2">
+          <label className="min-w-64 flex-1">
+            <span className="mb-2 block text-xs text-[var(--soft-text-secondary)]">
+              当前账户密码
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              className="w-full rounded-lg border border-white/10 bg-theme-settings-input-bg p-2.5 outline-none"
+            />
+          </label>
+          {!initialized ? (
+            <SoftButton
+              type="button"
+              disabled={busy || !password}
+              onClick={initialize}
+            >
+              初始化用户根密钥
+            </SoftButton>
+          ) : (
+            <SoftButton
+              type="button"
+              disabled={busy || !password}
+              onClick={migrate}
+            >
+              迁移待处理数据密钥
+            </SoftButton>
+          )}
+        </div>
+        {migration && (
+          <p className="text-xs text-[var(--soft-text-secondary)]">
+            发现 {migration.discovered} 项，完成 {migration.completed} 项，失败{" "}
+            {migration.failed} 项。
+          </p>
+        )}
+      </div>
+    </SoftCard>
   );
 }
 

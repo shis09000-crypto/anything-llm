@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "key-custody",
+  "name": "Key Custody",
+  "version": "1.1.0",
+  "kind": "security-service",
+  "owner": "security",
+  "criticality": "critical",
+  "runtimeRole": "key-custody",
+  "sourcePaths": ["server/key-custody.js", "server/utils/security/keyCustody/", "server/utils/security/keyLifecycle.js"],
+  "capabilities": ["remote-wrap", "remote-unwrap", "rotation", "quarantine", "crypto-suite-registry"],
+  "routes": { "public": [], "internal": ["/internal/v1/keys/wrap", "/internal/v1/keys/unwrap", "/internal/v1/keys/status"] },
+  "rpc": { "provides": ["key-custody.wrap", "key-custody.unwrap"], "consumes": [] },
+  "events": { "publishes": ["key-custody.rotation.*", "key-custody.quarantine.*"], "subscribes": [] },
+  "data": { "schemas": ["key_custody"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/key-custody",
+    "keyDomains": ["platform", "audit", "data", "file", "agent"],
+    "allowedCallers": ["authentication", "athena-api", "chat-runtime", "agent-runtime", "crypto-account-access"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 10000
+  },
+  "deployment": {
+    "image": "athena/key-custody",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 0
+  },
+  "dependsOn": ["infra:postgresql"]
+}

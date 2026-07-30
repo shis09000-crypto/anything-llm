@@ -70,7 +70,17 @@ final class NativeBootstrapClient {
             return true
         }
         if case APIClientError.httpStatus(let status, _, _) = error {
-            return status == 404
+            return status == 404 || [502, 503, 504].contains(status)
+        }
+        if let urlError = error as? URLError {
+            return [
+                .timedOut,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .networkConnectionLost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+            ].contains(urlError.code)
         }
         return false
     }

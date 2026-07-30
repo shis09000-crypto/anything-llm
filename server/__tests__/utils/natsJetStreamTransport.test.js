@@ -17,6 +17,7 @@ const {
 describe("NATS JetStream transport metadata", () => {
   const previousAppEnv = process.env.APP_ENV;
   const previousNodeEnv = process.env.NODE_ENV;
+  const previousSubjectKeyFile = process.env.ATHENA_NATS_SUBJECT_KEY_FILE;
 
   beforeAll(() => {
     process.env.APP_ENV = "development";
@@ -28,6 +29,9 @@ describe("NATS JetStream transport metadata", () => {
     else process.env.APP_ENV = previousAppEnv;
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = previousNodeEnv;
+    if (previousSubjectKeyFile === undefined)
+      delete process.env.ATHENA_NATS_SUBJECT_KEY_FILE;
+    else process.env.ATHENA_NATS_SUBJECT_KEY_FILE = previousSubjectKeyFile;
   });
 
   it("keeps user and workspace identifiers out of subjects", () => {
@@ -54,6 +58,46 @@ describe("NATS JetStream transport metadata", () => {
       servers: ["nats://a:4222", "nats://b:4222"],
       consumer: "gateway-blue",
     });
+  });
+
+  it("uses a dedicated irreversible subject key after remote custody cutover", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "athena-nats-subject-")
+    );
+    const keyFile = path.join(directory, "subject-key");
+    try {
+      fs.writeFileSync(keyFile, "11".repeat(32), { mode: 0o600 });
+      process.env.ATHENA_NATS_SUBJECT_KEY_FILE = keyFile;
+      const event = {
+        namespace: "workspace",
+        visibility: "workspace",
+        scope: { userId: 77, workspaceId: 88, threadId: 99 },
+      };
+      const first = irreversibleScope(event);
+      const second = irreversibleScope(event);
+      const differentScope = irreversibleScope({
+        ...event,
+        scope: { ...event.scope, userId: 78 },
+      });
+      expect(first).toBe(second);
+      expect(first).toMatch(/^[a-f0-9]{32}$/);
+      expect(differentScope).not.toBe(first);
+    } finally {
+      delete process.env.ATHENA_NATS_SUBJECT_KEY_FILE;
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("requires a dedicated subject key when remote custody is authoritative", () => {
+    const findings = natsSecurityFindings({
+      NODE_ENV: "production",
+      ATHENA_BROADCAST_TRANSPORT: "nats",
+      ATHENA_NATS_SERVERS: "tls://nats.internal:4222",
+      ATHENA_KEY_CUSTODY_CUTOVER: "true",
+    });
+    expect(findings).toContain(
+      "Remote Key Custody requires ATHENA_NATS_SUBJECT_KEY_FILE for irreversible NATS subject scoping."
+    );
   });
 
   it("fails closed on production plaintext or shared credentials", () => {

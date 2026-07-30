@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "knowledge-ingest",
+  "name": "Knowledge Ingest",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "knowledge",
+  "criticality": "high",
+  "runtimeRole": "knowledge-ingest",
+  "sourcePaths": ["server/utils/DocumentEmbeddingBatch/", "server/services/documentVectorConsistencyService.js"],
+  "capabilities": ["parse", "chunk", "embed", "index"],
+  "routes": { "public": ["/api/document/"], "internal": ["/internal/v1/knowledge/ingest"] },
+  "rpc": { "provides": ["knowledge.ingest"], "consumes": ["collector.parse", "reader.process"] },
+  "events": { "publishes": ["knowledge.index.*"], "subscribes": ["reader.job.*"] },
+  "data": { "schemas": ["knowledge_ingest"], "objectPrefixes": ["knowledge/documents", "knowledge/previews"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/knowledge-ingest",
+    "keyDomains": ["file"],
+    "allowedCallers": ["athena-api", "background-worker"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/knowledge-ingest",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["collector", "reader-worker", "rag", "infra:postgresql", "infra:object-store", "infra:nats"]
+}

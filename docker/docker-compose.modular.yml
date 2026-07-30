@@ -1,5 +1,10 @@
 name: anythingllm-modular
 
+x-operations-url: &operations-url https://anything-llm-operations-plane:3015
+x-runtime-env-file: &runtime-env-file ${ATHENA_RUNTIME_ENV_FILE:-.env}
+x-runtime-env-volume: &runtime-env-volume ${ATHENA_RUNTIME_ENV_FILE:-./.env}:/app/server/.env
+x-runtime-env-volume-ro: &runtime-env-volume-ro ${ATHENA_RUNTIME_ENV_FILE:-./.env}:/app/server/.env:ro
+
 networks:
   anything-llm:
     driver: bridge
@@ -22,22 +27,25 @@ services:
     security_opt:
       - no-new-privileges:true
     volumes:
-      - "./.env:/app/server/.env"
+      - *runtime-env-volume
       - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
       - "../server/storage:/app/server/storage"
       - "../collector/hotdir/:/app/collector/hotdir"
       - "../collector/outputs/:/app/collector/outputs"
     user: "${UID:-1000}:${GID:-1000}"
     ports:
-      - "3001:3001"
+      - "${ATHENA_API_BIND_ADDRESS:-0.0.0.0}:3001:3001"
     env_file:
-      - .env
+      - *runtime-env-file
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: api
       ATHENA_API_ONLY: "true"
       ATHENA_COLLECTOR_INLINE: "false"
       ATHENA_BACKGROUND_INLINE: "false"
+      ATHENA_OPERATIONS_PLANE_INLINE: "false"
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
     networks:
       - anything-llm
@@ -53,11 +61,16 @@ services:
     depends_on:
       - anything-llm-api
     ports:
-      - "3000:3000"
+      - "${ATHENA_WEB_BIND_ADDRESS:-0.0.0.0}:3000:3000"
     environment:
       ATHENA_WEB_PORT: 3000
       ATHENA_API_UPSTREAM: http://anything-llm-api:3001
       ATHENA_REALTIME_UPSTREAM: ${ATHENA_REALTIME_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_CHAT_UPSTREAM: ${ATHENA_CHAT_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_AGENT_UPSTREAM: ${ATHENA_AGENT_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_TOOL_UPSTREAM: ${ATHENA_TOOL_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_CRYPTO_ACCOUNT_UPSTREAM: ${ATHENA_CRYPTO_ACCOUNT_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_CRYPTO_FORECAST_UPSTREAM: ${ATHENA_CRYPTO_FORECAST_UPSTREAM:-http://anything-llm-api:3001}
     networks:
       - anything-llm
 
@@ -73,15 +86,17 @@ services:
     profiles:
       - realtime-gateway
     volumes:
-      - "./.env:/app/server/.env"
+      - *runtime-env-volume
       - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
       - "../server/storage:/app/server/storage"
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - .env
+      - *runtime-env-file
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: realtime-gateway
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       REALTIME_GATEWAY_PORT: 3013
       ATHENA_BROADCAST_TRANSPORT: ${ATHENA_BROADCAST_TRANSPORT:-memory}
     networks:
@@ -99,15 +114,17 @@ services:
     profiles:
       - reader-worker
     volumes:
-      - "./.env:/app/server/.env"
+      - *runtime-env-volume
       - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
       - "../server/storage:/app/server/storage"
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - .env
+      - *runtime-env-file
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: reader-worker
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       READER_WORKER_PORT: 3011
     networks:
       - anything-llm
@@ -124,20 +141,288 @@ services:
     depends_on:
       - anything-llm-collector
     volumes:
-      - "./.env:/app/server/.env"
+      - *runtime-env-volume
       - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
       - "../server/storage:/app/server/storage"
       - "../collector/hotdir/:/app/collector/hotdir"
       - "../collector/outputs/:/app/collector/outputs"
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
-      - .env
+      - *runtime-env-file
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: background-worker
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_BACKGROUND_INLINE: "false"
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
       BACKGROUND_WORKER_PORT: 3012
+    networks:
+      - anything-llm
+
+  anything-llm-scheduler:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: scheduler-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - scheduler
+    volumes:
+      - *runtime-env-volume
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "../server/storage:/app/server/storage"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: scheduler
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      SCHEDULER_PORT: 3014
+    networks:
+      - anything-llm
+
+  anything-llm-operations-plane:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: operations-plane-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - operations-plane
+    volumes:
+      - *runtime-env-volume
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "../server/storage:/app/server/storage"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: operations-plane
+      OPERATIONS_PLANE_PORT: 3015
+      ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
+        {"chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","scheduler":"https://anything-llm-scheduler:3014"}
+    networks:
+      - anything-llm
+
+  anything-llm-chat-runtime:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: chat-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: chat-runtime
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      CHAT_RUNTIME_PORT: 3016
+    networks:
+      - anything-llm
+
+  anything-llm-agent-runtime:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: agent-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: agent-runtime
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      AGENT_RUNTIME_PORT: 3017
+    networks:
+      - anything-llm
+
+  anything-llm-model-gateway:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: model-gateway-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: model-gateway
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      MODEL_GATEWAY_PORT: 3018
+    networks:
+      - anything-llm
+
+  anything-llm-tool-broker:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: tool-broker-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - tool-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "${ATHENA_PLUGIN_CAPABILITY_HOST_DIR:?required}:/run/secrets/athena-capability:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: tool-broker
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      TOOL_BROKER_PORT: 3019
+      ATHENA_CRYPTO_ACCOUNT_URL: https://anything-llm-crypto-account:3021
+    networks:
+      - anything-llm
+
+  anything-llm-crypto-market:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: crypto-market-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - crypto-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_RUNTIME_ROLE: crypto-market
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      CRYPTO_MARKET_PORT: 3020
+    networks:
+      - anything-llm
+
+  anything-llm-crypto-account:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: crypto-account-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - crypto-runtimes
+    depends_on:
+      anything-llm-key-custody:
+        condition: service_healthy
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "${ATHENA_PLUGIN_CAPABILITY_HOST_DIR:?required}:/run/secrets/athena-capability:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: crypto-account
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      ENCRYPTION_MASTER_KEY: ""
+      ATHENA_MASTER_KEY_FILE: ""
+      ATHENA_KEY_LEASE_FILE: ""
+      CRYPTO_ACCOUNT_PORT: 3021
+    networks:
+      - anything-llm
+
+  anything-llm-crypto-forecast:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: crypto-forecast-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - crypto-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: crypto-forecast
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      CRYPTO_FORECAST_PORT: 3022
+    networks:
+      - anything-llm
+
+  anything-llm-key-custody:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: key-custody-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - security-control
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "${ATHENA_KEY_LEASE_HOST_FILE:?required}:/run/secrets/athena-key-custody/key-lease.json:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: key-custody
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_KEY_PROVIDER: external-lease
+      ATHENA_KEY_LEASE_FILE: /run/secrets/athena-key-custody/key-lease.json
+      ATHENA_KEY_CUSTODY_CUTOVER: "false"
+      KEY_CUSTODY_PORT: 3023
     networks:
       - anything-llm
 

@@ -172,15 +172,8 @@ function riskLevel({ markPrice, liquidationPrice, side, leverage: lever }) {
   return "safe";
 }
 
-function liquidationRiskFromLegacyRisk(risk) {
-  if (risk === "danger") return "critical";
-  if (risk === "watch") return "danger";
-  return "safe";
-}
-
-function liquidationRiskLevelFromDistance(distancePct, fallbackRiskLevel) {
-  if (distancePct === null)
-    return liquidationRiskFromLegacyRisk(fallbackRiskLevel);
+function liquidationRiskLevelFromDistance(distancePct) {
+  if (distancePct === null) return "unavailable";
 
   const distance = numberValue(distancePct);
   if (distance >= 15) return "safe";
@@ -196,7 +189,14 @@ function liquidationDistancePct({ markPrice, liquidationPrice }) {
 
   const mark = numberValue(markPrice, NaN);
   const liq = numberValue(liquidationPrice, NaN);
-  if (!Number.isFinite(mark) || mark <= 0 || !Number.isFinite(liq)) return null;
+  if (
+    !Number.isFinite(mark) ||
+    mark <= 0 ||
+    !Number.isFinite(liq) ||
+    liq <= 0
+  ) {
+    return null;
+  }
 
   return decimalString((Math.abs(mark - liq) / mark) * 100, 2);
 }
@@ -225,6 +225,10 @@ function positionMarginUsd(raw, { valueUsd, entryPrice, markPrice, lever }) {
   ]);
   if (mode === "isolated" && explicitMargin > 0) return explicitMargin;
 
+  const initialMargin = firstPositiveNumber(raw, ["initial_margin"]);
+  if (initialMargin > 0) return initialMargin;
+  if (mode === "cross") return 0;
+
   const mark = numberValue(markPrice);
   const entry = numberValue(entryPrice);
   const value = Math.abs(numberValue(valueUsd));
@@ -238,8 +242,6 @@ function positionMarginUsd(raw, { valueUsd, entryPrice, markPrice, lever }) {
       : 0;
   if (formulaMargin > 0) return formulaMargin;
 
-  const initialMargin = firstPositiveNumber(raw, ["initial_margin"]);
-  if (initialMargin > 0) return initialMargin;
   if (value > 0) return value / leverageValue;
   return explicitMargin;
 }
@@ -260,15 +262,18 @@ function normalizePosition(raw) {
     numberValue(firstPresent(raw, ["value", "notional", "notional_usd"]))
   );
   const entryPrice = firstPresent(raw, ["entry_price", "entryPrice"], "0");
-  const liquidationPrice = firstPresent(
+  const rawLiquidationPrice = firstPresent(
     raw,
     ["liq_price", "liquidation_price", "liquidationPrice"],
     null
   );
+  const liquidationPrice =
+    numberValue(rawLiquidationPrice, NaN) > 0 ? rawLiquidationPrice : null;
   const unrealizedPnlUsd = numberValue(
     firstPresent(raw, ["unrealised_pnl", "unrealized_pnl", "unrealizedPnl"])
   );
   const lever = leverage(raw);
+  const positionMarginMode = marginMode(raw);
   const marginUsd = positionMarginUsd(raw, {
     valueUsd,
     entryPrice,
@@ -286,6 +291,17 @@ function normalizePosition(raw) {
     liquidationPrice,
   });
 
+  const rawContractSize = numberValue(
+    firstPresent(raw, ["size", "position_size"])
+  );
+  const configuredLeverage = lever;
+  const effectiveLeverage =
+    positionMarginMode === "isolated" ? configuredLeverage : null;
+  const initialMarginUsd = firstPositiveNumber(raw, ["initial_margin"]);
+  const maintenanceMarginUsd = firstPositiveNumber(raw, [
+    "maintenance_margin",
+  ]);
+
   return {
     id,
     symbol: compactSymbol(contract),
@@ -293,8 +309,16 @@ function normalizePosition(raw) {
     quoteAsset: quoteAsset === "USDT" ? "USD" : quoteAsset,
     contractType: contractType(raw),
     side,
-    leverage: lever,
-    marginMode: marginMode(raw),
+    leverage: configuredLeverage,
+    configuredLeverage,
+    effectiveLeverage,
+    leverageScope:
+      positionMarginMode === "cross"
+        ? "configured_position_leverage_not_effective_account_leverage"
+        : "isolated_position_leverage",
+    marginMode: positionMarginMode,
+    contractSize: trimDecimal(rawContractSize, 8),
+    contractSizeUnit: "contracts",
     quantity: quantityFromPosition({
       rawSize,
       valueUsd,
@@ -306,25 +330,48 @@ function normalizePosition(raw) {
       valueUsd,
       markPrice,
     }),
+    quantitySemantics: "mark_price_base_equivalent",
+    baseEquivalentAmount: quantityAmountFromPosition({
+      rawSize,
+      valueUsd,
+      markPrice,
+    }),
     notionalUsd: decimalString(valueUsd, 2),
     positionValueUsd: decimalString(valueUsd, 2),
     entryPrice: decimalString(entryPrice, 8),
     markPrice: decimalString(markPrice, 8),
     liquidationPrice:
       liquidationPrice === null ? null : decimalString(liquidationPrice, 8),
+    liquidationPriceReferenceOnly: liquidationPrice !== null,
     liquidationDistancePct: liquidationDistance,
-    liquidationRiskLevel: liquidationRiskLevelFromDistance(
-      liquidationDistance,
-      legacyRiskLevel
-    ),
+    liquidationRiskLevel:
+      liquidationRiskLevelFromDistance(liquidationDistance),
+    initialMarginUsd:
+      initialMarginUsd > 0 ? decimalString(initialMarginUsd, 2) : null,
+    maintenanceMarginUsd:
+      maintenanceMarginUsd > 0
+        ? decimalString(maintenanceMarginUsd, 2)
+        : null,
     marginUsd: decimalString(marginUsd, 2),
+    marginSemantics:
+      positionMarginMode === "cross"
+        ? "gate_position_initial_margin_reference_not_additive"
+        : "isolated_position_margin",
     fundingFeeUsd: null,
     unrealizedPnlUsd: decimalString(unrealizedPnlUsd, 2),
     pnlPct:
-      marginUsd > 0
+      positionMarginMode === "isolated" && marginUsd > 0
         ? decimalString((unrealizedPnlUsd / marginUsd) * 100, 2)
-        : "0.00",
-    riskLevel: legacyRiskLevel,
+        : null,
+    pnlPctUnavailableReason:
+      positionMarginMode === "cross"
+        ? "cross_margin_shared_collateral"
+        : null,
+    riskLevel: liquidationDistance === null ? "unavailable" : legacyRiskLevel,
+    riskAssessment:
+      liquidationDistance === null
+        ? "unavailable"
+        : "liquidation_price_reference_only",
     iconUrl: `/crypto-icons/${baseAsset.toLowerCase()}.png`,
   };
 }
@@ -338,26 +385,93 @@ function sortPositions(positions) {
 }
 
 function summarizePositions(positions, account = null) {
-  const totalUnrealizedPnlUsd = positions.reduce(
+  const summedUnrealizedPnlUsd = positions.reduce(
     (sum, position) => sum + numberValue(position.unrealizedPnlUsd),
     0
   );
-  const totalMarginUsd = positions.reduce(
+  const summedPositionMarginUsd = positions.reduce(
     (sum, position) => sum + numberValue(position.marginUsd),
     0
   );
-  const equity = numberValue(accountEquityUsd(account));
+  const totalNotionalUsd = positions.reduce(
+    (sum, position) => sum + numberValue(position.notionalUsd),
+    0
+  );
+  const rawAccountUnrealizedPnl = firstPresent(
+    account,
+    ["cross_unrealised_pnl", "unrealised_pnl"],
+    null
+  );
+  const accountUnrealizedPnlUsd =
+    rawAccountUnrealizedPnl === null
+      ? NaN
+      : numberValue(rawAccountUnrealizedPnl, NaN);
+  const totalUnrealizedPnlUsd = Number.isFinite(accountUnrealizedPnlUsd)
+    ? accountUnrealizedPnlUsd
+    : summedUnrealizedPnlUsd;
+  const accountInitialMarginUsd = firstPositiveNumber(account, [
+    "cross_initial_margin",
+    "position_initial_margin",
+  ]);
+  const accountMaintenanceMarginUsd = firstPositiveNumber(account, [
+    "cross_maintenance_margin",
+    "maintenance_margin",
+  ]);
+  const accountOrderMarginUsd = firstPositiveNumber(account, [
+    "cross_order_margin",
+    "order_margin",
+  ]);
+  const crossAvailableUsd = firstPositiveNumber(account, ["cross_available"]);
+  const totalMarginUsd =
+    accountInitialMarginUsd > 0
+      ? accountInitialMarginUsd
+      : summedPositionMarginUsd;
+  const legacyEquity = numberValue(accountEquityUsd(account));
+  const hasCrossPosition = positions.some(
+    (position) => position.marginMode === "cross"
+  );
+  const initialMarginToAvailablePct =
+    crossAvailableUsd > 0
+      ? decimalString((totalMarginUsd / crossAvailableUsd) * 100, 2)
+      : null;
 
   return {
     totalUnrealizedPnlUsd: decimalString(totalUnrealizedPnlUsd, 2),
     weightedPnlPct:
-      totalMarginUsd > 0
+      !hasCrossPosition && totalMarginUsd > 0
         ? decimalString((totalUnrealizedPnlUsd / totalMarginUsd) * 100, 2)
-        : "0.00",
+        : null,
+    weightedPnlPctUnavailableReason: hasCrossPosition
+      ? "cross_margin_shared_collateral"
+      : null,
+    totalNotionalUsd: decimalString(totalNotionalUsd, 2),
+    accountInitialMarginUsd: decimalString(totalMarginUsd, 2),
+    accountMaintenanceMarginUsd: decimalString(
+      accountMaintenanceMarginUsd,
+      2
+    ),
+    accountOrderMarginUsd: decimalString(accountOrderMarginUsd, 2),
+    crossAvailableUsd: decimalString(crossAvailableUsd, 2),
+    initialMarginToCrossAvailablePct: initialMarginToAvailablePct,
+    marginMode: hasCrossPosition ? "cross" : "isolated",
+    riskAssessment:
+      hasCrossPosition && !account?.cross_margin_balance
+        ? "insufficient_fields_for_account_liquidation_safety"
+        : "reference_only",
     totalMarginUsd: decimalString(totalMarginUsd, 2),
-    accountEquityUsd: decimalString(equity, 2),
-    marginRatioPct:
-      equity > 0 ? decimalString((totalMarginUsd / equity) * 100, 2) : "0.00",
+    totalMarginSemantics: accountInitialMarginUsd
+      ? "gate_account_initial_margin"
+      : "summed_position_margin_fallback",
+    accountEquityUsd: decimalString(legacyEquity, 2),
+    accountEquitySemantics:
+      crossAvailableUsd > 0
+        ? "legacy_alias_of_cross_available_not_total_equity"
+        : "legacy_fallback_estimate",
+    marginRatioPct: initialMarginToAvailablePct,
+    marginRatioSemantics:
+      initialMarginToAvailablePct === null
+        ? "unavailable"
+        : "initial_margin_divided_by_cross_available_not_liquidation_safety",
   };
 }
 

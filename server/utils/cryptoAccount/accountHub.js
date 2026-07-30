@@ -29,6 +29,66 @@ function normalizeSymbol(value = null) {
   return symbol || null;
 }
 
+function accountToolAllocationItem(item = {}) {
+  return {
+    symbol: item.symbol,
+    percentageOfCombinedHoldings: item.percentage,
+    totalAmount: item.totalAmount,
+    spotAmount: item.spotAmount,
+    earnAmount: item.earnAmount,
+    totalValueUsd: item.valueUsd,
+    spotValueUsd: item.spotValueUsd,
+    earnValueUsd: item.earnValueUsd,
+    holdingSources: item.holdingSources,
+    priceUsd: item.priceUsd,
+    change24hPct: item.change24hPct,
+  };
+}
+
+function accountToolPositionItem(position = {}) {
+  return {
+    symbol: position.symbol,
+    side: position.side,
+    marginMode: position.marginMode,
+    contractSize: position.contractSize,
+    contractSizeUnit: position.contractSizeUnit,
+    baseEquivalentAmount: position.baseEquivalentAmount,
+    baseEquivalentSemantics: position.quantitySemantics,
+    notionalUsd: position.notionalUsd,
+    entryPrice: position.entryPrice,
+    markPrice: position.markPrice,
+    configuredLeverage: position.configuredLeverage,
+    effectiveLeverage: position.effectiveLeverage,
+    leverageScope: position.leverageScope,
+    initialMarginUsd: position.initialMarginUsd,
+    maintenanceMarginUsd: position.maintenanceMarginUsd,
+    marginSemantics: position.marginSemantics,
+    unrealizedPnlUsd: position.unrealizedPnlUsd,
+    pnlPct: position.pnlPct,
+    pnlPctUnavailableReason: position.pnlPctUnavailableReason,
+    liquidationPrice: position.liquidationPrice,
+    liquidationPriceReferenceOnly: position.liquidationPriceReferenceOnly,
+    liquidationDistancePct: position.liquidationDistancePct,
+    riskAssessment: position.riskAssessment,
+  };
+}
+
+function accountToolPositionSummary(summary = {}) {
+  return {
+    marginMode: summary.marginMode,
+    totalUnrealizedPnlUsd: summary.totalUnrealizedPnlUsd,
+    totalNotionalUsd: summary.totalNotionalUsd,
+    accountInitialMarginUsd: summary.accountInitialMarginUsd,
+    accountMaintenanceMarginUsd: summary.accountMaintenanceMarginUsd,
+    accountOrderMarginUsd: summary.accountOrderMarginUsd,
+    crossAvailableUsd: summary.crossAvailableUsd,
+    initialMarginToCrossAvailablePct: summary.initialMarginToCrossAvailablePct,
+    weightedPnlPct: summary.weightedPnlPct,
+    weightedPnlPctUnavailableReason: summary.weightedPnlPctUnavailableReason,
+    riskAssessment: summary.riskAssessment,
+  };
+}
+
 class InMemoryCycleStore {
   constructor() {
     this.cycles = [];
@@ -121,13 +181,23 @@ class AccountCryptoHub {
         readOnly: true,
         totalEquityUsd: String(total),
         allocation: {
+          holdingScope: allocation.holdingScope,
           totalValueUsd: allocation.totalValueUsd,
+          combinedValueUsd: allocation.combinedValueUsd,
+          spotValueUsd: allocation.spotValueUsd,
+          earnValueUsd: allocation.earnValueUsd,
           items: allocation.items.slice(0, 6),
         },
         positions: {
           count: positions.positions.length,
           summary: positions.summary,
           items: positions.positions.slice(0, 6),
+        },
+        reportingGuidance: {
+          holdings:
+            "Allocation totalAmount/amount combines spotAmount and earnAmount. Report spot and earn separately; never label the combined quantity as spot holdings.",
+          futures:
+            "For cross-margin positions, configuredLeverage is not effective account leverage, per-position pnlPct is unavailable, position initial margins are not additive, and liquidation prices are reference-only. Use the account-level Gate margin fields and do not infer liquidation safety.",
         },
         connectionStatus:
           allocation.connectionStatus === "connected" &&
@@ -136,6 +206,25 @@ class AccountCryptoHub {
             : "degraded",
       };
     });
+  }
+
+  async toolOverview() {
+    const overview = await this.overview();
+    return {
+      ...overview,
+      allocation: {
+        holdingScope: overview.allocation.holdingScope,
+        combinedValueUsd: overview.allocation.combinedValueUsd,
+        spotValueUsd: overview.allocation.spotValueUsd,
+        earnValueUsd: overview.allocation.earnValueUsd,
+        items: overview.allocation.items.map(accountToolAllocationItem),
+      },
+      positions: {
+        count: overview.positions.count,
+        summary: accountToolPositionSummary(overview.positions.summary),
+        items: overview.positions.items.map(accountToolPositionItem),
+      },
+    };
   }
 
   async privateSnapshot() {
@@ -322,6 +411,8 @@ class AccountCryptoHub {
         ...snapshot,
         requestedSymbol: normalized,
         limit: bounded,
+        reportingGuidance:
+          "Each item exposes spotAmount, earnAmount, and totalAmount. Report the sources separately; totalAmount is spot plus earn and must not be described as spot-only.",
         items: items.slice(0, bounded),
       };
     });
@@ -343,9 +434,29 @@ class AccountCryptoHub {
         ...snapshot,
         requestedSymbol: normalized,
         limit: bounded,
+        reportingGuidance:
+          "For cross-margin positions, configuredLeverage is a position configuration value, not effective portfolio leverage. Per-position pnlPct is intentionally unavailable, Gate account initial/maintenance margin fields are authoritative, and liquidation prices are reference-only.",
         positions: positions.slice(0, bounded),
       };
     });
+  }
+
+  async toolOpenPositions(params = {}) {
+    const snapshot = await this.openPositions(params);
+    return {
+      success: snapshot.success,
+      asOf: snapshot.asOf,
+      exchange: snapshot.exchange,
+      marketType: snapshot.marketType,
+      settle: snapshot.settle,
+      requestedSymbol: snapshot.requestedSymbol,
+      limit: snapshot.limit,
+      connectionStatus: snapshot.connectionStatus,
+      partialFailures: snapshot.partialFailures,
+      summary: accountToolPositionSummary(snapshot.summary),
+      positions: snapshot.positions.map(accountToolPositionItem),
+      reportingGuidance: snapshot.reportingGuidance,
+    };
   }
 
   async activity({ days = 7, limit = 50, cursor = null, symbol = null } = {}) {
@@ -438,6 +549,11 @@ class AccountCryptoHubRegistry {
 
   size() {
     return this.hubs.size;
+  }
+
+  clear() {
+    for (const hub of this.hubs.values()) hub.clear();
+    this.hubs.clear();
   }
 }
 

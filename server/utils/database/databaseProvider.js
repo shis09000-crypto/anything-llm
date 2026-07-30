@@ -1,9 +1,47 @@
 const RUNTIME_ROLES = Object.freeze({
   api: "API",
   background: "BACKGROUND",
+  "background-worker": "BACKGROUND",
   reader: "READER",
+  "reader-worker": "READER",
   gateway: "GATEWAY",
+  "realtime-gateway": "GATEWAY",
   auth: "AUTH",
+  identity: "AUTH",
+  "key-custody": "CUSTODY",
+  "chat-runtime": "CHAT",
+  "agent-runtime": "AGENT",
+  "model-gateway": "MODEL",
+  "tool-broker": "TOOL",
+  "crypto-market": "CRYPTO_MARKET",
+  "crypto-account": "CRYPTO_ACCOUNT",
+  "crypto-forecast": "CRYPTO_FORECAST",
+  rag: "RAG",
+  "knowledge-ingest": "KNOWLEDGE",
+  scheduler: "SCHEDULER",
+  "operations-plane": "OPERATIONS",
+});
+
+const ROLE_DATABASE_URLS = Object.freeze({
+  identity: "ATHENA_IDENTITY_DATABASE_URL",
+  auth: "ATHENA_IDENTITY_DATABASE_URL",
+  "key-custody": "ATHENA_KEY_CUSTODY_DATABASE_URL",
+  "chat-runtime": "ATHENA_CHAT_DATABASE_URL",
+  "agent-runtime": "ATHENA_AGENT_DATABASE_URL",
+  "model-gateway": "ATHENA_MODEL_DATABASE_URL",
+  "tool-broker": "ATHENA_TOOL_DATABASE_URL",
+  "crypto-market": "ATHENA_CRYPTO_MARKET_DATABASE_URL",
+  "crypto-account": "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL",
+  "crypto-forecast": "ATHENA_CRYPTO_FORECAST_DATABASE_URL",
+  rag: "ATHENA_RAG_DATABASE_URL",
+  "knowledge-ingest": "ATHENA_INGEST_DATABASE_URL",
+  reader: "ATHENA_READER_DATABASE_URL",
+  "reader-worker": "ATHENA_READER_DATABASE_URL",
+  background: "ATHENA_BACKGROUND_DATABASE_URL",
+  "background-worker": "ATHENA_BACKGROUND_DATABASE_URL",
+  scheduler: "ATHENA_SCHEDULER_DATABASE_URL",
+  gateway: "ATHENA_SYNC_DATABASE_URL",
+  "realtime-gateway": "ATHENA_SYNC_DATABASE_URL",
 });
 
 function databaseProvider(env = process.env) {
@@ -44,9 +82,25 @@ function connectionBudget(env = process.env, role = poolRole(env)) {
   const defaults = {
     api: 10,
     background: 5,
+    "background-worker": 5,
     reader: 5,
+    "reader-worker": 5,
     gateway: 3,
+    "realtime-gateway": 3,
     auth: 5,
+    identity: 5,
+    "key-custody": 3,
+    "chat-runtime": 10,
+    "agent-runtime": 8,
+    "model-gateway": 3,
+    "tool-broker": 6,
+    "crypto-market": 4,
+    "crypto-account": 4,
+    "crypto-forecast": 3,
+    rag: 6,
+    "knowledge-ingest": 5,
+    scheduler: 4,
+    "operations-plane": 3,
   };
   return positiveInteger(
     env[`ATHENA_DB_POOL_SIZE_${RUNTIME_ROLES[role] || "API"}`],
@@ -80,23 +134,40 @@ function withPoolBudget(value, env = process.env, role = poolRole(env)) {
 }
 
 function mainPostgresqlUrl(env = process.env) {
+  const role = poolRole(env);
+  const roleSetting =
+    env.ATHENA_MODULE_SCHEMA_CUTOVER === "true"
+      ? ROLE_DATABASE_URLS[role]
+      : null;
   return withPoolBudget(
     requirePostgresqlUrl(
-      env.ATHENA_POSTGRES_MAIN_URL || env.DATABASE_URL,
+      (roleSetting ? env[roleSetting] : null) ||
+        (!roleSetting
+          ? env.ATHENA_POSTGRES_MAIN_URL || env.DATABASE_URL
+          : null),
       "main"
     ),
-    env
+    env,
+    role
   );
 }
 
 function authPostgresqlUrl(env = process.env) {
+  const role = poolRole(env, "auth");
+  const roleSetting =
+    env.ATHENA_MODULE_SCHEMA_CUTOVER === "true"
+      ? ROLE_DATABASE_URLS[role]
+      : null;
   return withPoolBudget(
     requirePostgresqlUrl(
-      env.ATHENA_POSTGRES_AUTH_URL || env.AUTH_DATABASE_URL,
+      (roleSetting ? env[roleSetting] : null) ||
+        (!roleSetting
+          ? env.ATHENA_POSTGRES_AUTH_URL || env.AUTH_DATABASE_URL
+          : null),
       "auth"
     ),
     env,
-    "auth"
+    role
   );
 }
 
@@ -126,5 +197,6 @@ module.exports = {
   mainPostgresqlUrl,
   migrationPostgresqlUrl,
   poolRole,
+  ROLE_DATABASE_URLS,
   withPoolBudget,
 };

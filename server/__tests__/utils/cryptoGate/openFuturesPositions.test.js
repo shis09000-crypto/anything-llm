@@ -80,7 +80,7 @@ describe("Gate open futures positions", () => {
     });
   });
 
-  test("falls back to legacy risk when liquidation distance cannot be calculated", () => {
+  test("marks liquidation risk unavailable when Gate omits a usable price", () => {
     const missingLiquidation = normalizePosition({
       contract: "BTC_USDT",
       size: "2",
@@ -104,18 +104,18 @@ describe("Gate open futures positions", () => {
     });
 
     expect(missingLiquidation).toMatchObject({
-      riskLevel: "watch",
+      riskLevel: "unavailable",
       liquidationDistancePct: null,
-      liquidationRiskLevel: "danger",
+      liquidationRiskLevel: "unavailable",
     });
     expect(invalidMark).toMatchObject({
-      riskLevel: "safe",
+      riskLevel: "unavailable",
       liquidationDistancePct: null,
-      liquidationRiskLevel: "safe",
+      liquidationRiskLevel: "unavailable",
     });
   });
 
-  test("uses Gate position margin for leveraged return percent in cross mode", () => {
+  test("uses Gate initial margin but withholds return percent in cross mode", () => {
     const short = normalizePosition({
       contract: "BTC_USDT",
       size: "-6947",
@@ -146,12 +146,40 @@ describe("Gate open futures positions", () => {
     });
 
     expect(short).toMatchObject({
-      marginUsd: "534.57",
-      pnlPct: "1284.72",
+      configuredLeverage: 100,
+      effectiveLeverage: null,
+      leverageScope:
+        "configured_position_leverage_not_effective_account_leverage",
+      marginUsd: "459.05",
+      pnlPct: null,
+      pnlPctUnavailableReason: "cross_margin_shared_collateral",
     });
     expect(long).toMatchObject({
-      marginUsd: "319.42",
-      pnlPct: "-2148.16",
+      marginUsd: "244.45",
+      pnlPct: null,
+    });
+  });
+
+  test("treats Gate liquidation price zero as unavailable", () => {
+    const position = normalizePosition({
+      contract: "ETH_USDT",
+      size: "223",
+      mode: "dual_long",
+      value: "4333.13",
+      initial_margin: "46.58",
+      mark_price: "1942.24",
+      liq_price: "0",
+      unrealised_pnl: "-892.57",
+      pos_margin_mode: "cross",
+      lever: "100",
+    });
+
+    expect(position).toMatchObject({
+      liquidationPrice: null,
+      liquidationDistancePct: null,
+      liquidationRiskLevel: "unavailable",
+      riskLevel: "unavailable",
+      riskAssessment: "unavailable",
     });
   });
 
@@ -227,12 +255,70 @@ describe("Gate open futures positions", () => {
       }),
     ];
 
-    expect(summarizePositions(positions, { cross_available: "2000" })).toEqual({
+    expect(
+      summarizePositions(positions, { cross_available: "2000" })
+    ).toMatchObject({
       totalUnrealizedPnlUsd: "30.00",
       weightedPnlPct: "20.00",
+      totalNotionalUsd: "1500.00",
+      accountInitialMarginUsd: "150.00",
+      crossAvailableUsd: "2000.00",
+      initialMarginToCrossAvailablePct: "7.50",
       totalMarginUsd: "150.00",
       accountEquityUsd: "2000.00",
       marginRatioPct: "7.50",
+    });
+  });
+
+  test("uses Gate account-level cross margins instead of summing position references", () => {
+    const positions = [
+      normalizePosition({
+        contract: "BTC_USDT",
+        size: "3702",
+        mode: "dual_long",
+        value: "23997.22",
+        initial_margin: "257.97",
+        maintenance_margin: "114.00",
+        mark_price: "64822.32",
+        unrealised_pnl: "-5604.22",
+        pos_margin_mode: "cross",
+        lever: "100",
+      }),
+      normalizePosition({
+        contract: "BTC_USDT",
+        size: "-5743",
+        mode: "dual_short",
+        value: "37227.46",
+        initial_margin: "400.47",
+        maintenance_margin: "177.00",
+        mark_price: "64822.32",
+        unrealised_pnl: "3423.76",
+        pos_margin_mode: "cross",
+        lever: "100",
+      }),
+    ];
+
+    expect(
+      summarizePositions(positions, {
+        cross_available: "50860.39",
+        cross_initial_margin: "465.05",
+        cross_maintenance_margin: "211.08",
+        cross_unrealised_pnl: "-3073.04",
+      })
+    ).toMatchObject({
+      totalUnrealizedPnlUsd: "-3073.04",
+      weightedPnlPct: null,
+      weightedPnlPctUnavailableReason: "cross_margin_shared_collateral",
+      accountInitialMarginUsd: "465.05",
+      accountMaintenanceMarginUsd: "211.08",
+      crossAvailableUsd: "50860.39",
+      initialMarginToCrossAvailablePct: "0.91",
+      totalMarginUsd: "465.05",
+      totalMarginSemantics: "gate_account_initial_margin",
+      accountEquitySemantics:
+        "legacy_alias_of_cross_available_not_total_equity",
+      marginRatioSemantics:
+        "initial_margin_divided_by_cross_available_not_liquidation_safety",
     });
   });
 

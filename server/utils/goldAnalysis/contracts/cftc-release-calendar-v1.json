@@ -1,0 +1,134 @@
+{
+  "schema": "athena.gold.cftc-release-calendar",
+  "schemaVersion": "1.0",
+  "calendarVersion": "cftc-release-calendar-v1",
+  "timezone": "America/New_York",
+  "releaseTime": "15:30",
+  "fallbackPolicy": "next_friday_estimated",
+  "citations": {
+    "releaseSchedule": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/ReleaseSchedule/index.htm",
+    "specialAnnouncements": "https://www.cftc.gov/MarketReports/CommitmentsofTraders/HistoricalSpecialAnnouncements/index.htm"
+  },
+  "releases": {
+    "2025-01-07": {
+      "releaseDate": "2025-01-13",
+      "availabilityQuality": "exact",
+      "reason": "national_day_of_mourning",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-09-30": {
+      "releaseDate": "2025-11-19",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-10-07": {
+      "releaseDate": "2025-11-21",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-10-14": {
+      "releaseDate": "2025-11-25",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-10-21": {
+      "releaseDate": "2025-12-02",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-10-28": {
+      "releaseDate": "2025-12-05",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-11-04": {
+      "releaseDate": "2025-12-09",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-11-10": {
+      "releaseDate": "2025-12-10",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-11-18": {
+      "releaseDate": "2025-12-12",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-11-25": {
+      "releaseDate": "2025-12-15",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-12-02": {
+      "releaseDate": "2025-12-17",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-12-09": {
+      "releaseDate": "2025-12-19",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-12-16": {
+      "releaseDate": "2025-12-23",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-12-23": {
+      "releaseDate": "2025-12-29",
+      "availabilityQuality": "exact",
+      "reason": "appropriations_lapse_catch_up",
+      "evidence": "specialAnnouncements"
+    },
+    "2025-12-30": {
+      "releaseDate": "2026-01-05",
+      "availabilityQuality": "official_schedule",
+      "reason": "federal_holiday_delay",
+      "evidence": "releaseSchedule"
+    },
+    "2026-06-16": {
+      "releaseDate": "2026-06-22",
+      "availabilityQuality": "official_schedule",
+      "reason": "federal_holiday_delay",
+      "evidence": "releaseSchedule"
+    },
+    "2026-06-30": {
+      "releaseDate": "2026-07-06",
+      "availabilityQuality": "official_schedule",
+      "reason": "federal_holiday_delay",
+      "evidence": "releaseSchedule"
+    },
+    "2026-11-10": {
+      "releaseDate": "2026-11-16",
+      "availabilityQuality": "official_schedule",
+      "reason": "federal_holiday_delay",
+      "evidence": "releaseSchedule"
+    },
+    "2026-11-24": {
+      "releaseDate": "2026-11-30",
+      "availabilityQuality": "official_schedule",
+      "reason": "federal_holiday_delay",
+      "evidence": "releaseSchedule"
+    },
+    "2026-12-22": {
+      "releaseDate": "2026-12-28",
+      "availabilityQuality": "official_schedule",
+      "reason": "federal_holiday_delay",
+      "evidence": "releaseSchedule"
+    }
+  }
+}

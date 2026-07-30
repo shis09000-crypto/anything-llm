@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "crypto-market",
+  "name": "Crypto Market Service",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "market-intelligence",
+  "criticality": "medium",
+  "runtimeRole": "crypto-market",
+  "sourcePaths": ["server/utils/cryptoGate/publicMarketClient.js", "server/utils/cryptoGate/marketCandles.js", "server/utils/cryptoHub/"],
+  "capabilities": ["public-market", "candles", "market-streams", "shared-cache"],
+  "routes": { "public": ["/api/crypto/market/"], "internal": ["/internal/v1/crypto/market"] },
+  "rpc": { "provides": ["crypto.market"], "consumes": [] },
+  "events": { "publishes": ["crypto.market.*"], "subscribes": [] },
+  "data": { "schemas": ["crypto_market"], "objectPrefixes": ["crypto/market"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/crypto-market",
+    "keyDomains": [],
+    "allowedCallers": ["edge-web", "athena-api", "tool-runtime", "crypto-forecast"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 60000
+  },
+  "deployment": {
+    "image": "athena/crypto-market",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["infra:nats"]
+}

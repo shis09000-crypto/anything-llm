@@ -6,6 +6,8 @@ require("dotenv").config({ path: envPath });
 
 const cors = require("cors");
 const express = require("express");
+const http = require("http");
+const https = require("https");
 
 const { applyEnvironmentStorage } = require("./utils/environment");
 applyEnvironmentStorage();
@@ -46,13 +48,29 @@ const {
   observabilityContextMiddleware,
 } = require("./utils/observability/context");
 const { metricsEndpoint } = require("./utils/observability/metrics");
+const { distributedTopology } = require("./utils/microModules/serviceHost");
+const { loadServiceIdentity } = require("./utils/security/serviceIdentity");
 
 const app = express();
 const runtime = new RealtimeGatewayRuntime();
-let server = null;
 let stopping = false;
-
-require("@mintplex-labs/express-ws").default(app);
+const identity = loadServiceIdentity("realtime-gateway", {
+  required: distributedTopology(process.env),
+});
+const server = identity
+  ? https.createServer(
+      {
+        ca: identity.ca,
+        cert: identity.cert,
+        key: identity.key,
+        minVersion: "TLSv1.3",
+        requestCert: true,
+        rejectUnauthorized: false,
+      },
+      app
+    )
+  : http.createServer(app);
+require("@mintplex-labs/express-ws").default(app, server);
 
 app.use((_request, response, next) => {
   setBrowserSecurityHeaders(response);
@@ -80,11 +98,11 @@ apiRouter.use(quarantineMiddleware);
 syncCenterEndpoints(apiRouter);
 
 app.get("/health", (_request, response) => {
-  const ready = runtime.status === "running";
+  const snapshot = runtime.snapshot();
+  const ready = snapshot.ready;
   response.status(ready ? 200 : 503).json({
     success: ready,
-    role: "realtime-gateway",
-    status: runtime.status,
+    ...snapshot,
   });
 });
 
@@ -122,7 +140,7 @@ bootstrapSecurityContext({ runtimeRole: "realtime-gateway" })
       await DataAccessCenter.runtimeLifecycle.databaseReadiness();
       await runtime.start();
     } else runtime.fail(new Error("key_custody_quarantined"));
-    server = app.listen(port, () => {
+    server.listen(port, () => {
       console.log(`[RealtimeGateway] listening on ${port}`);
     });
   })

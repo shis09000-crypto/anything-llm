@@ -3,28 +3,11 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { DataAccessCenter } = require("../utils/dataAccess");
-const {
-  agentDefinitions,
-  agentRegistrySnapshot,
-} = require("../utils/operations/agentRegistry");
 const {
   getSchema,
   schemaManifest,
 } = require("../utils/operations/schemaRegistry");
-const { serviceCatalog } = require("../utils/operations/serviceCatalog");
-const {
-  buildStateGraph,
-  explainEvent,
-} = require("../utils/operations/stateGraph");
-const { operationsPlane } = require("../utils/operations/operationsPlane");
-const {
-  operationsShadowRuntime,
-} = require("../utils/operations/shadowAgents/runtime");
-const {
-  operationsActionOrchestrator,
-  operationsActionRuntime,
-} = require("../utils/operations/actions/orchestrator");
+const { operationsAccess } = require("../utils/operations/access");
 const { emitSemanticEvent } = require("../utils/observability/semanticEvents");
 const { metrics } = require("../utils/observability/metrics");
 
@@ -74,6 +57,18 @@ const CHAT_CLIENT_OUTCOMES = new Set([
   "stalled",
   "recovered",
   "failed",
+]);
+const CLIENT_UI_EVENT_TYPES = new Set([
+  "overview_preempted",
+  "overview_recovered",
+  "overview_failed",
+]);
+const CLIENT_UI_SURFACES = new Set(["workspace_overview"]);
+const CLIENT_UI_REASONS = new Set([
+  "scheduler_abort",
+  "http_error",
+  "network_error",
+  "unknown",
 ]);
 
 function boundedChatClientValue(value, fallback, allowed) {
@@ -254,6 +249,107 @@ function recordChatClientObservation(request, response, input = {}) {
   return true;
 }
 
+function recordClientUiObservation(request, response, input = {}) {
+  const event = boundedChatClientValue(
+    input.event,
+    null,
+    CLIENT_UI_EVENT_TYPES
+  );
+  if (!event) return false;
+  const surface = boundedChatClientValue(
+    input.surface,
+    "workspace_overview",
+    CLIENT_UI_SURFACES
+  );
+  const platform = boundedChatClientValue(
+    input.platform,
+    "desktop_web",
+    CHAT_CLIENT_PLATFORMS
+  );
+  const visibility = boundedChatClientValue(
+    input.visibility,
+    "visible",
+    CHAT_CLIENT_VISIBILITY
+  );
+  const outcome = boundedChatClientValue(
+    input.outcome,
+    "observed",
+    CHAT_CLIENT_OUTCOMES
+  );
+  const reason = boundedChatClientValue(
+    input.reason,
+    "unknown",
+    CLIENT_UI_REASONS
+  );
+  const durationMs = finiteObservationDuration(input.durationMs);
+  const retryCount = Math.max(
+    0,
+    Math.min(Number.parseInt(String(input.retryCount || 0), 10) || 0, 20)
+  );
+  const requestId = String(input.requestId || "")
+    .trim()
+    .slice(0, 160);
+  const clientId = String(
+    request.headers?.["x-client-id"] ||
+      request.headers?.["x-athena-client-id"] ||
+      ""
+  )
+    .trim()
+    .slice(0, 160);
+
+  metrics.clientUiEvents.inc({
+    event,
+    surface,
+    platform,
+    visibility,
+    outcome,
+  });
+
+  const semanticTypes = {
+    overview_preempted: "navigation.client.overview_preempted",
+    overview_recovered: "navigation.client.overview_recovered",
+    overview_failed: "navigation.client.overview_failed",
+  };
+  emitSemanticEvent({
+    eventType: semanticTypes[event],
+    category: "navigation_client",
+    severity: event === "overview_failed" ? "warning" : "info",
+    outcome,
+    subject: {
+      type: "client_ui",
+      id: requestId || clientId || "unknown",
+      component: `${platform}:${surface}`,
+    },
+    actor: {
+      type: "client",
+      id: clientId || "unknown",
+    },
+    correlation: {
+      requestId,
+      clientId,
+    },
+    impact: {
+      userEffect: event,
+      scope: visibility,
+      status: outcome,
+    },
+    evidence: [
+      {
+        type: "metric",
+        metric: `duration_ms=${Math.round(durationMs)}`,
+      },
+    ],
+    metadata: {
+      durationMs: Math.round(durationMs),
+      errorCode: reason,
+      statusCode: String(retryCount),
+      platform: surface,
+    },
+    sensitivity: "metadata_only",
+  });
+  return true;
+}
+
 function boundedLimit(value, fallback = 100) {
   return Math.max(
     1,
@@ -343,14 +439,44 @@ function operationsEndpoints(app) {
       return response.status(202).json({ success: true, accepted });
     }
   );
+  app.post(
+    "/operations/client-ui-observations",
+    clientObservationGuards,
+    (request, response) => {
+      const entries = (
+        Array.isArray(request.body?.observations)
+          ? request.body.observations
+          : [request.body]
+      ).slice(0, 20);
+      if (!allowChatObservation(request, response, entries.length)) {
+        response.setHeader("Retry-After", "60");
+        return response.status(429).json({
+          success: false,
+          error: "client_ui_observation_rate_limited",
+        });
+      }
+      const accepted = entries.reduce(
+        (count, entry) =>
+          count + (recordClientUiObservation(request, response, entry) ? 1 : 0),
+        0
+      );
+      return response.status(202).json({ success: true, accepted });
+    }
+  );
 
-  app.get("/operations/health", guards, (_request, response) => {
-    response.status(200).json({
-      success: true,
-      ...operationsPlane.health(),
-      actions: operationsActionRuntime.snapshot(),
-      shadowAgents: operationsShadowRuntime.snapshot(),
-    });
+  app.get("/operations/health", guards, async (_request, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().health()),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_plane_unavailable",
+        reasonCode: error?.code || "operations_health_read_failed",
+      });
+    }
   });
 
   app.get("/operations/schemas", guards, (_request, response) => {
@@ -373,19 +499,26 @@ function operationsEndpoints(app) {
     });
   });
 
-  app.get("/operations/services", guards, (_request, response) => {
-    response.status(200).json({
-      success: true,
-      generatedAt: new Date().toISOString(),
-      services: serviceCatalog(),
-    });
+  app.get("/operations/services", guards, async (_request, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().services()),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_service_catalog_unavailable",
+        reasonCode: error?.code || "service_catalog_read_failed",
+      });
+    }
   });
 
   app.get("/operations/agents", guards, async (request, response) => {
     try {
-      const registry = await agentRegistrySnapshot({
-        invocationLimit: boundedLimit(request.query.limit),
-      });
+      const registry = await operationsAccess().agents(
+        boundedLimit(request.query.limit)
+      );
       response.status(200).json({ success: true, ...registry });
     } catch (error) {
       response.status(503).json({
@@ -396,44 +529,82 @@ function operationsEndpoints(app) {
     }
   });
 
-  app.get("/operations/shadow-agents", guards, (_request, response) => {
-    response.status(200).json({
-      success: true,
-      ...operationsShadowRuntime.snapshot(),
-    });
+  app.get("/operations/shadow-agents", guards, async (_request, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().shadowAgents()),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_shadow_agents_unavailable",
+        reasonCode: error?.code || "shadow_agents_read_failed",
+      });
+    }
   });
 
-  app.get("/operations/evaluations/latest", guards, (_request, response) => {
-    response.status(200).json({
-      success: true,
-      report: operationsShadowRuntime.evaluation(),
-    });
-  });
+  app.get(
+    "/operations/evaluations/latest",
+    guards,
+    async (_request, response) => {
+      try {
+        response.status(200).json({
+          success: true,
+          ...(await operationsAccess().evaluationLatest()),
+        });
+      } catch (error) {
+        response.status(503).json({
+          success: false,
+          error: "operations_evaluation_unavailable",
+          reasonCode: error?.code || "evaluation_read_failed",
+        });
+      }
+    }
+  );
 
-  app.get("/operations/evaluations/corpus", guards, (_request, response) => {
-    response.status(200).json({
-      success: true,
-      manifest: operationsShadowRuntime.corpus(),
-    });
-  });
+  app.get(
+    "/operations/evaluations/corpus",
+    guards,
+    async (_request, response) => {
+      try {
+        response.status(200).json({
+          success: true,
+          ...(await operationsAccess().evaluationCorpus()),
+        });
+      } catch (error) {
+        response.status(503).json({
+          success: false,
+          error: "operations_evaluation_corpus_unavailable",
+          reasonCode: error?.code || "evaluation_corpus_read_failed",
+        });
+      }
+    }
+  );
 
-  app.get("/operations/actions/catalog", guards, (_request, response) => {
-    response.status(200).json({
-      success: true,
-      mode: "human-approved",
-      agentExecutionAllowed: false,
-      actions: operationsActionOrchestrator.catalog(),
-    });
+  app.get("/operations/actions/catalog", guards, async (_request, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().actionsCatalog()),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_action_catalog_unavailable",
+        reasonCode: error?.code || "action_catalog_read_failed",
+      });
+    }
   });
 
   app.get("/operations/actions/runs", guards, async (request, response) => {
     try {
-      const runs = await DataAccessCenter.operationsAction.listRuns({
+      const result = await operationsAccess().actionRuns({
         status: request.query.status || null,
         actionId: request.query.actionId || null,
         limit: boundedLimit(request.query.limit),
       });
-      response.status(200).json({ success: true, runs });
+      response.status(200).json({ success: true, ...result });
     } catch (error) {
       sendActionError(response, error);
     }
@@ -444,17 +615,13 @@ function operationsEndpoints(app) {
     guards,
     async (request, response) => {
       try {
-        const run = await DataAccessCenter.operationsAction.getRun(
-          request.params.runId
-        );
-        if (!run)
+        const result = await operationsAccess().actionRun(request.params.runId);
+        if (!result.run)
           return response.status(404).json({
             success: false,
             error: "operations_action_run_not_found",
           });
-        const approvals =
-          await DataAccessCenter.operationsAction.approvalsForRun(run.id);
-        return response.status(200).json({ success: true, run, approvals });
+        return response.status(200).json({ success: true, ...result });
       } catch (error) {
         return sendActionError(response, error);
       }
@@ -463,13 +630,13 @@ function operationsEndpoints(app) {
 
   app.post("/operations/actions/runs", guards, async (request, response) => {
     try {
-      const run = await operationsActionOrchestrator.propose({
+      const result = await operationsAccess().proposeAction({
         actionId: request.body?.actionId,
         parameters: request.body?.parameters || {},
         sourceActionId: request.body?.sourceActionId,
         actor: actionActor(request, response),
       });
-      return response.status(201).json({ success: true, run });
+      return response.status(201).json({ success: true, ...result });
     } catch (error) {
       return sendActionError(response, error);
     }
@@ -480,13 +647,13 @@ function operationsEndpoints(app) {
     guards,
     async (request, response) => {
       try {
-        const run = await operationsActionOrchestrator.decide({
+        const result = await operationsAccess().decideAction({
           runId: request.params.runId,
           decision: "approved",
           reasonCode: request.body?.reasonCode || null,
           actor: actionActor(request, response),
         });
-        return response.status(200).json({ success: true, run });
+        return response.status(200).json({ success: true, ...result });
       } catch (error) {
         return sendActionError(response, error);
       }
@@ -498,13 +665,13 @@ function operationsEndpoints(app) {
     guards,
     async (request, response) => {
       try {
-        const run = await operationsActionOrchestrator.decide({
+        const result = await operationsAccess().decideAction({
           runId: request.params.runId,
           decision: "rejected",
           reasonCode: request.body?.reasonCode || null,
           actor: actionActor(request, response),
         });
-        return response.status(200).json({ success: true, run });
+        return response.status(200).json({ success: true, ...result });
       } catch (error) {
         return sendActionError(response, error);
       }
@@ -516,31 +683,23 @@ function operationsEndpoints(app) {
     guards,
     async (request, response) => {
       try {
-        const run = await DataAccessCenter.operationsAction.getRun(
-          request.params.runId
-        );
-        if (!run)
+        const result = await operationsAccess().executeAction({
+          runId: request.params.runId,
+          actor: actionActor(request, response),
+        });
+        if (!result.run)
           return response.status(404).json({
             success: false,
             error: "operations_action_run_not_found",
           });
-        if (run.status !== "approved")
-          return response.status(409).json({
-            success: false,
-            error: "operations_action_not_approved",
-          });
-        const accepted = operationsActionRuntime.executeAsync(
-          run.id,
-          actionActor(request, response)
-        );
-        if (!accepted)
+        if (!result.accepted)
           return response.status(409).json({
             success: false,
             error: "operations_action_already_running",
           });
         return response.status(202).json({
           success: true,
-          runId: run.id,
+          runId: result.run.id,
           status: "execution_accepted",
         });
       } catch (error) {
@@ -554,11 +713,11 @@ function operationsEndpoints(app) {
     guards,
     async (request, response) => {
       try {
-        const run = await operationsActionOrchestrator.reconcile(
-          request.params.runId,
-          actionActor(request, response)
-        );
-        return response.status(200).json({ success: true, run });
+        const result = await operationsAccess().reconcileAction({
+          runId: request.params.runId,
+          actor: actionActor(request, response),
+        });
+        return response.status(200).json({ success: true, ...result });
       } catch (error) {
         return sendActionError(response, error);
       }
@@ -566,34 +725,48 @@ function operationsEndpoints(app) {
   );
 
   app.get("/operations/timeline", guards, async (request, response) => {
-    const timeline = await operationsPlane.timelineWithMetadata(
-      filtersFromQuery(request.query)
-    );
-    response.status(200).json({
-      success: true,
-      generatedAt: new Date().toISOString(),
-      ...timeline,
-    });
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().timeline(filtersFromQuery(request.query))),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_timeline_unavailable",
+        reasonCode: error?.code || "timeline_read_failed",
+      });
+    }
   });
 
   app.get("/operations/state-graph", guards, async (request, response) => {
     try {
-      const [events, agents, syncState] = await Promise.all([
-        operationsPlane.timeline({
-          limit: boundedLimit(request.query.limit, 250),
-        }),
-        agentDefinitions(),
-        DataAccessCenter.syncV2.snapshot(),
-      ]);
       response.status(200).json({
         success: true,
-        graph: buildStateGraph({ events, agents, syncState }),
+        ...(await operationsAccess().stateGraph({
+          limit: boundedLimit(request.query.limit, 250),
+        })),
       });
     } catch (error) {
       response.status(503).json({
         success: false,
         error: "operations_state_graph_unavailable",
         reasonCode: error?.code || "state_graph_read_failed",
+      });
+    }
+  });
+
+  app.get("/operations/flows", guards, async (request, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().flows(filtersFromQuery(request.query))),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_flows_unavailable",
+        reasonCode: error?.code || "flows_read_failed",
       });
     }
   });
@@ -606,12 +779,21 @@ function operationsEndpoints(app) {
         success: false,
         error: "eventId_or_operationId_required",
       });
-    const result = await operationsPlane.timelineWithMetadata({
-      ...(eventId ? { eventId } : { operationId }),
-      limit: boundedLimit(request.query.limit, 100),
-    });
-    const primary = result.events[0] || null;
-    if (!primary)
+    let result;
+    try {
+      result = await operationsAccess().explain({
+        eventId,
+        operationId,
+        limit: boundedLimit(request.query.limit, 100),
+      });
+    } catch (error) {
+      return response.status(503).json({
+        success: false,
+        error: "operations_evidence_unavailable",
+        reasonCode: error?.code || "operations_explain_failed",
+      });
+    }
+    if (!result.found)
       return response
         .status(result.completeness === "complete" ? 404 : 503)
         .json({
@@ -626,8 +808,8 @@ function operationsEndpoints(app) {
         });
     return response.status(200).json({
       success: true,
-      answer: explainEvent(primary),
-      timeline: result.events,
+      answer: result.answer,
+      timeline: result.timeline,
       source: result.source,
       degraded: result.degraded,
       completeness: result.completeness,

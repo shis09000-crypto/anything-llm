@@ -1,0 +1,69 @@
+{
+  "schema": "athena.crypto.feature-registry",
+  "schemaVersion": "5.0",
+  "registryVersion": "crypto-forecast-features-v5",
+  "inheritsRegistryVersion": "crypto-forecast-features-v4",
+  "barInterval": "5m",
+  "availabilityContract": "availableAtMs<=decisionAtMs",
+  "selectionContract": {
+    "maximumSideInputs": 16,
+    "maximumMetaInputs": 8,
+    "minimumFoldSelectionRatio": 0.7,
+    "nearDuplicateSpearmanLimit": 0.995,
+    "methods": [
+      "redundancy_filter",
+      "fold_local_mutual_information",
+      "mrmr",
+      "feature_family_ablation",
+      "blocked_permutation"
+    ]
+  },
+  "labelContract": {
+    "version": "cost-first-touch-v5",
+    "horizon": "4h",
+    "decision": "last_closed_5m_bar",
+    "entry": "next_tradeable_5m_open",
+    "feeBpsPerSide": 10,
+    "labelSlippageBpsPerSide": 5,
+    "safetyBufferBps": 5,
+    "barrierMultipliers": [0.5, 0.75, 1.0],
+    "sameBarDoubleTouch": "ambiguous_abstain",
+    "timeout": "no_trade",
+    "minimumActionShare": 0.15,
+    "minimumNoTradeShare": 0.15
+  },
+  "runtimeContract": {
+    "missingValue": 0,
+    "missingness": "explicit_availability_mask_for_optional_families",
+    "maximumMissingRatio": 0.1,
+    "formingCandles": "excluded",
+    "timeZone": "UTC"
+  },
+  "horizons": {
+    "4h": {
+      "role": "cost_adjusted_meta_label_candidate",
+      "minimumCoverage": 0.9,
+      "candidateFeaturesFromParent": true,
+      "metaCandidateFeatures": [
+        "return_4h",
+        "adx_4h",
+        "volume_ratio_4h_24h",
+        "robust_volume_surprise_1h",
+        "taker_flow_proxy_4h",
+        "cmf20_1h",
+        "relative_market_return_4h",
+        "market_correlation_30d"
+      ],
+      "derivedMetaFeatures": [
+        "side_up_probability",
+        "future_volatility_p50",
+        "tail_risk_probability",
+        "stress_probability"
+      ]
+    },
+    "24h": {
+      "role": "inherited_shadow_only",
+      "candidateFeaturesFromParent": true
+    }
+  }
+}

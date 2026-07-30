@@ -22,6 +22,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.cryptoAccountAgent.name,
   AgentPlugins.weatherAgent.name,
   AgentPlugins.globalMarketAgent.name,
+  AgentPlugins.goldMarketAgent.name,
   AgentPlugins.createFilesAgent.name,
   AgentPlugins.documentFormattingAgent.name,
 ];

@@ -1,125 +1,33 @@
-const SERVICES = Object.freeze([
-  {
-    id: "athena-api",
-    name: "Athena API",
-    kind: "service",
-    owner: "platform",
-    criticality: "critical",
-    capabilities: ["http", "auth", "workspace"],
-    dependsOn: ["main-database", "key-custody", "otel-collector"],
-  },
-  {
-    id: "authentication",
-    name: "Authentication",
-    kind: "component",
-    owner: "security",
-    criticality: "critical",
-    capabilities: ["password", "passkey", "quick-login", "session"],
-    dependsOn: ["athena-api", "main-database", "key-custody"],
-  },
-  {
-    id: "chat-runtime",
-    name: "Chat Runtime",
-    kind: "component",
-    owner: "ai-platform",
-    criticality: "critical",
-    capabilities: ["sse", "context", "streaming"],
-    dependsOn: ["athena-api", "main-database", "model-provider", "rag"],
-  },
-  {
-    id: "agent-runtime",
-    name: "Agent Runtime",
-    kind: "component",
-    owner: "ai-platform",
-    criticality: "critical",
-    capabilities: ["planning", "tool-routing", "approval", "recovery"],
-    dependsOn: ["chat-runtime", "tool-runtime", "model-provider"],
-  },
-  {
-    id: "tool-runtime",
-    name: "Tool Runtime",
-    kind: "component",
-    owner: "ai-platform",
-    criticality: "high",
-    capabilities: ["builtin-tools", "mcp", "plugins"],
-    dependsOn: ["athena-api"],
-  },
-  {
-    id: "crypto-account-access",
-    name: "Crypto Account Access",
-    kind: "security-sensitive-component",
-    owner: "ai-platform",
-    criticality: "high",
-    capabilities: [
-      "gate-read-only",
-      "account-scoped-resolution",
-      "approval-required-tools",
-      "scheduled-preapproval",
-    ],
-    dependsOn: [
-      "authentication",
-      "agent-runtime",
-      "tool-runtime",
-      "key-custody",
-      "main-database",
-    ],
-  },
-  {
-    id: "rag",
-    name: "Knowledge Retrieval",
-    kind: "component",
-    owner: "knowledge",
-    criticality: "high",
-    capabilities: ["retrieval", "rerank", "citations"],
-    dependsOn: ["vector-database", "embedding-provider"],
-  },
-  {
-    id: "knowledge-ingest",
-    name: "Knowledge Ingest",
-    kind: "component",
-    owner: "knowledge",
-    criticality: "high",
-    capabilities: ["parse", "chunk", "embed", "index"],
-    dependsOn: ["main-database", "vector-database", "embedding-provider"],
-  },
-  {
-    id: "sync-v2",
-    name: "Unified Sync V2",
-    kind: "control-plane",
-    owner: "platform",
-    criticality: "critical",
-    capabilities: ["state-tree", "outbox", "cursor", "projection"],
-    dependsOn: ["main-database", "nats-jetstream"],
-  },
-  {
-    id: "operations-plane",
-    name: "AI Operations Plane",
-    kind: "control-plane",
-    owner: "sre",
-    criticality: "high",
-    capabilities: ["semantic-events", "timeline", "state-graph"],
-    dependsOn: ["nats-jetstream", "clickhouse", "otel-collector"],
-  },
-  {
-    id: "operations-shadow-agents",
-    name: "Operations Shadow Agents",
-    kind: "diagnostic",
-    owner: "sre",
-    criticality: "medium",
-    capabilities: [
-      "advisory-diagnosis",
-      "incident-evaluation",
-      "evidence-linking",
-    ],
-    dependsOn: ["operations-plane", "clickhouse", "otel-collector"],
-  },
+const { loadManifests } = require("../modulePlatform/manifestRegistry");
+
+const INFRA_DEPENDENCY_MAP = Object.freeze({
+  "infra:postgresql": "main-database",
+  "infra:vector-database": "vector-database",
+  "infra:nats": "nats-jetstream",
+  "infra:clickhouse": "clickhouse",
+  "infra:otel": "otel-collector",
+  "infra:object-store": "object-storage",
+  "infra:model-provider": "model-provider",
+  "infra:embedding-provider": "embedding-provider",
+});
+
+const INFRASTRUCTURE = Object.freeze([
   {
     id: "main-database",
     name: "Primary Database",
     kind: "data-store",
     owner: "platform",
     criticality: "critical",
-    capabilities: ["business-authority", "transactions"],
+    capabilities: ["business-authority", "transactions", "service-schemas"],
+    dependsOn: [],
+  },
+  {
+    id: "object-storage",
+    name: "Content Object Store",
+    kind: "data-store",
+    owner: "platform",
+    criticality: "high",
+    capabilities: ["immutable-objects", "checksums", "multipart"],
     dependsOn: [],
   },
   {
@@ -177,20 +85,6 @@ const SERVICES = Object.freeze([
     dependsOn: [],
   },
   {
-    id: "key-custody",
-    name: "Key Custody",
-    kind: "security",
-    owner: "security",
-    criticality: "critical",
-    capabilities: [
-      "key-resolution",
-      "rotation",
-      "quarantine",
-      "crypto-suite-registry",
-    ],
-    dependsOn: [],
-  },
-  {
     id: "post-quantum-security",
     name: "Post-Quantum Security Controls",
     kind: "security-control",
@@ -207,13 +101,51 @@ const SERVICES = Object.freeze([
   },
 ]);
 
+function dependencyId(value) {
+  return INFRA_DEPENDENCY_MAP[value] || value;
+}
+
+function serviceFromManifest(manifest) {
+  return {
+    id: manifest.id,
+    name: manifest.name,
+    kind: manifest.kind,
+    owner: manifest.owner,
+    criticality: manifest.criticality,
+    capabilities: [...manifest.capabilities],
+    dependsOn: manifest.dependsOn.map(dependencyId),
+    manifest: {
+      schemaVersion: manifest.schemaVersion,
+      version: manifest.version,
+      runtimeRole: manifest.runtimeRole,
+      fingerprint: manifest.fingerprint,
+      healthPath: manifest.deployment.healthPath,
+      readinessPath: manifest.deployment.readinessPath,
+      drainPath: manifest.deployment.drainPath,
+      failureMode: manifest.security.failureMode,
+      serviceIdentity: manifest.security.serviceIdentity,
+    },
+  };
+}
+
 function serviceCatalog() {
-  return SERVICES.map((service) => ({ ...service }));
+  const modules = loadManifests().map(serviceFromManifest);
+  return [...modules, ...INFRASTRUCTURE].map((service) => ({
+    ...service,
+    capabilities: [...service.capabilities],
+    dependsOn: [...service.dependsOn],
+    manifest: service.manifest ? { ...service.manifest } : undefined,
+  }));
 }
 
 function serviceById(id) {
-  const service = SERVICES.find((entry) => entry.id === id);
-  return service ? { ...service } : null;
+  const service = serviceCatalog().find((entry) => entry.id === id);
+  return service || null;
 }
 
-module.exports = { serviceById, serviceCatalog };
+module.exports = {
+  INFRA_DEPENDENCY_MAP,
+  serviceById,
+  serviceCatalog,
+  serviceFromManifest,
+};

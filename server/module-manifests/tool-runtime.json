@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "tool-runtime",
+  "name": "Tool Registry and Broker",
+  "version": "1.0.0",
+  "kind": "control-plane",
+  "owner": "ai-platform",
+  "criticality": "high",
+  "runtimeRole": "tool-broker",
+  "sourcePaths": ["server/utils/agents/aibitat/plugins/", "server/utils/plugins/"],
+  "capabilities": ["registry", "eligibility", "approval", "capability-broker", "worker-routing"],
+  "routes": { "public": ["/api/agent-skills/"], "internal": ["/internal/v1/tools/invoke", "/internal/v1/tools/catalog"] },
+  "rpc": { "provides": ["tool.invoke", "tool.catalog"], "consumes": ["identity.assert", "crypto.market", "crypto.account"] },
+  "events": { "publishes": ["tool.invocation.*", "tool.registry.*"], "subscribes": ["approval.*", "crypto.*"] },
+  "data": { "schemas": ["tools"], "objectPrefixes": ["tool/results"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/tool-broker",
+    "keyDomains": ["agent"],
+    "allowedCallers": ["agent-runtime", "scheduler", "athena-api"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/tool-broker",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "crypto-market", "crypto-account-access", "infra:postgresql", "infra:nats"]
+}

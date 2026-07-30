@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import Athena
 
 private final class NativeContractURLProtocol: URLProtocol {
@@ -99,6 +100,46 @@ final class NativeAppContractTests: XCTestCase {
         XCTAssertFalse(preflight.blocked)
         XCTAssertEqual(preflight.policy.minimumOSVersion, "26.0")
         XCTAssertEqual(preflight.protocolVersion, "ios-native-v1")
+    }
+
+    func testInactiveScenePhaseDoesNotTearDownLiveConnections() {
+        XCTAssertEqual(
+            AthenaScenePhasePolicy.backgroundedState(for: .active),
+            false
+        )
+        XCTAssertNil(
+            AthenaScenePhasePolicy.backgroundedState(for: .inactive)
+        )
+        XCTAssertEqual(
+            AthenaScenePhasePolicy.backgroundedState(for: .background),
+            true
+        )
+    }
+
+    @MainActor
+    func testPostQuantumContractAcceptsEquivalentOrStricterIOS26Version() throws {
+        let json = String(data: Self.bootstrapJSON, encoding: .utf8)!
+            .replacingOccurrences(
+                of: #""minimumOSVersion": "26.0""#,
+                with: #""minimumOSVersion": "26.0.0""#
+            )
+        let bootstrap = try JSONDecoder().decode(
+            NativeAppBootstrap.self,
+            from: Data(json.utf8)
+        )
+        let signing = RequestSigningCenter(
+            secureStore: InMemorySecureValueStore(),
+            postQuantumTestSignatureProvider: { payload in
+                (
+                    signature: Data(repeating: 1, count: max(1, payload.count)),
+                    publicKey: Data(repeating: 2, count: 32)
+                )
+            }
+        )
+
+        signing.applyBootstrap(bootstrap)
+
+        XCTAssertTrue(signing.postQuantumContractReady)
     }
 
     func testMarkdownParserRemovesModelFormattingSyntax() throws {
@@ -311,6 +352,58 @@ final class NativeAppContractTests: XCTestCase {
         XCTAssertEqual(bootstrap.security.signingSecretPath, "/api/client-identity/signing-secret")
         XCTAssertFalse(preflight.blocked)
         XCTAssertEqual(preflight.warnings, ["native_contract_route_unavailable"])
+    }
+
+    @MainActor
+    func testCompatibilityContractKeepsStrictPQGateDuringTransientGatewayFailure() async throws {
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [NativeContractURLProtocol.self]
+        let apiClient = APIClient(
+            configuration: APIClientConfiguration(
+                baseURL: URL(string: "https://athenallm.online")!,
+                appVersion: "2.4.0",
+                osVersion: "26.5",
+                platform: "ios"
+            ),
+            session: URLSession(configuration: sessionConfiguration),
+            transientRetryDelaysNanoseconds: [0]
+        )
+        NativeContractURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 503,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (
+                response,
+                Data(#"{"error":"runtime_not_ready"}"#.utf8)
+            )
+        }
+        let profile = NativeClientProfile(
+            appVersion: "2.4.0",
+            osVersion: "26.5",
+            platform: "ios"
+        )
+        let client = NativeBootstrapClient(
+            apiClient: apiClient,
+            compatibilityBootstrap: NativeCompatibilityContract.bootstrap(
+                baseURL: apiClient.configuration.baseURL
+            ),
+            compatibilityPreflight: NativeCompatibilityContract.preflight(
+                profile: profile
+            )
+        )
+
+        let bootstrap = try await client.fetchBootstrap()
+        let preflight = try await client.fetchPreflight()
+        let signing = RequestSigningCenter(
+            secureStore: InMemorySecureValueStore()
+        )
+        signing.applyBootstrap(bootstrap)
+
+        XCTAssertTrue(signing.postQuantumContractReady)
+        XCTAssertFalse(preflight.blocked)
     }
 
     @MainActor

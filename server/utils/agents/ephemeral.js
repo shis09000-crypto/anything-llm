@@ -514,6 +514,7 @@ If the user asks about book structure, reading order, timeline, person relations
       chats: await this.#chatHistory(20),
       handlerProps: {
         invocation: {
+          uuid: this.#invocationUUID,
           workspace: this.#workspace,
           workspace_id: this.#workspace?.id ?? null,
           user_id: this.#userId || null,

@@ -107,6 +107,7 @@ const { scheduledJobEndpoints } = require("./endpoints/scheduledJobs");
 const { cryptoCenterEndpoints } = require("./endpoints/cryptoCenter");
 const { cryptoHubEndpoints } = require("./endpoints/cryptoHub");
 const { cryptoGateProbeEndpoints } = require("./endpoints/cryptoGateProbe");
+const { cryptoForecastingEndpoints } = require("./endpoints/cryptoForecasting");
 const {
   outlookAgentEndpoints,
 } = require("./endpoints/utils/outlookAgentUtils");
@@ -158,6 +159,16 @@ const {
 const { apiErrorMiddleware } = require("./utils/http/apiError");
 const app = express();
 const apiRouter = express.Router();
+const distributedTopology = ["distributed", "micro-modules"].includes(
+  String(process.env.ATHENA_RUNTIME_TOPOLOGY || "")
+    .trim()
+    .toLowerCase()
+);
+const endpointOwnedExternally = (name) => {
+  if (!distributedTopology) return false;
+  const key = `ATHENA_${String(name).toUpperCase().replace(/-/g, "_")}_INLINE`;
+  return String(process.env[key] || "true").toLowerCase() === "false";
+};
 
 app.disable("x-powered-by");
 app.use((_, response, next) => {
@@ -260,14 +271,15 @@ mindMapEndpoints(apiRouter);
 quizEndpoints(apiRouter);
 knowledgeGraphEndpoints(apiRouter);
 workspaceThreadEndpoints(apiRouter);
-chatEndpoints(apiRouter);
+if (!endpointOwnedExternally("chat-runtime")) chatEndpoints(apiRouter);
 adminEndpoints(apiRouter);
 inviteEndpoints(apiRouter);
 embedManagementEndpoints(apiRouter);
 utilEndpoints(apiRouter);
 documentEndpoints(apiRouter);
-agentWebsocket(apiRouter);
-agentSkillWhitelistEndpoints(apiRouter);
+if (!endpointOwnedExternally("agent-runtime")) agentWebsocket(apiRouter);
+if (!endpointOwnedExternally("tool-runtime"))
+  agentSkillWhitelistEndpoints(apiRouter);
 agentFileServerEndpoints(apiRouter);
 experimentalEndpoints(apiRouter);
 developerEndpoints(app, apiRouter);
@@ -282,8 +294,10 @@ wechatEndpoints(apiRouter);
 advancedGatewayEndpoints(apiRouter);
 scheduledJobEndpoints(apiRouter);
 cryptoCenterEndpoints(apiRouter);
-cryptoHubEndpoints(apiRouter);
+if (!endpointOwnedExternally("crypto-account")) cryptoHubEndpoints(apiRouter);
 cryptoGateProbeEndpoints(apiRouter);
+if (!endpointOwnedExternally("crypto-forecast"))
+  cryptoForecastingEndpoints(apiRouter);
 outlookAgentEndpoints(apiRouter);
 googleAgentSkillEndpoints(apiRouter);
 communicationDebugEndpoints(apiRouter);
@@ -324,6 +338,19 @@ const {
 const {
   operationsActionRuntime,
 } = require("./utils/operations/actions/orchestrator");
+const {
+  cryptoForecastingRuntime,
+} = require("./utils/cryptoForecasting/runtime");
+const { goldAnalysisRuntime } = require("./utils/goldAnalysis/runtime");
+const distributedRuntime = distributedTopology;
+const apiProbeHost = distributedRuntime
+  ? require("./utils/modulePlatform/apiProbeHost").createApiProbeHost()
+  : null;
+const inlineRuntime = (name, defaultValue = !distributedRuntime) => {
+  const key = `ATHENA_${String(name).toUpperCase().replace(/-/g, "_")}_INLINE`;
+  if (process.env[key] === undefined) return defaultValue;
+  return String(process.env[key]).toLowerCase() === "true";
+};
 runtimeCoordinator.register({
   name: "database-readiness",
   order: 1,
@@ -334,32 +361,55 @@ runtimeCoordinator.register({
   },
 });
 runtimeCoordinator.register({
+  name: "module-readiness-probe",
+  order: 2,
+  stopOrder: 5,
+  start: async () => apiProbeHost?.start(),
+  stop: async () => apiProbeHost?.stop(),
+});
+runtimeCoordinator.register({
   name: "sync-v2-outbox",
   order: 10,
   stopOrder: 80,
-  start: async () => startSyncV2OutboxDispatcher(),
-  stop: stopSyncV2OutboxDispatcher,
+  start: async () =>
+    inlineRuntime("sync-v2-outbox") ? startSyncV2OutboxDispatcher() : undefined,
+  stop: async () =>
+    inlineRuntime("sync-v2-outbox") ? stopSyncV2OutboxDispatcher() : undefined,
 });
 runtimeCoordinator.register({
   name: "ai-operations-plane",
   order: 11,
   stopOrder: 85,
-  start: async () => operationsPlane.start(),
-  stop: async () => operationsPlane.stop(),
+  start: async () =>
+    inlineRuntime("operations-plane") ? operationsPlane.start() : undefined,
+  stop: async () =>
+    inlineRuntime("operations-plane") ? operationsPlane.stop() : undefined,
 });
 runtimeCoordinator.register({
   name: "ai-operations-shadow-agents",
   order: 11.5,
   stopOrder: 84,
-  start: async () => operationsShadowRuntime.start(),
-  stop: async () => operationsShadowRuntime.stop(),
+  start: async () =>
+    inlineRuntime("operations-plane")
+      ? operationsShadowRuntime.start()
+      : undefined,
+  stop: async () =>
+    inlineRuntime("operations-plane")
+      ? operationsShadowRuntime.stop()
+      : undefined,
 });
 runtimeCoordinator.register({
   name: "ai-operations-actions",
   order: 11.75,
   stopOrder: 83,
-  start: async () => operationsActionRuntime.start(),
-  stop: async () => operationsActionRuntime.stop(),
+  start: async () =>
+    inlineRuntime("operations-plane")
+      ? operationsActionRuntime.start()
+      : undefined,
+  stop: async () =>
+    inlineRuntime("operations-plane")
+      ? operationsActionRuntime.stop()
+      : undefined,
 });
 runtimeCoordinator.register({
   name: "opentelemetry",
@@ -387,6 +437,44 @@ runtimeCoordinator.register({
   stopOrder: 73,
   start: async () => startAuthSessionSyncReconciler(),
   stop: stopAuthSessionSyncReconciler,
+});
+runtimeCoordinator.register({
+  name: "crypto-forecasting",
+  order: 13.5,
+  stopOrder: 73.5,
+  start: async () => {
+    if (!inlineRuntime("crypto-forecast")) return;
+    try {
+      return cryptoForecastingRuntime.start();
+    } catch (error) {
+      console.warn("[CryptoForecasting] startup deferred", {
+        code: error?.code || error?.message || "startup_failed",
+      });
+      return { started: false, reason: "startup_deferred" };
+    }
+  },
+  stop: async () =>
+    inlineRuntime("crypto-forecast")
+      ? cryptoForecastingRuntime.stop()
+      : undefined,
+});
+runtimeCoordinator.register({
+  name: "gold-market-analysis",
+  order: 13.6,
+  stopOrder: 73.6,
+  start: async () => {
+    if (!inlineRuntime("gold-market")) return;
+    try {
+      return goldAnalysisRuntime.start();
+    } catch (error) {
+      console.warn("[GoldAnalysis] startup deferred", {
+        code: error?.code || error?.message || "startup_failed",
+      });
+      return { started: false, reason: "startup_deferred" };
+    }
+  },
+  stop: async () =>
+    inlineRuntime("gold-market") ? goldAnalysisRuntime.stop() : undefined,
 });
 runtimeCoordinator.register({
   name: "workspace-delete-jobs",

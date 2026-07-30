@@ -4,6 +4,7 @@ const {
   databaseProvider,
   mainPostgresqlUrl,
   migrationPostgresqlUrl,
+  poolRole,
   withPoolBudget,
 } = require("../../utils/database/databaseProvider");
 
@@ -53,6 +54,24 @@ describe("databaseProvider", () => {
     expect(explicit.searchParams.get("pool_timeout")).toBe("9");
   });
 
+  it("assigns independent budgets to extracted micro-module roles", () => {
+    expect(poolRole({ ATHENA_RUNTIME_ROLE: "chat-runtime" })).toBe(
+      "chat-runtime"
+    );
+    expect(
+      connectionBudget({
+        ATHENA_RUNTIME_ROLE: "chat-runtime",
+        ATHENA_DB_POOL_SIZE_CHAT: "12",
+      })
+    ).toBe(12);
+    expect(
+      connectionBudget({
+        ATHENA_RUNTIME_ROLE: "crypto-account",
+        ATHENA_DB_POOL_SIZE_CRYPTO_ACCOUNT: "4",
+      })
+    ).toBe(4);
+  });
+
   it("keeps main and auth database URLs independently configured", () => {
     const env = {
       ATHENA_POSTGRES_MAIN_URL: "postgresql://main@localhost:5432/athena_main",
@@ -62,11 +81,27 @@ describe("databaseProvider", () => {
     expect(new URL(authPostgresqlUrl(env)).pathname).toBe("/athena_auth");
   });
 
+  it("fails closed onto the role-owned schema after module cutover", () => {
+    const env = {
+      ATHENA_RUNTIME_ROLE: "scheduler",
+      ATHENA_MODULE_SCHEMA_CUTOVER: "true",
+      ATHENA_POSTGRES_MAIN_URL:
+        "postgresql://legacy@localhost:5432/athena_main",
+      ATHENA_SCHEDULER_DATABASE_URL:
+        "postgresql://scheduler@localhost:5432/athena_main?schema=scheduler",
+    };
+    const selected = new URL(mainPostgresqlUrl(env));
+    expect(selected.username).toBe("scheduler");
+    expect(selected.searchParams.get("schema")).toBe("scheduler");
+
+    delete env.ATHENA_SCHEDULER_DATABASE_URL;
+    expect(() => mainPostgresqlUrl(env)).toThrow("main_postgresql_url_missing");
+  });
+
   it("requires a dedicated migration principal", () => {
     expect(() =>
       migrationPostgresqlUrl("main", {
-        ATHENA_POSTGRES_MAIN_URL:
-          "postgresql://api@localhost:5432/athena_main",
+        ATHENA_POSTGRES_MAIN_URL: "postgresql://api@localhost:5432/athena_main",
       })
     ).toThrow("main_migration_postgresql_url_missing");
     const url = migrationPostgresqlUrl("auth", {

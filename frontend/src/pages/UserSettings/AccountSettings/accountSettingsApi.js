@@ -155,8 +155,8 @@ const AccountSettingsApi = {
   confirmEmailVerification: ({ email, code, challengeId = "" }) =>
     System.confirmEmailVerification({ email, code, challengeId }),
   updateProfile: updateProfileWithSyncV2,
-  updatePassword: ({ currentPassword, password }) =>
-    System.updateUser({ currentPassword, password }),
+  updatePassword: ({ currentPassword, password, reauthToken }) =>
+    System.updateUser({ currentPassword, password, reauthToken }),
   fetchMemoryOverview: () => System.memoryOverview(),
   fetchMemoryBlocks: (options = {}) => System.memoryBlocks(options),
   fetchMemoryArchives: (options = {}) => System.memoryArchives(options),
@@ -317,7 +317,7 @@ const AccountSettingsApi = {
       "Could not verify password."
     );
   },
-  reauthZkWithPasskey: async () => {
+  reauthZkWithPasskey: async ({ purpose = "zk_enroll" } = {}) => {
     if (!detectAuthCapability().showPasskey) {
       return {
         success: false,
@@ -326,10 +326,14 @@ const AccountSettingsApi = {
     }
 
     const optionsResponse = await passkeyJson(
-      postJson("/auth/zk-login/reauth/passkey/options", undefined, {
-        communicationScene: "account-security",
-        task: accountSecurityTask("account:zk-reauth-passkey-options"),
-      }),
+      postJson(
+        "/auth/zk-login/reauth/passkey/options",
+        { purpose },
+        {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:zk-reauth-passkey-options"),
+        }
+      ),
       "Could not start passkey verification."
     );
     if (!optionsResponse?.success) return optionsResponse;
@@ -340,7 +344,7 @@ const AccountSettingsApi = {
     return passkeyJson(
       postJson(
         "/auth/zk-login/reauth/passkey/verify",
-        { response },
+        { response, purpose },
         {
           communicationScene: "account-security",
           task: accountSecurityTask("account:zk-reauth-passkey-verify"),

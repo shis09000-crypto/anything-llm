@@ -9,10 +9,14 @@ const {
 const { safeJsonParse } = require("../utils/http");
 const { clearInvocationFileAccess } = require("../utils/chats/agents");
 const {
+  drainAgentSessionJournal,
   getAgentSessionState,
+  ensureDurableAgentSession,
+  loadDurableAgentSession,
   markAgentSessionState,
-  readAgentSessionEvents,
   recordAgentSessionEvent,
+  startAgentRunHeartbeat,
+  stopAgentRunHeartbeat,
 } = require("../utils/agents/agentSessionLedger");
 const {
   getAuthorizedAgentInvocation,
@@ -38,6 +42,24 @@ const { emitSemanticEvent } = require("../utils/observability/semanticEvents");
 
 const WorkspaceAgentInvocation = DataAccessCenter.workspaceAgentInvocation;
 const activeAgentSessions = new Map();
+
+function agentRuntimeSnapshot() {
+  return {
+    activeSessions: activeAgentSessions.size,
+  };
+}
+
+async function drainAgentRuntime({ timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + Math.max(1_000, Number(timeoutMs) || 0);
+  while (activeAgentSessions.size > 0 && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  const journal = await drainAgentSessionJournal();
+  return {
+    drained: activeAgentSessions.size === 0 && journal.pendingWrites === 0,
+    ...agentRuntimeSnapshot(),
+    journal,
+  };
+}
 
 function emitAgentTransportEvent(uuid, eventType, outcome, invocation = null) {
   emitSemanticEvent({
@@ -303,21 +325,19 @@ function agentWebsocket(app) {
         ? Math.max(0, requestedAfterSeq)
         : 0;
 
+      const durable = await loadDurableAgentSession(uuid, afterSeq);
       return response.status(200).json({
         success: true,
         state: {
-          ...getAgentSessionState(uuid),
+          ...durable.state,
           closed: !!invocation.closed,
-          retryable:
-            !invocation.closed && getAgentSessionState(uuid).terminal !== true,
+          retryable: !invocation.closed && durable.state.terminal !== true,
           clientTurnId:
-            getAgentSessionState(uuid).clientTurnId ||
-            invocation.clientTurnId ||
-            null,
+            durable.state.clientTurnId || invocation.clientTurnId || null,
         },
         ...(includeEvents
           ? {
-              events: readAgentSessionEvents(uuid, afterSeq)
+              events: durable.events
                 .slice(0, 100)
                 .map((event) => event.payload),
             }
@@ -536,14 +556,15 @@ function agentWebsocket(app) {
 
       if (isResume && !session) {
         if (invocation.closed) {
-          const terminalState = getAgentSessionState(uuid);
+          const durable = await loadDurableAgentSession(uuid, lastEventSeq);
+          const terminalState = durable.state;
           socket.send(
             JSON.stringify({
               type: "agentReplayStart",
               latestSeq: terminalState.latestSeq || 0,
             })
           );
-          for (const event of readAgentSessionEvents(uuid, lastEventSeq)) {
+          for (const event of durable.events) {
             if (socket.readyState !== 1) break;
             socket.send(JSON.stringify(event.payload));
           }
@@ -571,6 +592,19 @@ function agentWebsocket(app) {
       }
 
       if (!session) {
+        const ownership = await ensureDurableAgentSession(uuid);
+        if (ownership && ownership.claimed === false) {
+          socket.send(
+            JSON.stringify({
+              type: "agentResumePending",
+              status: ownership.run?.status || "running",
+              retryAfterMs: 1_000,
+            })
+          );
+          socket.close(1013);
+          return;
+        }
+        startAgentRunHeartbeat(uuid);
         const agentHandler = await new AgentHandler({ uuid }).init();
         if (!agentHandler.invocation) {
           socket.close();
@@ -616,6 +650,7 @@ function agentWebsocket(app) {
             closedAt: Date.now(),
           });
           activeAgentSessions.delete(uuid);
+          stopAgentRunHeartbeat(uuid);
         });
         activeAgentSessions.set(uuid, session);
       }
@@ -699,11 +734,13 @@ function agentWebsocket(app) {
             closedAt: Date.now(),
           });
           activeAgentSessions.delete(uuid);
+          stopAgentRunHeartbeat(uuid);
           return;
         }
 
         const current = getAgentSessionState(uuid);
         if (current.terminal) {
+          stopAgentRunHeartbeat(uuid);
           markAgentSessionState(uuid, {
             status: current.status || "completed",
             closed: false,
@@ -739,12 +776,13 @@ function agentWebsocket(app) {
         }
       };
 
-      const replayEvents = readAgentSessionEvents(uuid, lastEventSeq);
+      const durableReplay = await loadDurableAgentSession(uuid, lastEventSeq);
+      const replayEvents = durableReplay.events;
       if (isResume || lastEventSeq > 0) {
         socket.send(
           JSON.stringify({
             type: "agentReplayStart",
-            latestSeq: getAgentSessionState(uuid).latestSeq || 0,
+            latestSeq: durableReplay.state.latestSeq || 0,
           })
         );
         for (const event of replayEvents) {
@@ -754,7 +792,7 @@ function agentWebsocket(app) {
         socket.send(
           JSON.stringify({
             type: "agentReplayEnd",
-            latestSeq: getAgentSessionState(uuid).latestSeq || 0,
+            latestSeq: durableReplay.state.latestSeq || 0,
           })
         );
         emitAgentTransportEvent(
@@ -773,10 +811,15 @@ function agentWebsocket(app) {
       await agentHandler.startAgentCluster();
     } catch (e) {
       console.error(e.message, e);
+      stopAgentRunHeartbeat(uuid);
       socket?.send(JSON.stringify({ type: "wssFailure", content: e.message }));
       socket.close();
     }
   });
 }
 
-module.exports = { agentWebsocket };
+module.exports = {
+  agentRuntimeSnapshot,
+  agentWebsocket,
+  drainAgentRuntime,
+};

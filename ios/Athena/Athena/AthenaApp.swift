@@ -1,5 +1,20 @@
 import SwiftUI
 
+enum AthenaScenePhasePolicy {
+    static func backgroundedState(for phase: ScenePhase) -> Bool? {
+        switch phase {
+        case .active:
+            false
+        case .background:
+            true
+        case .inactive:
+            nil
+        @unknown default:
+            nil
+        }
+    }
+}
+
 @main
 @MainActor
 struct AthenaApp: App {
@@ -81,8 +96,13 @@ struct AthenaApp: App {
         }
         .onChange(of: scenePhase) { _, nextPhase in
             guard !usesConversationFixture && !usesSettingsFixture && !usesAuthFixture else { return }
+            guard let backgrounded = AthenaScenePhasePolicy.backgroundedState(
+                for: nextPhase
+            ) else {
+                return
+            }
             Task {
-                await dependencies.setApplicationBackgrounded(nextPhase != .active)
+                await dependencies.setApplicationBackgrounded(backgrounded)
             }
         }
     }

@@ -13,6 +13,7 @@ describe("Crypto module boundary", () => {
       "endpoints/cryptoCenter.js",
       "endpoints/cryptoHub.js",
       "endpoints/cryptoGateProbe.js",
+      "endpoints/cryptoForecasting.js",
     ];
 
     for (const endpointFile of endpointFiles) {
@@ -38,6 +39,7 @@ describe("Crypto module boundary", () => {
     expect(source).toContain('require("./httpCenterHandlers")');
     expect(source).toContain('require("./httpHubHandlers")');
     expect(source).toContain('require("./httpGateHandlers")');
+    expect(source).toContain('require("./httpForecastingHandlers")');
     expect(source).not.toContain("../../utils/cryptoHub");
     expect(source).not.toContain("../../utils/cryptoGate");
   });

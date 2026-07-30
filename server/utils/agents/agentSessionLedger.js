@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 const { safeJsonParse } = require("../http");
 const { storageRoot: environmentStorageRoot } = require("../environment");
 
@@ -9,6 +10,21 @@ const MAX_EVENT_CONTENT_CHARS = 1_000;
 const MAX_LEDGER_EVENTS = 500;
 const ACCOUNT_PRIVATE_SENSITIVITY = "account-private";
 const ACCOUNT_PRIVATE_REDACTION = "[account-private output redacted]";
+const DURABLE_OWNER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
+const memoryStates = new Map();
+const memoryEvents = new Map();
+const durableChains = new Map();
+const heartbeatTimers = new Map();
+
+function distributedLedger() {
+  return (
+    ["cloud", "distributed", "micro-modules"].includes(
+      String(process.env.ATHENA_RUNTIME_TOPOLOGY || "")
+        .trim()
+        .toLowerCase()
+    ) && process.env.ATHENA_DATABASE_PROVIDER === "postgresql"
+  );
+}
 
 function storageRoot() {
   return environmentStorageRoot();
@@ -102,6 +118,7 @@ function redactAccountPrivatePayload(payload = {}, eventType = "") {
 }
 
 function ensureSessionDir(uuid) {
+  if (distributedLedger()) return;
   fs.mkdirSync(sessionDir(uuid), { recursive: true });
 }
 
@@ -118,7 +135,21 @@ function writeJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
 }
 
+function readSessionState(uuid, fallback = null) {
+  if (distributedLedger()) return memoryStates.get(String(uuid)) || fallback;
+  return readJson(statePath(uuid), fallback);
+}
+
+function writeSessionState(uuid, data) {
+  if (distributedLedger()) {
+    memoryStates.set(String(uuid), data);
+    return;
+  }
+  writeJson(statePath(uuid), data);
+}
+
 function readEvents(uuid) {
+  if (distributedLedger()) return [...(memoryEvents.get(String(uuid)) || [])];
   try {
     const filePath = eventsPath(uuid);
     if (!fs.existsSync(filePath)) return [];
@@ -139,7 +170,7 @@ function latestSeq(uuid) {
 }
 
 function nextSeq(uuid) {
-  const state = readJson(statePath(uuid), null);
+  const state = readSessionState(uuid, null);
   return Number(state?.latestSeq || latestSeq(uuid) || 0) + 1;
 }
 
@@ -195,7 +226,7 @@ function isMeaningfulEvent(eventType) {
 }
 
 function updateStateFromEvent(uuid, record) {
-  const current = readJson(statePath(uuid), {
+  const current = readSessionState(uuid, {
     uuid: String(uuid),
     status: "running",
     closed: false,
@@ -271,8 +302,26 @@ function updateStateFromEvent(uuid, record) {
           "agent_connection_failed"
         : current.errorCode || null,
   };
-  writeJson(statePath(uuid), next);
+  writeSessionState(uuid, next);
   return next;
+}
+
+function enqueueDurable(uuid, operation) {
+  if (!distributedLedger()) return;
+  const key = String(uuid);
+  const previous = durableChains.get(key) || Promise.resolve();
+  const next = previous
+    .then(operation)
+    .catch((error) =>
+      console.warn("[agent-session] durable journal deferred", {
+        invocationId: key,
+        code: error?.code || error?.message || "agent_journal_failed",
+      })
+    )
+    .finally(() => {
+      if (durableChains.get(key) === next) durableChains.delete(key);
+    });
+  durableChains.set(key, next);
 }
 
 function recordAgentSessionEvent(uuid, rawPayload = {}) {
@@ -280,7 +329,7 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
   ensureSessionDir(uuid);
   const seq = nextSeq(uuid);
   const { payload, eventType } = normalizePayload(rawPayload);
-  const currentState = readJson(statePath(uuid), null);
+  const currentState = readSessionState(uuid, null);
   const accountPrivate =
     currentState?.sensitivity === ACCOUNT_PRIVATE_SENSITIVITY ||
     accountPrivateToolEvent(payload, eventType);
@@ -306,10 +355,27 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
     value: deliveryPayload,
     enumerable: false,
   });
-  fs.appendFileSync(eventsPath(uuid), `${JSON.stringify(record)}\n`, "utf8");
-  updateStateFromEvent(uuid, record);
+  if (distributedLedger()) {
+    const events = memoryEvents.get(String(uuid)) || [];
+    events.push(record);
+    if (events.length > MAX_LEDGER_EVENTS)
+      events.splice(0, events.length - MAX_LEDGER_EVENTS);
+    memoryEvents.set(String(uuid), events);
+  } else {
+    fs.appendFileSync(eventsPath(uuid), `${JSON.stringify(record)}\n`, "utf8");
+  }
+  const nextState = updateStateFromEvent(uuid, record);
+  enqueueDurable(uuid, async () => {
+    const { DataAccessCenter } = require("../dataAccess");
+    await DataAccessCenter.agentRun.append({
+      invocationId: String(uuid),
+      record,
+      state: nextState,
+      ownerId: DURABLE_OWNER_ID,
+    });
+  });
 
-  if (seq > MAX_LEDGER_EVENTS && seq % 100 === 0) {
+  if (!distributedLedger() && seq > MAX_LEDGER_EVENTS && seq % 100 === 0) {
     const events = readEvents(uuid);
     fs.writeFileSync(
       eventsPath(uuid),
@@ -324,6 +390,13 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
 }
 
 function sanitizeAccountPrivateSessionLedgers({ apply = false } = {}) {
+  if (distributedLedger())
+    return {
+      scannedSessions: memoryStates.size,
+      matchedSessions: 0,
+      redactedEvents: 0,
+      durable: true,
+    };
   const root = sessionsRoot();
   if (!fs.existsSync(root)) {
     return { scannedSessions: 0, matchedSessions: 0, redactedEvents: 0 };
@@ -365,9 +438,9 @@ function sanitizeAccountPrivateSessionLedgers({ apply = false } = {}) {
       `${sanitized.map((event) => JSON.stringify(event)).join("\n")}\n`,
       "utf8"
     );
-    const state = readJson(statePath(uuid), null);
+    const state = readSessionState(uuid, null);
     if (state) {
-      writeJson(statePath(uuid), {
+      writeSessionState(uuid, {
         ...state,
         sensitivity: ACCOUNT_PRIVATE_SENSITIVITY,
         partialTextPreview: ACCOUNT_PRIVATE_REDACTION,
@@ -385,7 +458,7 @@ function readAgentSessionEvents(uuid, afterSeq = 0) {
 function markAgentSessionState(uuid, patch = {}) {
   if (!uuid) return null;
   ensureSessionDir(uuid);
-  const current = readJson(statePath(uuid), {
+  const current = readSessionState(uuid, {
     uuid: String(uuid),
     status: "running",
     closed: false,
@@ -402,12 +475,20 @@ function markAgentSessionState(uuid, patch = {}) {
     latestSeq: Math.max(current.latestSeq || 0, latestSeq(uuid)),
     updatedAt: Date.now(),
   };
-  writeJson(statePath(uuid), next);
+  writeSessionState(uuid, next);
+  enqueueDurable(uuid, async () => {
+    const { DataAccessCenter } = require("../dataAccess");
+    await DataAccessCenter.agentRun.updateState(
+      String(uuid),
+      next,
+      DURABLE_OWNER_ID
+    );
+  });
   return next;
 }
 
 function getAgentSessionState(uuid) {
-  const state = readJson(statePath(uuid), null);
+  const state = readSessionState(uuid, null);
   if (!state) {
     return {
       uuid: String(uuid),
@@ -428,10 +509,138 @@ function getAgentSessionState(uuid) {
   };
 }
 
+function seedAgentSessionState(uuid, state = {}) {
+  if (!uuid || !state) return null;
+  const current = readSessionState(uuid, {});
+  const next = {
+    ...current,
+    ...state,
+    uuid: String(uuid),
+    latestSeq: Math.max(
+      Number(current.latestSeq || 0),
+      Number(state.latestSeq || state.latestSequence || 0)
+    ),
+  };
+  writeSessionState(uuid, next);
+  return next;
+}
+
+async function loadDurableAgentSession(uuid, afterSeq = 0) {
+  if (!distributedLedger())
+    return {
+      state: getAgentSessionState(uuid),
+      events: readAgentSessionEvents(uuid, afterSeq),
+      durable: false,
+    };
+  const { DataAccessCenter } = require("../dataAccess");
+  const [run, events] = await Promise.all([
+    DataAccessCenter.agentRun.state(String(uuid)),
+    DataAccessCenter.agentRun.eventsAfter(String(uuid), afterSeq),
+  ]);
+  if (!run)
+    return {
+      state: getAgentSessionState(uuid),
+      events: readAgentSessionEvents(uuid, afterSeq),
+      durable: true,
+    };
+  const localState = getAgentSessionState(uuid);
+  const state = seedAgentSessionState(uuid, {
+    status: run.status,
+    latestSeq: Math.max(
+      Number(run.latestSequence || 0),
+      Number(localState.latestSeq || 0)
+    ),
+    terminal: ["completed", "failed", "stopped", "closed"].includes(run.status),
+    retryable: !["completed", "failed", "stopped", "closed"].includes(
+      run.status
+    ),
+    finalChatId: run.finalChatId || null,
+    finalPublicChatId: run.finalPublicChatId || null,
+    clientTurnId: run.clientTurnId || null,
+    errorCode: run.errorCode || null,
+  });
+  const merged = new Map();
+  for (const event of [...events, ...readAgentSessionEvents(uuid, afterSeq)])
+    merged.set(Number(event.seq), event);
+  return {
+    state,
+    events: [...merged.values()].sort(
+      (left, right) => Number(left.seq) - Number(right.seq)
+    ),
+    durable: true,
+  };
+}
+
+async function ensureDurableAgentSession(uuid) {
+  if (!distributedLedger()) return null;
+  const { DataAccessCenter } = require("../dataAccess");
+  const ownership = await DataAccessCenter.agentRun.claim({
+    invocationId: String(uuid),
+    ownerId: DURABLE_OWNER_ID,
+  });
+  const run = ownership?.run || null;
+  if (run)
+    seedAgentSessionState(uuid, {
+      status: run.status,
+      latestSeq: run.latestSequence,
+      terminal: ["completed", "failed", "stopped", "closed"].includes(
+        run.status
+      ),
+      retryable: !["completed", "failed", "stopped", "closed"].includes(
+        run.status
+      ),
+      finalChatId: run.finalChatId,
+      finalPublicChatId: run.finalPublicChatId,
+      clientTurnId: run.clientTurnId,
+      errorCode: run.errorCode,
+    });
+  return {
+    run,
+    claimed: Boolean(ownership?.claimed),
+  };
+}
+
+function startAgentRunHeartbeat(uuid) {
+  if (!distributedLedger() || heartbeatTimers.has(String(uuid))) return;
+  const key = String(uuid);
+  const tick = () =>
+    enqueueDurable(key, async () => {
+      const { DataAccessCenter } = require("../dataAccess");
+      await DataAccessCenter.agentRun.renewLease(key, DURABLE_OWNER_ID);
+    });
+  const timer = setInterval(tick, 10_000);
+  timer.unref?.();
+  heartbeatTimers.set(key, timer);
+  tick();
+}
+
+function stopAgentRunHeartbeat(uuid) {
+  const key = String(uuid);
+  const timer = heartbeatTimers.get(key);
+  if (timer) clearInterval(timer);
+  heartbeatTimers.delete(key);
+}
+
+async function drainAgentSessionJournal() {
+  for (const timer of heartbeatTimers.values()) clearInterval(timer);
+  heartbeatTimers.clear();
+  await Promise.allSettled([...durableChains.values()]);
+  return {
+    pendingWrites: durableChains.size,
+    activeHeartbeats: heartbeatTimers.size,
+  };
+}
+
 module.exports = {
+  drainAgentSessionJournal,
+  ensureDurableAgentSession,
   getAgentSessionState,
+  loadDurableAgentSession,
   markAgentSessionState,
   readAgentSessionEvents,
   recordAgentSessionEvent,
   sanitizeAccountPrivateSessionLedgers,
+  seedAgentSessionState,
+  startAgentRunHeartbeat,
+  stopAgentRunHeartbeat,
 };

@@ -19,9 +19,7 @@ jest.mock("openai", () => {
 });
 
 const DeepSeekProvider = require("../../../utils/agents/aibitat/providers/deepseek");
-const {
-  agentCacheStableHistoryStrategyFor,
-} = require("../../../utils/agents");
+const { agentCacheStableHistoryStrategyFor } = require("../../../utils/agents");
 
 function toolDefinition(name = "test-tool") {
   return {
@@ -251,6 +249,44 @@ describe("DeepSeek agent cache metrics", () => {
           reasoning_effort: "high",
         },
       })
+    );
+  });
+
+  it("uses bounded non-thinking JSON completion options for validated continuations", async () => {
+    mockCreate.mockResolvedValueOnce({
+      choices: [{ message: { content: '{"schema":"ok"}' } }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 20,
+        total_tokens: 120,
+      },
+    });
+    const provider = new DeepSeekProvider({ model: "deepseek-v4-pro" });
+
+    const result = await provider.complete(
+      [{ role: "system", content: "Return JSON only." }],
+      [],
+      {
+        thinking: "disabled",
+        temperature: 0,
+        maxTokens: 2_048,
+        timeoutMs: 25_000,
+        maxRetries: 0,
+        responseFormat: { type: "json_object" },
+      }
+    );
+
+    expect(result.textResponse).toBe('{"schema":"ok"}');
+    expect(mockCreate).toHaveBeenCalledWith(
+      {
+        model: "deepseek-v4-pro",
+        messages: [{ role: "system", content: "Return JSON only." }],
+        max_tokens: 2_048,
+        thinking: { type: "disabled" },
+        temperature: 0,
+        response_format: { type: "json_object" },
+      },
+      { timeout: 25_000, maxRetries: 0 }
     );
   });
 });

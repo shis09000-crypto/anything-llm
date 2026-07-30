@@ -276,14 +276,24 @@ const CRYPTO_ASSETS = Object.freeze(
       assetId: "agent.plugin-capability-credential",
       owner: "agent-platform",
       purpose: "Authorize a bounded one-time plugin tool invocation",
-      suiteIds: [SUITE_IDS.PLUGIN_CAPABILITY_HMAC_V1],
-      keySource: "purpose-derived Key Custody material",
-      keyLocation: "server process memory only",
+      suiteIds: [
+        SUITE_IDS.PLUGIN_CAPABILITY_HMAC_V1,
+        SUITE_IDS.PLUGIN_CAPABILITY_ED25519_V2,
+        SUITE_IDS.PLUGIN_CAPABILITY_MLDSA65_V2,
+      ],
+      keySource:
+        "legacy purpose-derived Key Custody material; isolated private-account calls use external Ed25519 and ML-DSA-65 signers",
+      keyLocation:
+        "legacy runtime memory or restricted external capability signing provider",
       confidentialityHorizon: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
       lifecycle: "single-invocation-up-to-60-seconds",
       status: "active",
-      pqReadiness: "not-priority-short-lived-symmetric",
-      sourceFiles: ["server/utils/plugins/capabilityBroker.js"],
+      pqReadiness:
+        "hybrid-classical-and-ml-dsa65-required-for-account-private-read",
+      sourceFiles: [
+        "server/utils/plugins/capabilityBroker.js",
+        "server/utils/security/pluginCapabilityHybrid.js",
+      ],
     },
     {
       assetId: "agent.external-registry-manifest",

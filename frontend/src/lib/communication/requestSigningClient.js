@@ -9,6 +9,7 @@ import {
   withClientIdentityHeaders,
 } from "./clientIdentity";
 import { signWithDeviceIdentityKey } from "./deviceIdentityKey";
+import { signWithPostQuantumDeviceKey } from "@/utils/security/browserHybridKeys";
 import { assertSecureHttpUrl } from "./transportSecurity";
 import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
@@ -43,6 +44,12 @@ export const SIGNING_HEADERS = {
   signatureVersion: "X-Athena-Signature-Version",
   devicePublicKey: "X-Athena-Device-Public-Key",
   deviceKeyAlgorithm: "X-Athena-Device-Key-Algorithm",
+  hybridSignatureVersion: "X-Athena-Hybrid-Signature-Version",
+  pqSignature: "X-Athena-PQ-Signature",
+  pqPublicKey: "X-Athena-PQ-Public-Key",
+  pqKeyAlgorithm: "X-Athena-PQ-Key-Algorithm",
+  pqKeyOrigin: "X-Athena-PQ-Key-Origin",
+  pqHardwareProtection: "X-Athena-PQ-Hardware-Protection",
 };
 
 const secretCache = new Map();
@@ -481,7 +488,7 @@ async function signedDeviceRequestHeaders({
     return null;
   }
 
-  return {
+  const headers = {
     [ATHENA_CLIENT_ID_HEADER]: clientId,
     [ATHENA_REQUEST_ID_HEADER]: requestId,
     [SIGNING_HEADERS.timestamp]: timestamp,
@@ -491,6 +498,18 @@ async function signedDeviceRequestHeaders({
     [SIGNING_HEADERS.signatureVersion]: DEVICE_SIGNATURE_VERSION,
     [SIGNING_HEADERS.devicePublicKey]: deviceSignature.publicKey,
     [SIGNING_HEADERS.deviceKeyAlgorithm]: deviceSignature.algorithm,
+  };
+  const postQuantum = await signWithPostQuantumDeviceKey(signingString);
+  if (!postQuantum) return headers;
+  return {
+    ...headers,
+    [SIGNING_HEADERS.hybridSignatureVersion]:
+      postQuantum.hybridSignatureVersion,
+    [SIGNING_HEADERS.pqSignature]: postQuantum.signature,
+    [SIGNING_HEADERS.pqPublicKey]: postQuantum.publicKey,
+    [SIGNING_HEADERS.pqKeyAlgorithm]: postQuantum.keyAlgorithm,
+    [SIGNING_HEADERS.pqKeyOrigin]: postQuantum.keyOrigin,
+    [SIGNING_HEADERS.pqHardwareProtection]: postQuantum.hardwareProtection,
   };
 }
 
@@ -759,6 +778,12 @@ export async function signedWebSocketEnvelope({
       signature: headers[SIGNING_HEADERS.signature],
       devicePublicKey: headers[SIGNING_HEADERS.devicePublicKey],
       deviceKeyAlgorithm: headers[SIGNING_HEADERS.deviceKeyAlgorithm],
+      hybridSignatureVersion: headers[SIGNING_HEADERS.hybridSignatureVersion],
+      pqSignature: headers[SIGNING_HEADERS.pqSignature],
+      pqPublicKey: headers[SIGNING_HEADERS.pqPublicKey],
+      pqKeyAlgorithm: headers[SIGNING_HEADERS.pqKeyAlgorithm],
+      pqKeyOrigin: headers[SIGNING_HEADERS.pqKeyOrigin],
+      pqHardwareProtection: headers[SIGNING_HEADERS.pqHardwareProtection],
     },
     payload,
   };

@@ -1,0 +1,15 @@
+ARG BASE_IMAGE=anythingllm-v2-anythingllm:latest
+FROM ${BASE_IMAGE}
+
+COPY --chown=anythingllm:anythingllm \
+  server/utils/cryptoForecasting \
+  /app/server/utils/cryptoForecasting
+
+COPY --chown=anythingllm:anythingllm \
+  server/utils/agents/aibitat/plugins/crypto-market \
+  /app/server/utils/agents/aibitat/plugins/crypto-market
+
+RUN find \
+  /app/server/utils/cryptoForecasting \
+  /app/server/utils/agents/aibitat/plugins/crypto-market \
+  -type f -name '._*' -delete

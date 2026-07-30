@@ -143,6 +143,7 @@ describe("validatedRequest client-bound sessions", () => {
     expect(response.json).toHaveBeenCalledWith({
       success: false,
       error: "CLIENT_REVOKED",
+      reasonCode: "client_revoked",
     });
     expect(response.locals.authFailureReason).toBe("client_revoked");
     expect(next).not.toHaveBeenCalled();
@@ -170,6 +171,7 @@ describe("validatedRequest client-bound sessions", () => {
     expect(response.status).toHaveBeenCalledWith(401);
     expect(response.json).toHaveBeenCalledWith({
       error: "Session client mismatch.",
+      reasonCode: "session_client_mismatch",
     });
     expect(response.locals.authFailureReason).toBe("session_client_mismatch");
     expect(next).not.toHaveBeenCalled();
@@ -183,6 +185,32 @@ describe("validatedRequest client-bound sessions", () => {
 
     expect(mockRequireSignedHighRiskRequest).toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
+  });
+
+  it("returns a stable reason code when an idle session expires", async () => {
+    const response = responseDouble();
+    const next = jest.fn();
+
+    await validatedRequest(
+      requestDouble(
+        sessionToken({
+          lastUserActionAt: Date.now() - 49 * 60 * 60 * 1000,
+        })
+      ),
+      response,
+      next
+    );
+
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: "Session expired due to inactivity.",
+        idleRemainingMs: 0,
+        reasonCode: "session_idle_expired",
+      })
+    );
+    expect(response.locals.authFailureReason).toBe("session_idle_expired");
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("returns retryable 503 instead of rejecting when identity storage is unavailable", async () => {
@@ -201,6 +229,7 @@ describe("validatedRequest client-bound sessions", () => {
       success: false,
       error: "authentication_state_unavailable",
       retryable: true,
+      reasonCode: "authentication_state_unavailable",
     });
     expect(response.locals.authFailureReason).toBe(
       "authentication_state_unavailable"

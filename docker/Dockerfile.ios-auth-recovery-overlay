@@ -1,0 +1,10 @@
+ARG BASE_IMAGE=anythingllm-v2-anythingllm:latest
+FROM ${BASE_IMAGE}
+
+USER root
+
+COPY --chown=anythingllm:anythingllm \
+  server/utils/middleware/validatedRequest.js \
+  /app/server/utils/middleware/validatedRequest.js
+
+USER anythingllm

@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "sync-v2",
+  "name": "Unified Stream and Sync Gateway",
+  "version": "1.0.0",
+  "kind": "gateway",
+  "owner": "platform",
+  "criticality": "critical",
+  "runtimeRole": "realtime-gateway",
+  "sourcePaths": ["server/realtime-gateway.js", "server/endpoints/syncCenter.js", "server/utils/broadcast/", "server/utils/syncV2/"],
+  "capabilities": ["sse", "websocket", "replay", "cursor", "outbox"],
+  "routes": { "public": ["/api/sync/", "/api/realtime/"], "internal": ["/internal/v1/streams/publish"] },
+  "rpc": { "provides": ["stream.subscribe", "stream.replay"], "consumes": ["identity.assert"] },
+  "events": { "publishes": ["stream.connection.*"], "subscribes": ["chat.run.*", "agent.run.*", "tool.invocation.*", "crypto.market.*", "workspace.*"] },
+  "data": { "schemas": ["sync"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/realtime-gateway",
+    "keyDomains": [],
+    "allowedCallers": ["edge-web", "athena-api", "chat-runtime", "agent-runtime"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/realtime-gateway",
+    "healthPath": "/health",
+    "readinessPath": "/snapshot",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "infra:postgresql", "infra:nats"]
+}

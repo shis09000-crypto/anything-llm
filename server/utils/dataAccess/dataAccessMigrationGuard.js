@@ -59,6 +59,86 @@ const DIRECT_ACCESS_ALLOWLIST = Object.freeze([
 
 const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
   {
+    pattern: /^scripts\/audit-user-domain-wrap-coverage\.js$/,
+    category: "diagnostic",
+    risk: "sensitive-read",
+    reason:
+      "User-domain wrap coverage audit reads migration and key-wrap metadata without exposing wrapped material.",
+    action: "keep-security-audit-boundary",
+  },
+  {
+    pattern: /^scripts\/generate-key-closure-evidence\.js$/,
+    category: "diagnostic",
+    risk: "sensitive-read",
+    reason:
+      "Key closure evidence generation validates recovery, key custody, device coverage, and retirement gates into a private operator artifact.",
+    action: "keep-security-audit-boundary",
+  },
+  {
+    pattern: /^scripts\/migrate-gate-account-connection\.js$/,
+    category: "migration",
+    risk: "secret-write",
+    reason:
+      "Gate account migration moves legacy read-only credentials into an account-scoped encrypted connection after explicit execution approval.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/migrate-user-domain-wraps\.js$/,
+    category: "migration",
+    risk: "secret-write",
+    reason:
+      "User-domain migration queues resumable Root-bound wraps for chat, content, and vault key material.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/prepare-user-root-live-fixture\.js$/,
+    category: "qa",
+    risk: "sensitive-write",
+    reason:
+      "Live User Root fixture preparation creates bounded test identity and workspace records for an explicit end-to-end drill.",
+    action: "keep-live-qa-boundary",
+  },
+  {
+    pattern: /^scripts\/repair-gate-credentials\.js$/,
+    category: "maintenance",
+    risk: "secret-write",
+    reason:
+      "Gate credential repair validates operator-supplied read-only credentials and rewrites encrypted credential stores only with explicit execution flags.",
+    action: "keep-security-maintenance-boundary",
+  },
+  {
+    pattern: /^scripts\/resign-security-audit-checkpoints\.js$/,
+    category: "migration",
+    risk: "secret-write",
+    reason:
+      "Audit checkpoint re-signing migrates signatures between platform keys in one verified transaction before key retirement.",
+    action: "keep-security-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/transfer-primary-owner\.js$/,
+    category: "maintenance",
+    risk: "sensitive-write",
+    reason:
+      "Primary-owner transfer coordinates shared-auth and environment projections under an explicit operator command.",
+    action: "keep-identity-maintenance-boundary",
+  },
+  {
+    pattern: /^scripts\/verify-runtime-prisma-contract\.js$/,
+    category: "diagnostic",
+    risk: "internal-read",
+    reason:
+      "Runtime Prisma verification checks generated model fields and live schema compatibility without changing records.",
+    action: "keep-contract-verification-boundary",
+  },
+  {
+    pattern: /^scripts\/verify-user-domain-wrap-e2e\.js$/,
+    category: "qa",
+    risk: "sensitive-write",
+    reason:
+      "User-domain end-to-end verification exercises bounded wrap, claim, recovery, and retirement paths against an explicit test fixture.",
+    action: "keep-live-qa-boundary",
+  },
+  {
     pattern: /^scripts\/content-object-admin\.js$/,
     category: "maintenance",
     risk: "internal-write",

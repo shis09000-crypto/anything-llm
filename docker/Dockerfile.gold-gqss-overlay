@@ -1,0 +1,22 @@
+ARG BASE_IMAGE=anythingllm-v2-anythingllm:latest
+FROM ${BASE_IMAGE}
+
+USER root
+
+COPY --chown=anythingllm:anythingllm server/index.js /app/server/index.js
+COPY --chown=anythingllm:anythingllm server/utils/goldAnalysis /app/server/utils/goldAnalysis
+COPY --chown=anythingllm:anythingllm server/utils/agents/defaults.js /app/server/utils/agents/defaults.js
+COPY --chown=anythingllm:anythingllm server/utils/agents/aibitat/index.js /app/server/utils/agents/aibitat/index.js
+COPY --chown=anythingllm:anythingllm server/utils/agents/aibitat/plugins/index.js /app/server/utils/agents/aibitat/plugins/index.js
+COPY --chown=anythingllm:anythingllm server/utils/agents/aibitat/plugins/market-data/lib.js /app/server/utils/agents/aibitat/plugins/market-data/lib.js
+COPY --chown=anythingllm:anythingllm server/utils/agents/aibitat/plugins/market-data/secrets.js /app/server/utils/agents/aibitat/plugins/market-data/secrets.js
+COPY --chown=anythingllm:anythingllm server/utils/agents/aibitat/plugins/gold-market /app/server/utils/agents/aibitat/plugins/gold-market
+COPY --chown=anythingllm:anythingllm server/utils/observability/metrics.js /app/server/utils/observability/metrics.js
+COPY --chown=anythingllm:anythingllm server/scripts/verify-gold-gqss-v1.js /app/server/scripts/verify-gold-gqss-v1.js
+COPY --chown=anythingllm:anythingllm server/scripts/repair-gold-cftc-availability.js /app/server/scripts/repair-gold-cftc-availability.js
+
+ARG BUILD_MARKER=gold-gqss-v1
+RUN printf '%s\n' "${BUILD_MARKER}" > /app/server/public/.anythingllm-build \
+  && chown anythingllm:anythingllm /app/server/public/.anythingllm-build
+
+USER anythingllm

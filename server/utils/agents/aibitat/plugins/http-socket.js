@@ -1,6 +1,7 @@
 const chalk = require("chalk");
 const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
 const AgentSkillWhitelist = lazyDataAccessFacade("agentSkillWhitelist");
+const ToolInvocation = lazyDataAccessFacade("toolInvocation");
 const {
   TelemetryRepository: Telemetry,
 } = require("../../../../repositories/telemetryRepository");
@@ -193,6 +194,8 @@ const httpSocket = {
           payload = {},
           description = null,
           forceApproval = false,
+          allowAlwaysAllow = true,
+          approvalClass = null,
         }) {
           if (!forceApproval && skillIsAutoApproved({ skillName })) {
             return {
@@ -219,6 +222,18 @@ const httpSocket = {
             }
           }
 
+          const requestId = uuidv4();
+          const invocation = aibitat.handlerProps?.invocation || {};
+          await ToolInvocation.requestApproval({
+            approvalRequestId: requestId,
+            agentInvocationId: invocation.uuid,
+            clientTurnId: invocation.clientTurnId,
+            ownerUserId: invocation.user_id ?? null,
+            toolName: skillName,
+            approvalClass,
+            scope: payload,
+          });
+
           // Tool approval only available in Telegram worker context
           const ipc = getWorkerIPC();
           if (!telegramChatId || !ipc) {
@@ -227,14 +242,20 @@ const httpSocket = {
                 `Tool approval requested for ${skillName} but no Telegram context available. Auto-denying for safety.`
               )
             );
+            await ToolInvocation.resolveApproval({
+              approvalRequestId: requestId,
+              approved: false,
+              reasonCode: "approval_context_unavailable",
+            });
             return {
               approved: false,
               message:
                 "Tool approval is not available in this context. Operation denied.",
+              requestId,
+              reasonCode: "approval_context_unavailable",
             };
           }
 
-          const requestId = uuidv4();
           console.log(
             chalk.blue(
               `Requesting tool approval for ${skillName} (${requestId})`
@@ -249,20 +270,36 @@ const httpSocket = {
           return new Promise((resolve) => {
             let timeoutId = null;
 
-            const messageHandler = (msg) => {
+            const messageHandler = async (msg) => {
               if (msg?.type !== "toolApprovalResponse") return;
               if (msg?.requestId !== requestId) return;
 
               ipc.removeListener("message", messageHandler);
               clearTimeout(timeoutId);
 
-              if (msg.approved) {
+              const approved = Boolean(msg.approved);
+              const persisted = await ToolInvocation.resolveApproval({
+                approvalRequestId: requestId,
+                approved,
+                reasonCode: approved ? null : "approval_denied",
+              }).catch(() => false);
+              if (!persisted) {
+                return resolve({
+                  approved: false,
+                  message: "Tool approval could not be persisted.",
+                  requestId,
+                  reasonCode: "tool_approval_persistence_failed",
+                });
+              }
+
+              if (approved) {
                 console.log(
                   chalk.green(`Tool ${skillName} approved by user via Telegram`)
                 );
                 return resolve({
                   approved: true,
                   message: "User approved the tool execution.",
+                  requestId,
                 });
               }
 
@@ -272,6 +309,7 @@ const httpSocket = {
               return resolve({
                 approved: false,
                 message: "Tool call was rejected by the user.",
+                requestId,
               });
             };
 
@@ -285,11 +323,18 @@ const httpSocket = {
               skillName,
               payload,
               description,
+              allowAlwaysAllow,
+              approvalClass,
               timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
             });
 
-            timeoutId = setTimeout(() => {
+            timeoutId = setTimeout(async () => {
               ipc.removeListener("message", messageHandler);
+              await ToolInvocation.resolveApproval({
+                approvalRequestId: requestId,
+                approved: false,
+                reasonCode: "approval_timeout",
+              }).catch(() => false);
               console.log(
                 chalk.yellow(
                   `Tool approval request timed out after ${TOOL_APPROVAL_TIMEOUT_MS}ms`
@@ -299,6 +344,8 @@ const httpSocket = {
                 approved: false,
                 message:
                   "Tool approval request timed out. User did not respond in time.",
+                requestId,
+                reasonCode: "approval_timeout",
               });
             }, TOOL_APPROVAL_TIMEOUT_MS);
           });

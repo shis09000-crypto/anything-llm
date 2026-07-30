@@ -9,6 +9,7 @@ const {
 const {
   runWithOperationContext,
 } = require("../../utils/observability/operationContext");
+const { validateRegistered } = require("../../utils/operations/schemaRegistry");
 
 describe("Semantic Event v1", () => {
   afterEach(() => resetSemanticEventsForTests());
@@ -66,5 +67,58 @@ describe("Semantic Event v1", () => {
     } finally {
       log.mockRestore();
     }
+  });
+
+  test("keeps metadata-only tool-run provenance without tool arguments", () => {
+    const event = semanticEvent({
+      eventType: "agent.tool.completed",
+      category: "agent_tool",
+      metadata: {
+        runId: "run-123",
+        resultSha256: "a".repeat(64),
+        stored: true,
+        resultSize: 52_000,
+        fullResultExceededDefaultModelLimit: true,
+        continuationTask: "crypto_market_analysis",
+        arguments: { symbol: "BTC" },
+      },
+    });
+    expect(event.metadata).toEqual({
+      runId: "run-123",
+      resultSha256: "a".repeat(64),
+      stored: "true",
+      resultSize: "52000",
+      fullResultExceededDefaultModelLimit: "true",
+      continuationTask: "crypto_market_analysis",
+    });
+    expect(JSON.stringify(event)).not.toContain("symbol");
+    expect(validateRegistered(event)).toEqual({ valid: true, errors: [] });
+  });
+
+  test("accepts metadata-only interpretation validation events", () => {
+    const event = semanticEvent({
+      eventType: "crypto.analysis.interpretation_repaired",
+      category: "agent_tool",
+      metadata: {
+        runId: "run-456",
+        resultSha256: "b".repeat(64),
+        validationStatus: "repaired",
+        validationErrorCount: 3,
+        validationErrorCodes: "schema_mismatch,scenario_state_mismatch",
+        repairStrategy: "deterministic_patch",
+        modelCallCount: 1,
+        durationMs: 321,
+      },
+    });
+
+    expect(event.metadata).toMatchObject({
+      validationStatus: "repaired",
+      validationErrorCount: "3",
+      validationErrorCodes: "schema_mismatch,scenario_state_mismatch",
+      repairStrategy: "deterministic_patch",
+      modelCallCount: "1",
+      durationMs: "321",
+    });
+    expect(validateRegistered(event)).toEqual({ valid: true, errors: [] });
   });
 });

@@ -152,6 +152,28 @@ process.on("message", async (payload) => {
         approvalClass: request.approvalClass,
         payload: request.payload || {},
       });
+      const approvalRequestId = uuidv4();
+      await DataAccessCenter.toolInvocation.requestApproval({
+        approvalRequestId,
+        agentInvocationId: agentHandler.aibitat.handlerProps?.invocation?.uuid,
+        clientTurnId:
+          agentHandler.aibitat.handlerProps?.invocation?.clientTurnId,
+        ownerUserId,
+        ownerAuthUserId,
+        toolName: request.skillName,
+        approvalClass: decision.approvalClass,
+        scope: request.payload || {},
+      });
+      const persisted = await DataAccessCenter.toolInvocation.resolveApproval({
+        approvalRequestId,
+        approved: decision.approved,
+        reasonCode: decision.approved ? null : "scheduled_capability_denied",
+      });
+      if (!persisted) {
+        const error = new Error("SCHEDULED_TOOL_APPROVAL_PERSIST_FAILED");
+        error.code = "SCHEDULED_TOOL_APPROVAL_PERSIST_FAILED";
+        throw error;
+      }
       toolCalls.push({
         type: "capability-decision",
         serviceIdentity: decision.serviceIdentity,
@@ -177,7 +199,11 @@ process.on("message", async (payload) => {
         },
         null
       );
-      return { approved: decision.approved, message: decision.message };
+      return {
+        approved: decision.approved,
+        message: decision.message,
+        requestId: approvalRequestId,
+      };
     };
 
     // Capture tool results for the execution trace

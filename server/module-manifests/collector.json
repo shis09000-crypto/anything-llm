@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "collector",
+  "name": "Collector",
+  "version": "1.0.0",
+  "kind": "worker",
+  "owner": "knowledge",
+  "criticality": "medium",
+  "runtimeRole": "collector",
+  "sourcePaths": ["collector/"],
+  "capabilities": ["parse", "scrape", "ocr"],
+  "routes": { "public": [], "internal": ["/accepts", "/process"] },
+  "rpc": { "provides": ["collector.parse"], "consumes": [] },
+  "events": { "publishes": ["collector.job.*"], "subscribes": [] },
+  "data": { "schemas": [], "objectPrefixes": ["knowledge/uploads", "knowledge/collector"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/collector",
+    "keyDomains": ["file"],
+    "allowedCallers": ["knowledge-ingest", "background-worker"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/collector",
+    "healthPath": "/health",
+    "readinessPath": "/health",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.99,
+    "reconnectP95Ms": 0
+  },
+  "dependsOn": ["key-custody", "infra:object-store"]
+}

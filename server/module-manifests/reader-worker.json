@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "reader-worker",
+  "name": "Reader Worker",
+  "version": "1.0.0",
+  "kind": "worker",
+  "owner": "knowledge",
+  "criticality": "medium",
+  "runtimeRole": "reader-worker",
+  "sourcePaths": ["server/reader-worker.js", "server/modules/reader/", "server/utils/readerWorker/"],
+  "capabilities": ["preview", "thumbnail", "classification", "postprocess"],
+  "routes": { "public": [], "internal": ["/health", "/snapshot"] },
+  "rpc": { "provides": ["reader.process"], "consumes": [] },
+  "events": { "publishes": ["reader.job.*"], "subscribes": ["reader.requested"] },
+  "data": { "schemas": ["knowledge_reader"], "objectPrefixes": ["knowledge/previews"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/reader-worker",
+    "keyDomains": ["file"],
+    "allowedCallers": ["knowledge-ingest", "background-worker"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/reader-worker",
+    "healthPath": "/health",
+    "readinessPath": "/snapshot",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.99,
+    "reconnectP95Ms": 0
+  },
+  "dependsOn": ["key-custody", "infra:postgresql", "infra:object-store", "infra:nats"]
+}

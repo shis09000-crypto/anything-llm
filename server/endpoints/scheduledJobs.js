@@ -2,7 +2,7 @@ const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody, safeJsonParse, userFromSession } = require("../utils/http");
-const { BackgroundService } = require("../utils/BackgroundWorkers");
+const { schedulerControl } = require("../utils/scheduler");
 const {
   TelemetryRepository: Telemetry,
 } = require("../repositories/telemetryRepository");
@@ -12,11 +12,22 @@ const {
   normalizeCapabilityManifest,
 } = require("../utils/plugins/securityPolicy");
 
-// BackgroundService is a singleton, so `new BackgroundService()` anywhere in
-// the codebase returns the same instance that `server/index.js` booted. We
-// grab that reference once and reuse it across handlers.
-const backgroundService = new BackgroundService();
+// Desktop/legacy mode retains the in-process scheduler adapter. Distributed
+// mode routes the same control surface to the independently deployable
+// scheduler service; durable reconciliation repairs missed CRUD notifications.
+const scheduler = schedulerControl();
 const CRYPTO_ACCOUNT_TOOL_PREFIX = "crypto-account-agent#";
+
+async function notifyScheduler(operation, fallback = null) {
+  try {
+    return { result: await operation(), pending: false };
+  } catch (error) {
+    console.warn("[SchedulerControl] deferred reconciliation", {
+      code: error?.code || error?.message || "scheduler_unavailable",
+    });
+    return { result: fallback, pending: true };
+  }
+}
 
 async function schedulerOwner(request, response) {
   const user =
@@ -192,8 +203,10 @@ function scheduledJobEndpoints(app) {
             });
           }
 
-          const killed = backgroundService.killRun(run.jobId, run.id);
-          if (!killed) await ScheduledJobRun.kill(run.id);
+          await notifyScheduler(() => scheduler.killRun(run.jobId, run.id), {
+            killed: false,
+          });
+          await ScheduledJobRun.kill(run.id);
           return response.status(200).json({ success: true });
         }
       } catch {
@@ -325,9 +338,15 @@ function scheduledJobEndpoints(app) {
           return response.status(400).json({ job: null, error });
         }
 
-        backgroundService.addScheduledJob(job);
+        const schedulerSync = await notifyScheduler(() =>
+          scheduler.addScheduledJob(job)
+        );
         Telemetry.sendTelemetry("scheduled_job_created").catch(() => {});
-        return response.status(201).json({ job, error: null });
+        return response.status(201).json({
+          job,
+          error: null,
+          schedulerPending: schedulerSync.pending,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(e.httpStatus || 500);
@@ -456,9 +475,15 @@ function scheduledJobEndpoints(app) {
           return response.status(400).json({ job: null, error });
         }
 
-        await backgroundService.syncScheduledJob(job.id);
+        const schedulerSync = await notifyScheduler(() =>
+          scheduler.syncScheduledJob(job.id)
+        );
 
-        return response.status(200).json({ job, error: null });
+        return response.status(200).json({
+          job,
+          error: null,
+          schedulerPending: schedulerSync.pending,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(e.httpStatus || 500);
@@ -478,10 +503,15 @@ function scheduledJobEndpoints(app) {
           request.params.id
         );
         if (!job) return;
-        backgroundService.removeScheduledJob(job.id);
+        const schedulerSync = await notifyScheduler(() =>
+          scheduler.removeScheduledJob(job.id)
+        );
 
         const success = await ScheduledJob.delete(job.id);
-        return response.status(200).json({ success });
+        return response.status(200).json({
+          success,
+          schedulerPending: schedulerSync.pending,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(e.httpStatus || 500);
@@ -520,9 +550,14 @@ function scheduledJobEndpoints(app) {
           enabled: !job.enabled,
         });
 
-        await backgroundService.syncScheduledJob(job.id);
+        const schedulerSync = await notifyScheduler(() =>
+          scheduler.syncScheduledJob(job.id)
+        );
 
-        return response.status(200).json({ job: updated });
+        return response.status(200).json({
+          job: updated,
+          schedulerPending: schedulerSync.pending,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(e.httpStatus || 500);
@@ -543,7 +578,12 @@ function scheduledJobEndpoints(app) {
         );
         if (!job) return;
 
-        const run = await backgroundService.enqueueScheduledJob(job.id);
+        const idempotencyKey =
+          String(request.get("idempotency-key") || "").trim() ||
+          `manual:${job.id}:${Date.now()}`;
+        const run = await scheduler.enqueueScheduledJob(job.id, {
+          idempotencyKey,
+        });
         return response
           .status(200)
           .json({ success: true, skipped: !run, error: null });

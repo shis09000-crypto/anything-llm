@@ -22,6 +22,7 @@
     "@lobehub/icons": "^4.0.3",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@mintplex-labs/piper-tts-web": "^1.0.4",
+    "@noble/post-quantum": "0.6.1",
     "@phosphor-icons/react": "^2.1.7",
     "@serenity-kit/opaque": "^1.1.0",
     "@simplewebauthn/browser": "^13.3.0",

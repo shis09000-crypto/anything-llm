@@ -281,7 +281,7 @@ function getVectorDbClass(getExactly = null) {
  * @param {{provider: string | null, model: string | null} | null} params - Initialize params for LLMs provider
  * @returns {BaseLLMProvider}
  */
-function getLLMProvider({ provider = null, model = null } = {}) {
+function getLocalLLMProvider({ provider = null, model = null } = {}) {
   const LLMSelection = provider ?? process.env.LLM_PROVIDER ?? "openai";
   const embedder = getEmbeddingEngineSelection();
 
@@ -401,6 +401,15 @@ function getLLMProvider({ provider = null, model = null } = {}) {
         `ENV: No valid LLM_PROVIDER value found in environment! Using ${process.env.LLM_PROVIDER}`
       );
   }
+}
+
+function getLLMProvider({ provider = null, model = null } = {}) {
+  const delegate = getLocalLLMProvider({ provider, model });
+  const { wrapWithModelGateway } = require("../modelGateway/remoteProvider");
+  return wrapWithModelGateway(delegate, {
+    provider: provider ?? process.env.LLM_PROVIDER ?? "openai",
+    model: model ?? delegate.model ?? null,
+  });
 }
 
 /**

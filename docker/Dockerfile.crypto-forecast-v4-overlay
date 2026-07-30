@@ -1,0 +1,13 @@
+ARG ATHENA_BASE_IMAGE=athena-anythingllm:base-before-crypto-v4-20260730
+FROM ${ATHENA_BASE_IMAGE}
+
+USER root
+
+COPY --chown=1000:1000 server/utils/cryptoForecasting \
+  /app/server/utils/cryptoForecasting
+COPY --chown=1000:1000 server/scripts/crypto-forecast-v4-replay.js \
+  /app/server/scripts/crypto-forecast-v4-replay.js
+COPY --chown=1000:1000 server/scripts/sign-crypto-forecast-model.js \
+  /app/server/scripts/sign-crypto-forecast-model.js
+
+USER 1000:1000

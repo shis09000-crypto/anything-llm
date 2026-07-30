@@ -410,6 +410,12 @@ async function main() {
     buildStateGraph,
     explainEvent,
   } = require("../utils/operations/stateGraph");
+  const {
+    ModuleHealthMonitor,
+    parseEndpointMap,
+  } = require("../utils/operations/moduleHealthMonitor");
+  const { projectFlows } = require("../utils/operations/flowProjection");
+  const { loadManifests } = require("../utils/modulePlatform/manifestRegistry");
   const { agentDefinitions } = require("../utils/operations/agentRegistry");
   const {
     runShadowAgents,
@@ -448,6 +454,7 @@ async function main() {
     },
   };
   const audit = [];
+  let moduleMonitor = null;
   try {
     const health = await plane.start();
     assert(health.ready, "operations_plane_not_ready");
@@ -662,11 +669,26 @@ async function main() {
     }
     const timeline = await plane.timeline({ limit: 500 });
     const shadow = runShadowAgents({ events: timeline, metrics: [] });
+    moduleMonitor = new ModuleHealthMonitor({ env: process.env });
+    const localProviders = liveInfrastructure
+      ? {
+          "operations-plane": () => plane.health(),
+        }
+      : Object.fromEntries(
+          loadManifests().map((manifest) => [
+            manifest.id,
+            () => ({ ready: true }),
+          ])
+        );
+    moduleMonitor.start({ localProviders });
+    const moduleHealth = await moduleMonitor.refresh();
     const graph = buildStateGraph({
       events: timeline,
       agents: await agentDefinitions(),
       syncState: { ready: true, deadLetterOutbox: 0 },
+      moduleHealth,
     });
+    const flows = projectFlows(timeline);
     const explanation = explainEvent(
       timeline.find((event) => event.eventId === incident.eventId)
     );
@@ -674,6 +696,31 @@ async function main() {
     assert(correlationRate >= 0.95, "golden_journey_correlation_below_slo");
     assert(timeline.length >= 6, "semantic_timeline_incomplete");
     assert(graph.summary.nodes > 10, "state_graph_incomplete");
+    assert(
+      moduleHealth.summary.degraded === 0,
+      "module_health_contains_degraded_runtime"
+    );
+    if (liveInfrastructure) {
+      const configuredEndpoints = Object.keys(
+        parseEndpointMap(process.env)
+      ).length;
+      assert(configuredEndpoints > 0, "module_health_endpoints_missing");
+      assert(
+        moduleHealth.modules
+          .filter((module) => module.endpointConfigured)
+          .every((module) => module.status === "healthy"),
+        "configured_module_health_probe_failed"
+      );
+    } else {
+      assert(
+        moduleHealth.summary.healthy === loadManifests().length,
+        "isolated_module_health_contract_incomplete"
+      );
+    }
+    assert(
+      flows.summary.successful >= coverage.length,
+      "golden_journey_flow_projection_incomplete"
+    );
     assert(shadow.findings.length >= 2, "shadow_agents_found_no_incident");
     assert(explanation?.evidence?.length, "incident_evidence_missing");
     if (!liveInfrastructure)
@@ -707,6 +754,8 @@ async function main() {
     };
     report.otel = { ...otlp.received };
     report.stateGraph = graph.summary;
+    report.moduleHealth = moduleHealth.summary;
+    report.flows = flows.summary;
     report.shadowAgents = {
       mode: shadow.mode,
       canExecuteActions: shadow.canExecuteActions,
@@ -732,6 +781,7 @@ async function main() {
   } finally {
     console.info = originalConsoleInfo;
     await plane.stop().catch(() => null);
+    await moduleMonitor?.stop().catch(() => null);
     await shutdownOpenTelemetry().catch(() => null);
     await DataAccessCenter.runtimeLifecycle
       .disconnectDatabases()

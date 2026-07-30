@@ -15,6 +15,7 @@ yarn.lock
 .idea
 .playwright-mcp/
 .anythingllm-runtime/
+.anythingllm-build/
 .dev-ssl/
 frontend/public/athena-mobile-dev-ca.crt
 anythingllm-data-sync-backups/

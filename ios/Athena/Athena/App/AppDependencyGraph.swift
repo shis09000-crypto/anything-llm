@@ -44,8 +44,10 @@ final class AppDependencies {
     var sessionState: AppSessionState
     var passkeyLoginError: String? = nil
     private var started = false
+    private var applicationBackgrounded = false
     private var deferredStartupTask: Task<Void, Never>?
     private let clientIdentityRecoveryGate = APISecurityRecoveryGate()
+    private let sessionRecoveryGate = APISecurityRecoveryGate()
 
     init(
         apiClient: APIClient,
@@ -450,7 +452,8 @@ final class AppDependencies {
         } catch {
             try? authCenter.clearToken()
         }
-        let hasStoredSession = authCenter.accessToken != nil
+        var hasStoredSession = authCenter.accessToken != nil
+        let hasRecoveryBinding = authCenter.hasSessionRecoveryBinding()
 
         let runtimeTask = Task { @MainActor [weak self] in
             AppPerformanceSignposts.event("RuntimeBootstrapStarted")
@@ -459,11 +462,13 @@ final class AppDependencies {
         }
         await waitForLaunchGate(startedAt: launchStartedAt)
         AppPerformanceSignposts.event("LaunchGateFinished")
-        sessionState = hasStoredSession ? .restoringSession : .signedOut(nil)
+        sessionState = hasStoredSession || hasRecoveryBinding
+            ? .restoringSession
+            : .signedOut(nil)
 
         await runtimeTask.value
         guard case .loaded = runtime.loadState else {
-            if hasStoredSession {
+            if hasStoredSession || hasRecoveryBinding {
                 sessionState = .failed(runtimeErrorMessage)
             }
             return
@@ -478,9 +483,28 @@ final class AppDependencies {
         }
 
         do {
-            _ = try clientIdentityCenter.prepare()
+            let clientID = try clientIdentityCenter.prepare()
             try requestSigningCenter.prepareDeviceKey()
             try await authCenter.refreshLoginMode(using: apiClient)
+            if authCenter.accessToken == nil, hasRecoveryBinding {
+                switch await authCenter.recoverStoredSession(
+                    clientID: clientID,
+                    source: "bootstrap",
+                    using: apiClient
+                ) {
+                case .recovered:
+                    hasStoredSession = true
+                case .unavailable(let reason, let transient, _):
+                    if transient {
+                        sessionState = .failed(
+                            "登录状态恢复暂时不可用（\(reason)），网络恢复后可直接重试。"
+                        )
+                    } else {
+                        sessionState = .signedOut(nil)
+                    }
+                    return
+                }
+            }
             guard hasStoredSession, authCenter.accessToken != nil else {
                 return
             }
@@ -577,12 +601,31 @@ final class AppDependencies {
     }
 
     func retryAuthenticatedStartup() async {
-        guard authCenter.accessToken != nil else {
-            sessionState = .signedOut(nil)
-            return
-        }
         do {
             sessionState = .restoringSession
+            let clientID = try clientIdentityCenter.prepare()
+            try requestSigningCenter.prepareDeviceKey()
+            if authCenter.accessToken == nil {
+                guard authCenter.hasSessionRecoveryBinding(for: clientID) else {
+                    sessionState = .signedOut(nil)
+                    return
+                }
+                switch await authCenter.recoverStoredSession(
+                    clientID: clientID,
+                    source: "bootstrap",
+                    using: apiClient
+                ) {
+                case .recovered:
+                    break
+                case .unavailable(let reason, let transient, _):
+                    sessionState = transient
+                        ? .failed(
+                            "登录状态恢复暂时不可用（\(reason)），网络恢复后可直接重试。"
+                        )
+                        : .signedOut(nil)
+                    return
+                }
+            }
             try await runSecurityTask(label: "auth:validate-session") { [self] in
                 try await self.authCenter.validateStoredSession(using: self.apiClient)
             }
@@ -635,6 +678,7 @@ final class AppDependencies {
         userStateSyncClient.reset()
         try? requestSigningCenter.clearSigningSecret()
         try? authCenter.clearToken()
+        try? authCenter.clearSessionRecoveryBinding()
         userRootKeyCenter.lock()
         if resetDeviceIdentity {
             try? userRootKeyCenter.resetDeviceIdentity()
@@ -666,6 +710,10 @@ final class AppDependencies {
     }
 
     func setApplicationBackgrounded(_ backgrounded: Bool) async {
+        guard applicationBackgrounded != backgrounded else {
+            return
+        }
+        applicationBackgrounded = backgrounded
         if backgrounded {
             sensitiveSessionClient.end()
             accountSettingsCenter.clearSensitiveMemory()
@@ -721,6 +769,22 @@ final class AppDependencies {
             // through the normal security recovery path.
             guard authCenter.accessToken != nil else {
                 throw error
+            }
+        }
+        if let clientID = clientIdentityCenter.clientID {
+            do {
+                try await runSecurityTask(
+                    label: "auth:session-recovery-enroll"
+                ) { [self] in
+                    try await self.authCenter.enrollSessionRecovery(
+                        clientID: clientID,
+                        using: self.apiClient
+                    )
+                }
+            } catch {
+                // Enrollment only adds silent recovery for this existing
+                // device-bound session. A transient enrollment failure must
+                // not invalidate the session that just authenticated.
             }
         }
         if #available(iOS 26.0, *),
@@ -871,23 +935,74 @@ final class AppDependencies {
                 try await requestSigningCenter.refreshSigningSecret(using: apiClient)
                 return true
             } catch {
-                signOut()
                 return false
             }
-        case .invalidSignature, .clientRevoked:
+        case .invalidSignature:
+            return await restoreMutationSecurity()
+        case .clientRevoked:
             signOut(resetDeviceIdentity: true)
             return false
         case .clientIdentityReauthRequired:
             return await clientIdentityRecoveryGate.run { [weak self] in
                 guard let self else { return false }
-                self.nativeSyncCenter.stop(clearCursor: true)
-                self.signOut(resetDeviceIdentity: true)
-                await self.loginWithPasskey()
-                await self.deferredStartupTask?.value
-                return self.authCenter.accessToken != nil &&
-                    self.sessionState == .ready
+                return await self.reauthenticateClientIdentity()
             }
         case .sessionExpired:
+            return await sessionRecoveryGate.run { [weak self] in
+                guard
+                    let self,
+                    let clientID = self.clientIdentityCenter.clientID,
+                    self.authCenter.hasSessionRecoveryBinding(for: clientID)
+                else {
+                    self?.signOut()
+                    return false
+                }
+                switch await self.authCenter.recoverStoredSession(
+                    clientID: clientID,
+                    source: "api",
+                    using: self.apiClient
+                ) {
+                case .recovered:
+                    return true
+                case .unavailable(_, let transient, let terminal):
+                    if terminal || !transient {
+                        self.signOut()
+                    }
+                    return false
+                }
+            }
+        }
+    }
+
+    private func reauthenticateClientIdentity() async -> Bool {
+        guard authCenter.passkeyAvailable,
+              authCenter.nativePasskey?.serverAvailable == true else {
+            signOut(resetDeviceIdentity: true)
+            return false
+        }
+
+        sessionState = .restoringSession
+        nativeSyncCenter.stop(clearCursor: false)
+        do {
+            try authCenter.clearSessionRecoveryBinding()
+            try authCenter.clearToken()
+            try userRootKeyCenter.resetDeviceIdentity()
+            try requestSigningCenter.resetDeviceKey()
+            try clientIdentityCenter.reset()
+            _ = try clientIdentityCenter.prepare()
+            try requestSigningCenter.prepareDeviceKey()
+            try await authCenter.loginWithPasskey(
+                using: apiClient,
+                authenticator: passkeyAuthenticationClient
+            )
+            try await completeAuthenticatedStartup()
+            await deferredStartupTask?.value
+            return authCenter.accessToken != nil && sessionState == .ready
+        } catch PasskeyAuthenticationError.cancelled {
+            signOut()
+            return false
+        } catch {
+            passkeyLoginError = "设备身份恢复失败，请重新登录。"
             signOut()
             return false
         }
@@ -901,7 +1016,7 @@ final class AppDependencies {
     }
 
     private var postQuantumContractErrorMessage: String {
-        "服务器尚未提供 Athena 2.4 所要求的硬件后量子签名契约，已阻止登录以避免降级到旧签名协议。"
+        "当前设备未能建立 Athena 2.4 所要求的硬件后量子签名能力。请确认已安装最新版 Athena；系统不会降级到旧签名协议。"
     }
 
     private func waitForLaunchGate(startedAt: Date) async {

@@ -22,6 +22,8 @@ import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import { API_BASE } from "@/utils/constants";
 import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
+import { isApiAbortError } from "@/lib/communication/apiError";
+import { recordClientUiObservation } from "@/lib/communication/clientUiObservability";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
 import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
 import { useTranslation } from "react-i18next";
@@ -41,6 +43,10 @@ const HERO_BACKGROUND_ALLOWED_TYPES = new Set([
 const HERO_BACKGROUND_RECOMMENDATION =
   "建议上传 1600×900 或 1800×900 的横向 PNG/JPG/WebP，比例约 16:9 到 2:1，文件小于 5MB。";
 const overviewCache = new Map();
+
+function overviewRetryDelay(retryCount) {
+  return Math.min(100 * 2 ** Math.max(0, retryCount - 1), 1_000);
+}
 
 function formatTime(value) {
   if (!value) return "暂无";
@@ -400,6 +406,7 @@ export default function WorkspaceOverview({
     async ({ force = false } = {}) => {
       if (!workspace?.slug || (!shouldLoad && !force)) return;
       const cached = overviewCache.get(cacheKey);
+      const cachedOverview = cached?.overview || null;
       if (cached?.overview && !force) {
         setOverview(cached.overview);
         setLoading(false);
@@ -409,31 +416,104 @@ export default function WorkspaceOverview({
       }
 
       requestRef.current.controller?.abort();
-      const controller = new AbortController();
-      const requestId = requestRef.current.id + 1;
-      requestRef.current = { id: requestId, controller };
+      const generation = requestRef.current.id + 1;
+      requestRef.current = { id: generation, controller: null };
+      let retryCount = 0;
+      let firstPreemptedAt = 0;
 
-      const result = await WorkspaceOverviewModel.get(
-        workspace.slug,
-        {
-          threadSlug,
-        },
-        {
-          signal: controller.signal,
+      while (requestRef.current.id === generation) {
+        const controller = new AbortController();
+        requestRef.current.controller = controller;
+        const startedAt = performance.now();
+        let correlatedRequestId = "";
+        let result = null;
+
+        try {
+          result = await WorkspaceOverviewModel.get(
+            workspace.slug,
+            {
+              threadSlug,
+            },
+            {
+              signal: controller.signal,
+              onRequestMetadata: ({ requestId }) => {
+                correlatedRequestId = requestId || correlatedRequestId;
+              },
+            }
+          );
+        } catch (error) {
+          if (
+            controller.signal.aborted ||
+            requestRef.current.id !== generation
+          ) {
+            return;
+          }
+          if (!isApiAbortError(error)) {
+            result = {
+              error: error?.message || "加载工作区首页失败。",
+              failureKind: error?.status ? "http_error" : "network_error",
+              requestId: error?.details?.requestId || correlatedRequestId,
+            };
+          } else {
+            retryCount += 1;
+            if (!firstPreemptedAt) firstPreemptedAt = Date.now();
+            recordClientUiObservation({
+              event: "overview_preempted",
+              outcome: "observed",
+              reason: "scheduler_abort",
+              requestId: correlatedRequestId,
+              retryCount,
+              durationMs: performance.now() - startedAt,
+            });
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, overviewRetryDelay(retryCount))
+            );
+            if (
+              controller.signal.aborted ||
+              requestRef.current.id !== generation ||
+              !isVisible
+            ) {
+              return;
+            }
+            continue;
+          }
         }
-      );
-      if (controller.signal.aborted || requestRef.current.id !== requestId)
+
+        if (controller.signal.aborted || requestRef.current.id !== generation) {
+          return;
+        }
+        if (!result?.error) {
+          overviewCache.set(cacheKey, {
+            overview: result,
+            updatedAt: Date.now(),
+          });
+          setOverview(result);
+          if (retryCount > 0) {
+            recordClientUiObservation({
+              event: "overview_recovered",
+              outcome: "recovered",
+              reason: "scheduler_abort",
+              requestId: correlatedRequestId,
+              retryCount,
+              durationMs: Date.now() - firstPreemptedAt,
+            });
+          }
+        } else {
+          setOverview(cachedOverview || result);
+          recordClientUiObservation({
+            event: "overview_failed",
+            outcome: "failed",
+            reason: result.failureKind || "unknown",
+            requestId: result.requestId || correlatedRequestId,
+            retryCount,
+            durationMs: performance.now() - startedAt,
+          });
+        }
+        setLoading(false);
         return;
-      if (!result?.error) {
-        overviewCache.set(cacheKey, {
-          overview: result,
-          updatedAt: Date.now(),
-        });
       }
-      setOverview(result);
-      setLoading(false);
     },
-    [cacheKey, shouldLoad, threadSlug, workspace?.slug]
+    [cacheKey, isVisible, shouldLoad, threadSlug, workspace?.slug]
   );
 
   const refreshKnowledgeProfile = useCallback(

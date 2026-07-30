@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "authentication",
+  "name": "Identity and Security Control",
+  "version": "1.0.0",
+  "kind": "security-service",
+  "owner": "security",
+  "criticality": "critical",
+  "runtimeRole": "identity",
+  "sourcePaths": ["server/endpoints/auth", "server/utils/requestSigning/", "server/utils/clientIdentity/", "server/utils/security/"],
+  "capabilities": ["password", "passkey", "session", "device-identity", "principal-assertion"],
+  "routes": { "public": ["/api/auth/", "/api/security/", "/api/vault/"], "internal": ["/internal/v1/principal/assert", "/internal/v1/session/introspect"] },
+  "rpc": { "provides": ["identity.assert", "identity.introspect"], "consumes": ["key-custody.wrap", "key-custody.unwrap"] },
+  "events": { "publishes": ["auth.*", "security.*"], "subscribes": ["key-custody.rotation.*"] },
+  "data": { "schemas": ["identity"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/identity",
+    "keyDomains": ["identity", "audit"],
+    "allowedCallers": ["edge-web", "athena-api", "chat-runtime", "agent-runtime", "scheduler"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/identity",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["key-custody", "infra:postgresql", "infra:nats"]
+}

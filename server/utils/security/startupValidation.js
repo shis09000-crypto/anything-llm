@@ -21,6 +21,31 @@ const WEAK_SECRET_VALUES = new Set([
   "jwt-secret",
 ]);
 
+const MODEL_PROVIDER_CREDENTIAL_ENV_KEYS = Object.freeze([
+  "ANTHROPIC_API_KEY",
+  "APIPIE_LLM_API_KEY",
+  "AZURE_OPENAI_KEY",
+  "COHERE_API_KEY",
+  "COMETAPI_LLM_API_KEY",
+  "DEEPSEEK_API_KEY",
+  "FIREWORKS_AI_LLM_API_KEY",
+  "GEMINI_API_KEY",
+  "GENERIC_OPEN_AI_API_KEY",
+  "GITEE_AI_API_KEY",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
+  "MOONSHOT_AI_API_KEY",
+  "NOVITA_LLM_API_KEY",
+  "OPENROUTER_API_KEY",
+  "OPEN_AI_KEY",
+  "PERPLEXITY_API_KEY",
+  "PPIO_API_KEY",
+  "SAMBANOVA_LLM_API_KEY",
+  "TOGETHER_AI_API_KEY",
+  "XAI_LLM_API_KEY",
+  "ZAI_API_KEY",
+]);
+
 function present(value) {
   return String(value || "").trim();
 }
@@ -38,6 +63,12 @@ function validateStrongSecret(name, value, minLength = 32) {
 }
 
 function validateMasterKey(env = process.env) {
+  if (
+    env.ATHENA_KEY_CUSTODY_CUTOVER === "true" &&
+    present(env.ATHENA_KEY_CUSTODY_URL)
+  ) {
+    return null;
+  }
   if (
     ["external-lease", "vault-agent", "kms-sidecar"].includes(
       present(env.ATHENA_KEY_PROVIDER).toLowerCase()
@@ -69,6 +100,18 @@ function productionSecurityFindings(env = process.env) {
   const findings = [];
   const distributed = present(env.ATHENA_RUNTIME_TOPOLOGY) === "distributed";
   const enterpriseGate = envFlag(env.ATHENA_ENTERPRISE_RELEASE_GATE);
+  const accountPrivateHybridGate =
+    envFlag(env.ATHENA_PLUGIN_CAPABILITY_HYBRID_REQUIRED) ||
+    envFlag(env.ATHENA_CRYPTO_ACCOUNT_CUTOVER) ||
+    (distributed && env.ATHENA_CRYPTO_ACCOUNT_INLINE === "false");
+  const remoteCustody =
+    env.ATHENA_KEY_CUSTODY_CUTOVER === "true" &&
+    present(env.ATHENA_KEY_CUSTODY_URL);
+  const runtimeRole = present(env.ATHENA_RUNTIME_ROLE || "api");
+  const remoteAgentModel =
+    env.ATHENA_MODEL_GATEWAY_CUTOVER === "true" &&
+    present(env.ATHENA_MODEL_GATEWAY_URL) &&
+    runtimeRole === "agent-runtime";
 
   if (!present(env.ATHENA_PASSWORD_PEPPER_FILE)) {
     findings.push(
@@ -100,6 +143,69 @@ function productionSecurityFindings(env = process.env) {
   if (distributed && env.ATHENA_SERVICE_MTLS_REQUIRED !== "true") {
     findings.push("Distributed production requires workload service mTLS.");
   }
+  if (distributed && env.ATHENA_CONTENT_STORE !== "s3") {
+    findings.push(
+      "Distributed production requires S3-compatible content object storage."
+    );
+  }
+  if (distributed && !present(env.ATHENA_S3_BUCKET)) {
+    findings.push("Distributed production requires ATHENA_S3_BUCKET.");
+  }
+  if (distributed && env.ATHENA_READER_WORKER_QUEUE !== "true") {
+    findings.push(
+      "Distributed production requires the durable Reader Worker queue."
+    );
+  }
+  if (distributed && env.ATHENA_READER_WORKER_FALLBACK_IN_PROCESS !== "false") {
+    findings.push(
+      "Distributed production forbids Reader Worker in-process fallback."
+    );
+  }
+
+  if (accountPrivateHybridGate) {
+    if (env.ATHENA_PLUGIN_CAPABILITY_HYBRID_REQUIRED !== "true") {
+      findings.push(
+        "Private-account tool cutover requires ATHENA_PLUGIN_CAPABILITY_HYBRID_REQUIRED=true."
+      );
+    }
+    if (env.ATHENA_REQUIRE_NODE24_PQ_PROBE !== "true") {
+      findings.push(
+        "Hybrid private-account capabilities require ATHENA_REQUIRE_NODE24_PQ_PROBE=true."
+      );
+    }
+    for (const name of [
+      "ATHENA_PLUGIN_CAPABILITY_ED25519_PRIVATE_KEY_FILE",
+      "ATHENA_PLUGIN_CAPABILITY_ED25519_PUBLIC_KEY_FILE",
+      "ATHENA_PLUGIN_CAPABILITY_MLDSA65_PRIVATE_KEY_FILE",
+      "ATHENA_PLUGIN_CAPABILITY_MLDSA65_PUBLIC_KEY_FILE",
+    ]) {
+      if (!present(env[name])) findings.push(`${name} is required.`);
+    }
+  }
+
+  if (remoteCustody && runtimeRole !== "key-custody") {
+    for (const name of [
+      MASTER_KEY_ENV,
+      "ATHENA_MASTER_KEY_FILE",
+      "ATHENA_KEY_LEASE_FILE",
+    ]) {
+      if (present(env[name])) {
+        findings.push(
+          `${name} must not be mounted outside the remote Key Custody service.`
+        );
+      }
+    }
+  }
+
+  if (remoteAgentModel) {
+    for (const name of MODEL_PROVIDER_CREDENTIAL_ENV_KEYS) {
+      if (present(env[name])) {
+        findings.push(
+          `${name} must be mounted only in Model Gateway after Agent model cutover.`
+        );
+      }
+    }
+  }
 
   if (env.ATHENA_BROADCAST_TRANSPORT === "nats") {
     const {
@@ -112,6 +218,7 @@ function productionSecurityFindings(env = process.env) {
   const pqRuntimeRequired =
     enterpriseGate ||
     iosHighRiskPQRequired ||
+    accountPrivateHybridGate ||
     env.ATHENA_REQUIRE_NODE24_PQ_PROBE === "true";
   if (pqRuntimeRequired) {
     const runtimeFindings = requiredPostQuantumFindings({
@@ -175,10 +282,14 @@ function productionSecurityFindings(env = process.env) {
     if (
       !["external-lease", "vault-agent", "kms-sidecar"].includes(
         present(env.ATHENA_KEY_PROVIDER).toLowerCase()
+      ) &&
+      !(
+        env.ATHENA_KEY_CUSTODY_CUTOVER === "true" &&
+        present(env.ATHENA_KEY_CUSTODY_URL)
       )
     ) {
       findings.push(
-        "Enterprise production requires a Vault/KMS external key lease provider."
+        "Enterprise production requires a Vault/KMS external key lease provider or remote Key Custody."
       );
     }
     for (const name of [

@@ -3525,7 +3525,7 @@ function systemEndpoints(app) {
     try {
       const sessionUser = await userFromSession(request, response);
       const body = reqBody(request);
-      const { displayName, password, currentPassword, bio } = body;
+      const { displayName, password, currentPassword, reauthToken, bio } = body;
       const id = Number(sessionUser.id);
 
       if (!id) {
@@ -3539,19 +3539,23 @@ function systemEndpoints(app) {
       if (Object.prototype.hasOwnProperty.call(body, "username"))
         updates.username = body.username;
       if (password) {
-        if (!currentPassword) {
+        const reauth = validateReauthToken(reauthToken, id, "password_change");
+        if (!currentPassword && !reauth) {
           response.status(400).json({
             success: false,
-            error: "Current password is required to change password",
+            error:
+              "Current password or passkey reauthentication is required to change password",
           });
           return;
         }
 
         const storedUser = await User._get({ id });
         if (
-          !storedUser?.password ||
-          !(await verifyPassword(String(currentPassword), storedUser.password))
-            .valid
+          !reauth &&
+          (!storedUser?.password ||
+            !(
+              await verifyPassword(String(currentPassword), storedUser.password)
+            ).valid)
         ) {
           response.status(400).json({
             success: false,
@@ -3574,6 +3578,7 @@ function systemEndpoints(app) {
 
       const { success, error } = await User.update(id, updates);
       if (success) {
+        if (password && reauthToken) consumeReauthToken(reauthToken);
         const changedFields = Object.keys(updates).filter(
           (field) => field !== "password"
         );

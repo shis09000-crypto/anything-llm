@@ -1,11 +1,11 @@
 /* eslint-env jest */
 
-jest.mock("../../utils/BackgroundWorkers", () => ({
-  BackgroundService: class {
-    addScheduledJob() {}
-    removeScheduledJob() {}
-    syncScheduledJob() {}
-  },
+jest.mock("../../utils/scheduler", () => ({
+  schedulerControl: () => ({
+    addScheduledJob() {},
+    removeScheduledJob() {},
+    syncScheduledJob() {},
+  }),
 }));
 
 const { scheduledJobBelongsTo } = require("../../endpoints/scheduledJobs");

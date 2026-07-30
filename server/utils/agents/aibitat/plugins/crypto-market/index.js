@@ -1,4 +1,8 @@
-const { GatePublicMarketClient } = require("../../../../cryptoGate");
+const {
+  GatePublicMarketClient,
+  marketCandles,
+  publicMarketSupportingEvidence,
+} = require("../../../../cryptoGate");
 const {
   MarketDataError,
   decimal,
@@ -8,6 +12,21 @@ const {
   optionalString,
   requiredString,
 } = require("../market-data/lib");
+const {
+  BARS_REQUESTED,
+  TIMEFRAME_CONFIG,
+  buildModelAnalysisView,
+  buildQuantAnalysis,
+  enforcePayloadBudget,
+} = require("./quantAnalysis");
+const { relativeStrength } = require("./supportingEvidence");
+const { validatedCryptoMarketContinuation } = require("./interpretation");
+const {
+  PUBLIC_FORECAST_POLICY,
+  SUPPORTED_SYMBOLS: FORECAST_SYMBOLS,
+  monitoringOnlyForecastingView,
+} = require("../../../../cryptoForecasting");
+const { CryptoRuntime } = require("../../../../../modules/crypto");
 
 const BINANCE_BASE_URL = "https://data-api.binance.vision/api/v3";
 
@@ -163,8 +182,12 @@ async function executeCryptoPrice(input, dependencies = {}) {
   };
 }
 
-async function executeCryptoMarketSnapshot(input, dependencies = {}) {
-  const { symbol, quote } = normalizedPair(input);
+async function executeSimpleCryptoMarketSnapshot(
+  input,
+  dependencies = {},
+  normalized = normalizedPair(input)
+) {
+  const { symbol, quote } = normalized;
   const mode = optionalString(input, "exchange_mode", "dual").toLowerCase();
   const gate = () => queryGate(symbol, quote, dependencies.gateClient);
   const binance = () => queryBinance(symbol, quote, dependencies.fetchImpl);
@@ -221,6 +244,327 @@ async function executeCryptoMarketSnapshot(input, dependencies = {}) {
   };
 }
 
+async function fetchAnalysisTimeframes({
+  symbol,
+  quote,
+  marketCandlesImpl = marketCandles,
+}) {
+  const pair = gatePair(symbol, quote);
+  const timeframeIds = Object.keys(TIMEFRAME_CONFIG);
+  const settled = await Promise.allSettled(
+    timeframeIds.map((range) =>
+      marketCandlesImpl({
+        pair,
+        range,
+        market: "spot",
+        includeTicker: false,
+        limit: BARS_REQUESTED,
+      })
+    )
+  );
+  const timeframePayloads = {};
+  const partialFailures = [];
+  settled.forEach((result, index) => {
+    const timeframe = timeframeIds[index];
+    if (
+      result.status === "fulfilled" &&
+      result.value?.success !== false &&
+      Array.isArray(result.value?.candles) &&
+      result.value.candles.length > 0
+    ) {
+      timeframePayloads[timeframe] = {
+        candles: result.value.candles.slice(-BARS_REQUESTED),
+        cacheHit: result.value.cacheHit === true,
+        source: "gate",
+      };
+      return;
+    }
+    const error = result.status === "rejected" ? result.reason : result.value;
+    partialFailures.push({
+      source: "gate_candles",
+      timeframe,
+      error:
+        error?.code ||
+        error?.errorCode ||
+        error?.error ||
+        "provider_unavailable",
+    });
+  });
+  return { timeframePayloads, partialFailures };
+}
+
+async function executeCryptoMarketSnapshot(input, dependencies = {}) {
+  const normalized = normalizedPair(input);
+  const analysisMode = optionalString(input, "mode", "simple").toLowerCase();
+  if (!["simple", "analysis"].includes(analysisMode))
+    throw new MarketDataError(
+      "invalid_input",
+      "Unsupported crypto market snapshot mode."
+    );
+  if (analysisMode === "simple")
+    return executeSimpleCryptoMarketSnapshot(input, dependencies, normalized);
+
+  const { symbol, quote } = normalized;
+  const exchangeMode = optionalString(
+    input,
+    "exchange_mode",
+    "dual"
+  ).toLowerCase();
+  if (!["gate", "binance", "dual", "auto"].includes(exchangeMode))
+    throw new MarketDataError("invalid_input", "Unsupported exchange_mode.");
+  const [snapshotResult, timeframeResult] = await Promise.allSettled([
+    executeSimpleCryptoMarketSnapshot(
+      { ...input, exchange_mode: "dual" },
+      dependencies,
+      normalized
+    ),
+    fetchAnalysisTimeframes({
+      symbol,
+      quote,
+      marketCandlesImpl: dependencies.marketCandles || marketCandles,
+    }),
+  ]);
+  const snapshot =
+    snapshotResult.status === "fulfilled"
+      ? snapshotResult.value
+      : {
+          tool: "crypto_market_snapshot",
+          ok: false,
+          error:
+            snapshotResult.reason?.code ||
+            snapshotResult.reason?.error ||
+            "providers_unavailable",
+        };
+  const timeframePayloads =
+    timeframeResult.status === "fulfilled"
+      ? timeframeResult.value.timeframePayloads
+      : {};
+  const partialFailures =
+    timeframeResult.status === "fulfilled"
+      ? [...timeframeResult.value.partialFailures]
+      : [
+          {
+            source: "gate_candles",
+            timeframe: "all",
+            error:
+              timeframeResult.reason?.code ||
+              timeframeResult.reason?.error ||
+              "provider_unavailable",
+          },
+        ];
+  if (snapshotResult.status === "rejected") {
+    partialFailures.push({
+      source: "spot_ticker_crosscheck",
+      error:
+        snapshotResult.reason?.code ||
+        snapshotResult.reason?.error ||
+        "providers_unavailable",
+    });
+  } else {
+    for (const exchange of ["gate", "binance"]) {
+      const source = snapshot.sources?.[exchange];
+      if (source?.ok !== false) continue;
+      partialFailures.push({
+        source: "spot_ticker_crosscheck",
+        exchange,
+        error: source.error || "provider_unavailable",
+      });
+    }
+  }
+
+  const benchmarkResult =
+    symbol === "BTC"
+      ? { timeframePayloads: {}, partialFailures: [] }
+      : await fetchAnalysisTimeframes({
+          symbol: "BTC",
+          quote,
+          marketCandlesImpl: dependencies.marketCandles || marketCandles,
+        });
+  const relativeStrengthByTimeframe =
+    symbol === "BTC"
+      ? {}
+      : Object.fromEntries(
+          Object.keys(TIMEFRAME_CONFIG)
+            .filter(
+              (id) =>
+                timeframePayloads[id]?.candles &&
+                benchmarkResult.timeframePayloads[id]?.candles
+            )
+            .map((id) => [
+              id,
+              relativeStrength(
+                timeframePayloads[id].candles,
+                benchmarkResult.timeframePayloads[id].candles
+              ),
+            ])
+        );
+  for (const failure of benchmarkResult.partialFailures || [])
+    partialFailures.push({
+      ...failure,
+      source: "gate_benchmark_candles",
+      benchmark: "BTC_USDT",
+    });
+
+  const marketEvidenceResult = await Promise.resolve()
+    .then(() =>
+      (
+        dependencies.publicMarketSupportingEvidence ||
+        publicMarketSupportingEvidence
+      )({
+        pair: gatePair(symbol, quote),
+        derivativesPair: gatePair(symbol, "USDT"),
+        spotPrice:
+          quote === "USDT" ? snapshot?.sources?.gate?.price || null : null,
+        ...(dependencies.collectorManager
+          ? { collectorManager: dependencies.collectorManager }
+          : {}),
+        ...(dependencies.derivativesClient
+          ? { derivativesClient: dependencies.derivativesClient }
+          : {}),
+      })
+    )
+    .catch((error) => ({
+      formulaVersion: "crypto-market-evidence-v1",
+      status: "unavailable",
+      spotMicrostructure: {
+        status: "unavailable",
+        error: error?.code || "provider_unavailable",
+      },
+      derivatives: {
+        status: "unavailable",
+        reason: error?.code || "provider_unavailable",
+      },
+    }));
+  const forecastingMicrostructure = await Promise.resolve()
+    .then(() => {
+      if (dependencies.forecastingMicrostructureProvider)
+        return dependencies.forecastingMicrostructureProvider({
+          symbol,
+          quote,
+        });
+      if (
+        quote !== "USDT" ||
+        !FORECAST_SYMBOLS.includes(symbol) ||
+        !CryptoRuntime.forecasting.enabled()
+      )
+        return { status: "unavailable" };
+      return CryptoRuntime.forecasting.microstructureEvidence(symbol);
+    })
+    .catch(() => ({ status: "unavailable" }));
+  if (forecastingMicrostructure.status !== "unavailable") {
+    marketEvidenceResult.spotMicrostructure = forecastingMicrostructure;
+    const derivativesAvailable = ["complete", "partial"].includes(
+      marketEvidenceResult.derivatives?.status
+    );
+    marketEvidenceResult.status =
+      forecastingMicrostructure.status === "available" && derivativesAvailable
+        ? "complete"
+        : forecastingMicrostructure.status === "warming"
+          ? "warming"
+          : "partial";
+  }
+  for (const failure of marketEvidenceResult.derivatives?.failures || [])
+    partialFailures.push({
+      source: `gate_derivatives_${failure.source}`,
+      error: failure.error,
+    });
+  if (marketEvidenceResult.derivatives?.reason)
+    partialFailures.push({
+      source: "gate_derivatives",
+      error: marketEvidenceResult.derivatives.reason,
+    });
+
+  const quant = buildQuantAnalysis({
+    timeframePayloads,
+    partialFailures,
+    marketEvidence: marketEvidenceResult,
+    relativeStrengthByTimeframe,
+  });
+  if (quant.analysisStatus === "unavailable")
+    throw new MarketDataError(
+      "providers_unavailable",
+      "Gate public candlestick data is unavailable."
+    );
+
+  const rawForecasting =
+    FORECAST_SYMBOLS.includes(symbol) && quote === "USDT"
+      ? await Promise.resolve()
+          .then(() => {
+            if (dependencies.forecastingProvider)
+              return dependencies.forecastingProvider({ symbol, quote });
+            if (!CryptoRuntime.forecasting.enabled())
+              return {
+                status: "unavailable",
+                reason: "forecasting_runtime_disabled",
+                horizons: {},
+              };
+            return CryptoRuntime.forecasting.latestForecasting(symbol);
+          })
+          .catch((error) => ({
+            status: "unavailable",
+            reason:
+              error?.code ||
+              error?.message ||
+              "forecasting_runtime_unavailable",
+            horizons: {},
+          }))
+      : {
+          status: "unavailable",
+          reason: "forecasting_asset_not_supported",
+          horizons: {},
+        };
+  const forecasting = monitoringOnlyForecastingView(rawForecasting);
+
+  return enforcePayloadBudget({
+    tool: "crypto_market_snapshot",
+    ok: true,
+    mode: "analysis",
+    symbol,
+    quote,
+    exchange_mode: exchangeMode,
+    snapshot,
+    provider: "gate",
+    source: "public_spot_tickers_and_candles",
+    sourceQuality: {
+      status:
+        partialFailures.length > 0 || marketEvidenceResult.status !== "complete"
+          ? "degraded"
+          : "complete",
+      tickerCrosscheck: {
+        required: true,
+        gate: snapshot?.sources?.gate?.ok === true,
+        binance: snapshot?.sources?.binance?.ok === true,
+      },
+      supportingEvidence: marketEvidenceResult.status,
+      forecasting: forecasting.status,
+    },
+    freshness: "near_realtime",
+    cache_hit:
+      Object.values(timeframePayloads).length > 0 &&
+      Object.values(timeframePayloads).every(
+        (timeframe) => timeframe.cacheHit === true
+      ),
+    analysisPolicy: PUBLIC_FORECAST_POLICY,
+    note: "Monitoring-only public market evidence. Current regimes and event conditions describe observed data; direct direction forecasts, directional probabilities, return targets, and trade instructions are disabled.",
+    timestamp: new Date().toISOString(),
+    forecasting,
+    ...quant,
+  });
+}
+
+function prepareCryptoMarketResultForModel(result, toolRun = null) {
+  let parsed = result;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return result;
+    }
+  }
+  if (!parsed || parsed.mode !== "analysis") return result;
+  return JSON.stringify(buildModelAnalysisView(parsed, toolRun));
+}
+
 const cryptoPrice = jsonTool({
   name: "crypto_price",
   description:
@@ -251,7 +595,7 @@ const cryptoPrice = jsonTool({
 const cryptoMarketSnapshot = jsonTool({
   name: "crypto_market_snapshot",
   description:
-    "Query a public cryptocurrency market snapshot including current price, 24-hour change, volume, bid, ask, and spread. Dual mode compares Gate and Binance. This is read-only and never accesses private account data.",
+    "Query a public cryptocurrency market snapshot. mode=simple returns the current price, 24-hour change, volume, bid, ask, spread, and optional Gate/Binance comparison. mode=analysis is monitoring-only: it adds Gate spot 1-hour, 4-hour, daily, and natural-week candles, deterministic quantitative indicators, Fibonacci levels, event-condition monitoring, data quality, spot microstructure, and derivatives context. Direct direction forecasts, directional probabilities, return targets, and trade instructions are disabled. This is read-only and never accesses private account data.",
   examples: [
     {
       prompt: "给我 ETH 的双交易所行情快照",
@@ -271,10 +615,22 @@ const cryptoMarketSnapshot = jsonTool({
         enum: ["gate", "binance", "dual", "auto"],
         description: "Source mode; defaults to dual.",
       },
+      mode: {
+        type: "string",
+        enum: ["simple", "analysis"],
+        description:
+          "Response mode. Defaults to simple for backward compatibility.",
+      },
     },
     required: ["symbol"],
     additionalProperties: false,
   },
+  continuationTask: "crypto_market_analysis",
+  continuationInstruction:
+    "The crypto analysis result is monitoring-only. Describe observed closed-candle regimes, indicator values, event conditions, data quality, spot microstructure, and derivatives context. Never provide a future direction, directional probability, return or price target, trade instruction, or investment recommendation. Do not relabel regimes; infer divergence, indicator sign changes, crossovers, calendar timing, causal effects, or strengthening/weakening from one latest value; call Fibonacci reference levels support/resistance without an explicit label; confuse volume ratio with day-over-day volume; invent numbers; or write inequalities that conflict with indicator relations.",
+  prepareResultForModel: prepareCryptoMarketResultForModel,
+  modelResultMaxChars: 20_000,
+  validatedContinuation: validatedCryptoMarketContinuation,
   execute: executeCryptoMarketSnapshot,
 });
 
@@ -287,8 +643,11 @@ const cryptoMarketAgent = {
 module.exports = {
   BINANCE_BASE_URL,
   cryptoMarketAgent,
+  executeSimpleCryptoMarketSnapshot,
   executeCryptoMarketSnapshot,
   executeCryptoPrice,
+  fetchAnalysisTimeframes,
   normalizeBinanceTicker,
   normalizeGateTicker,
+  prepareCryptoMarketResultForModel,
 };

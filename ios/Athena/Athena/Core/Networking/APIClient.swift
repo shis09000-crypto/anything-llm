@@ -117,6 +117,7 @@ private struct APIErrorEnvelope: Decodable {
     let message: String?
     let recovery: String?
     let reason: String?
+    let reasonCode: String?
 }
 
 @MainActor
@@ -563,13 +564,15 @@ final class APIClient {
         let payload = try? JSONDecoder().decode(APIErrorEnvelope.self, from: data)
         if payload?.recovery == "CLIENT_IDENTITY_REAUTH_REQUIRED" {
             return .clientIdentityReauthenticationRequired(
-                payload?.message ?? payload?.error
+                payload?.message ?? payload?.reasonCode ?? payload?.error
             )
         }
-        if payload?.reason == "post_quantum_signature_required" {
+        if payload?.reason == "post_quantum_signature_required" ||
+            payload?.reasonCode == "post_quantum_signature_required"
+        {
             return .postQuantumSigningUnavailable
         }
-        let code = payload?.code ?? payload?.error
+        let code = payload?.reasonCode ?? payload?.code ?? payload?.error
         let message = payload?.message ?? payload?.error
         return .httpStatus(status: status, code: code, message: message)
     }
@@ -627,7 +630,7 @@ final class APIClient {
             return nil
         }
         switch code {
-        case "CLIENT_REVOKED":
+        case "CLIENT_REVOKED", "client_revoked":
             return .clientRevoked
         case "INVALID_SIGNATURE":
             return .invalidSignature
@@ -635,6 +638,15 @@ final class APIClient {
             return .signingSecretRotated
         case "session_revoked",
              "session_expired",
+             "session_idle_expired",
+             "session_absolute_expired",
+             "session_missing",
+             "session_subject_mismatch",
+             "session_client_mismatch",
+             "account_unavailable",
+             "invalid_auth_token",
+             "invalid_auth_credentials",
+             "missing_session_storage",
              "Token expired or failed validation.",
              "No auth token found.",
              "Invalid auth credentials.",

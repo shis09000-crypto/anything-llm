@@ -150,6 +150,7 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
         "global-market-agent#global_stock_quote",
         "global-market-agent#global_commodity_quote",
         "global-market-agent#global_fund_quote",
+        "gold-market-agent#gold_market_analysis",
         "create-files-agent#create-text-file",
         "create-files-agent#create-docx-file",
         "create-files-agent#create-pdf-file",

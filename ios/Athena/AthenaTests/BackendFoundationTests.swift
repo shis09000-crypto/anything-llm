@@ -260,6 +260,147 @@ final class BackendFoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testStandardSessionReasonCodeTriggersSilentRecovery() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.signing.prepareDeviceKey()
+        try secured.auth.storeToken("expired-session-token")
+        var incidents: [APISecurityIncident] = []
+        secured.client.securityRecoveryHandler = { incident in
+            incidents.append(incident)
+            return false
+        }
+        AthenaTestURLProtocol.handler = { request in
+            Self.response(
+                for: request,
+                status: 401,
+                json: """
+                {
+                  "error":"Session expired due to inactivity.",
+                  "reasonCode":"session_idle_expired"
+                }
+                """
+            )
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/workspaces",
+                authorization: .required
+            )
+            XCTFail("Expected HTTP 401")
+        } catch let error as APIClientError {
+            XCTAssertEqual(
+                error,
+                .httpStatus(
+                    status: 401,
+                    code: "session_idle_expired",
+                    message: "Session expired due to inactivity."
+                )
+            )
+        }
+        XCTAssertEqual(incidents, [.sessionExpired])
+    }
+
+    @MainActor
+    func testDeviceBoundSessionRecoveryReissuesTokenWithoutNewLogin() async throws {
+        let secured = makeClient()
+        let clientID = try secured.identity.prepare()
+        try secured.signing.prepareDeviceKey()
+        try secured.auth.storeToken("original-session-token")
+
+        AthenaTestURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/auth/session/recovery/enroll":
+                XCTAssertEqual(
+                    request.value(forHTTPHeaderField: "Authorization"),
+                    "Bearer original-session-token"
+                )
+                XCTAssertNotNil(
+                    request.value(forHTTPHeaderField: "X-Athena-PQ-Signature")
+                )
+                return Self.response(
+                    for: request,
+                    json: """
+                    {
+                      "success":true,
+                      "recoveryHandle":"device-bound-handle",
+                      "expiresAt":"2026-08-30T00:00:00.000Z"
+                    }
+                    """
+                )
+            case "/api/auth/session/recovery/start":
+                XCTAssertNil(
+                    request.value(forHTTPHeaderField: "Authorization")
+                )
+                return Self.response(
+                    for: request,
+                    json: """
+                    {
+                      "success":true,
+                      "recoveryTicket":"one-time-ticket"
+                    }
+                    """
+                )
+            case "/api/auth/session/recovery/finish":
+                XCTAssertNil(
+                    request.value(forHTTPHeaderField: "Authorization")
+                )
+                XCTAssertEqual(
+                    request.value(forHTTPHeaderField: "X-Athena-Client-Id"),
+                    clientID
+                )
+                XCTAssertNotNil(
+                    request.value(forHTTPHeaderField: "X-Athena-PQ-Signature")
+                )
+                return Self.response(
+                    for: request,
+                    json: """
+                    {
+                      "success":true,
+                      "valid":true,
+                      "user":{
+                        "id":10,
+                        "authUserId":100,
+                        "username":"owner",
+                        "role":"owner",
+                        "email":"owner@example.com",
+                        "phone":null,
+                        "displayName":"Owner",
+                        "pfpFilename":null,
+                        "bio":null
+                      },
+                      "token":"reissued-session-token"
+                    }
+                    """
+                )
+            default:
+                XCTFail("Unexpected recovery path \(request.url?.path ?? "nil")")
+                return Self.response(for: request, status: 404, json: "{}")
+            }
+        }
+
+        try await secured.auth.enrollSessionRecovery(
+            clientID: clientID,
+            using: secured.client
+        )
+        try secured.auth.clearToken()
+        let result = await secured.auth.recoverStoredSession(
+            clientID: clientID,
+            source: "bootstrap",
+            using: secured.client
+        )
+
+        XCTAssertEqual(result, .recovered)
+        XCTAssertEqual(secured.auth.accessToken, "reissued-session-token")
+        XCTAssertEqual(secured.auth.user?.authenticationID, 100)
+        XCTAssertTrue(
+            secured.auth.hasSessionRecoveryBinding(for: clientID)
+        )
+    }
+
+    @MainActor
     func testPostQuantumRequirementIsNotMisclassifiedAsSessionExpiry() async throws {
         let secured = makeClient()
         _ = try secured.identity.prepare()

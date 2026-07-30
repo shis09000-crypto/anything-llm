@@ -11,6 +11,7 @@ const RANGE_META = {
   "1h": { interval: "1h", segmentSeconds: 60 * 60, limit: 200 },
   "4h": { interval: "4h", segmentSeconds: 4 * 60 * 60, limit: 200 },
   "1d": { interval: "1d", segmentSeconds: 24 * 60 * 60, limit: 200 },
+  "1w": { interval: "1w", segmentSeconds: 7 * 24 * 60 * 60, limit: 200 },
   "7d": { interval: "7d", segmentSeconds: 7 * 24 * 60 * 60, limit: 200 },
   "30d": { interval: "30d", segmentSeconds: 30 * 24 * 60 * 60, limit: 200 },
 };
@@ -175,6 +176,7 @@ function intervalToMs(interval) {
   if (unit === "m") return amount * 60_000;
   if (unit === "h") return amount * 60 * 60_000;
   if (unit === "d") return amount * 24 * 60 * 60_000;
+  if (unit === "w") return amount * 7 * 24 * 60 * 60_000;
   return 60_000;
 }
 
@@ -233,6 +235,7 @@ function getOrCreateCacheEntry({ cacheKey, marketType, parsedPair, meta }) {
       wsStatus: "idle",
       restStatus: "idle",
       lastRestFetchAt: null,
+      lastTickerFetchAt: null,
       lastWsMessageAt: null,
       subscriberCount: 0,
       currentPriceQuote: null,
@@ -274,6 +277,7 @@ function cacheSnapshot(entry, { candles = entry?.candles || [] } = {}) {
     wsStatus: entry.wsStatus,
     restStatus: entry.restStatus,
     lastRestFetchAt: entry.lastRestFetchAt,
+    lastTickerFetchAt: entry.lastTickerFetchAt,
     lastWsMessageAt: entry.lastWsMessageAt,
     subscriberCount: entry.subscriberCount,
     currentPriceQuote:
@@ -294,6 +298,7 @@ function marketResponse({
   entry,
   rateLimit,
   partialFailures = [],
+  cacheHit = false,
 }) {
   return {
     success: true,
@@ -328,6 +333,7 @@ function marketResponse({
         ? "degraded"
         : "connected",
     hasMoreHistory: candles.length >= meta.limit,
+    cacheHit,
     rateLimit: rateLimit || entry?.publicRateLimit || null,
     cache: cacheSnapshot(entry),
     partialFailures,
@@ -382,12 +388,23 @@ async function marketCandles({
   market = "spot",
   beforeTs,
   afterTs,
+  includeTicker = true,
+  limit,
 }) {
-  const { marketType, parsedPair, meta, cacheKey } = resolveMarketRequest({
+  const resolved = resolveMarketRequest({
     pair,
     range,
     market,
   });
+  const requestedLimit = Number(limit);
+  const effectiveLimit =
+    Number.isInteger(requestedLimit) &&
+    requestedLimit >= 30 &&
+    requestedLimit <= MAX_CACHED_CANDLES
+      ? requestedLimit
+      : resolved.meta.limit;
+  const { marketType, parsedPair, cacheKey } = resolved;
+  const meta = { ...resolved.meta, limit: effectiveLimit };
   const entry = getOrCreateCacheEntry({
     cacheKey,
     marketType,
@@ -398,9 +415,12 @@ async function marketCandles({
 
   if (
     isLatestSnapshot &&
-    entry.candles.length &&
+    entry.candles.length >= meta.limit &&
     entry.lastRestFetchAt &&
-    Date.now() - entry.lastRestFetchAt < REST_CACHE_TTL_MS
+    Date.now() - entry.lastRestFetchAt < REST_CACHE_TTL_MS &&
+    (!includeTicker ||
+      (entry.lastTickerFetchAt &&
+        Date.now() - entry.lastTickerFetchAt < REST_CACHE_TTL_MS))
   ) {
     const candles = entry.candles.slice(-meta.limit);
     return marketResponse({
@@ -416,12 +436,13 @@ async function marketCandles({
       },
       entry,
       rateLimit: entry.publicRateLimit,
+      cacheHit: true,
     });
   }
 
   const inFlightKey = `${cacheKey}:${beforeTs || ""}:${afterTs || ""}:${
     meta.limit
-  }`;
+  }:ticker:${includeTicker ? "1" : "0"}`;
   if (restInFlight.has(inFlightKey)) return restInFlight.get(inFlightKey);
 
   const request = (async () => {
@@ -433,7 +454,7 @@ async function marketCandles({
         beforeTs,
         afterTs,
         limit: meta.limit,
-        includeTicker: true,
+        includeTicker,
       });
     const partialFailures = [];
     if (!tickerResult.success) {
@@ -451,6 +472,7 @@ async function marketCandles({
     if (ticker) {
       entry.currentPriceQuote = ticker.currentPriceQuote;
       entry.change24hPct = ticker.change24hPct;
+      entry.lastTickerFetchAt = Date.now();
     }
     updateEntryCandles(entry, candles, {
       keep: beforeTs ? "older" : "newer",
@@ -467,6 +489,7 @@ async function marketCandles({
       entry,
       rateLimit: candlesResult.rateLimit || null,
       partialFailures,
+      cacheHit: false,
     });
   })()
     .catch((error) => {

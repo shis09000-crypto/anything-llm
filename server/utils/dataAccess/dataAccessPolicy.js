@@ -92,6 +92,8 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   adminSystem: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   athenaMutationReceipt: DATA_ACCESS_CLASSIFICATIONS.user,
   agentSkillWhitelist: DATA_ACCESS_CLASSIFICATIONS.sensitive,
+  agentRun: DATA_ACCESS_CLASSIFICATIONS.sensitive,
+  toolInvocation: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   authIdentity: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   clientIdentity: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   communityHub: DATA_ACCESS_CLASSIFICATIONS.internal,

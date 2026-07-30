@@ -9,6 +9,8 @@ applyEnvironmentStorage();
 require("./utils/logger")();
 const express = require("express");
 const https = require("https");
+const crypto = require("crypto");
+const fs = require("fs");
 const path = require("path");
 const { ACCEPTED_MIMES } = require("./utils/constants");
 const { reqBody } = require("./utils/http");
@@ -31,10 +33,35 @@ const {
   authorizePeer,
   collectorServerIdentity,
 } = require("./utils/serviceIdentity");
+const { collectorReadinessEnvelope } = require("./utils/moduleReadiness");
 const app = express();
 let ready = false;
 let httpServer = null;
 let serverIdentity = null;
+
+function metricsAuthorized(request) {
+  let expected = String(process.env.ATHENA_METRICS_TOKEN || "").trim();
+  const tokenFile = String(process.env.ATHENA_METRICS_TOKEN_FILE || "").trim();
+  if (!expected && tokenFile) {
+    try {
+      expected = fs.readFileSync(tokenFile, "utf8").trim();
+    } catch {
+      expected = "";
+    }
+  }
+  if (!expected) return process.env.NODE_ENV !== "production";
+  const header = String(request.headers.authorization || "");
+  const candidate = header.startsWith("Bearer ")
+    ? header.slice(7)
+    : String(request.headers["x-athena-metrics-token"] || "");
+  const left = Buffer.from(candidate);
+  const right = Buffer.from(expected);
+  return (
+    left.length > 0 &&
+    left.length === right.length &&
+    crypto.timingSafeEqual(left, right)
+  );
+}
 
 app.use((request, response, next) => {
   if (!serverIdentity || authorizePeer(request, serverIdentity)) return next();
@@ -238,7 +265,7 @@ app.get("/health", function (_, response) {
     payloadKeyAvailable = true;
   } catch {}
   response.status(ready ? 200 : 503).json({
-    ready,
+    ...collectorReadinessEnvelope(ready),
     tasks: taskStats(),
     security: {
       ipcProtocol: 2,
@@ -260,7 +287,11 @@ app.get("/health", function (_, response) {
   });
 });
 
-app.get("/metrics", function (_, response) {
+app.get("/metrics", function (request, response) {
+  if (!metricsAuthorized(request))
+    return response
+      .status(403)
+      .json({ success: false, error: "metrics_forbidden" });
   response.setHeader("Content-Type", "text/plain; version=0.0.4");
   response.setHeader("Cache-Control", "no-store");
   const remaining = serverIdentity?.validTo

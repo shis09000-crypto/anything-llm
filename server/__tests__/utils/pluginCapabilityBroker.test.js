@@ -21,46 +21,42 @@ describe("plugin capability broker", () => {
 
   beforeEach(() => resetCapabilityBrokerForTests());
 
-  test("authorizes a short-lived credential once", () => {
+  test("authorizes a short-lived credential once", async () => {
     const credential = issueInvocationCredential(request);
-    expect(
-      authorizeInvocation({ ...request, credential })
-    ).toMatchObject({ audience: "plugin:test", tool: "read_document" });
-    expect(() => authorizeInvocation({ ...request, credential })).toThrow(
-      expect.objectContaining({
-        code: "PLUGIN_CAPABILITY_CREDENTIAL_DENIED",
-        reason: "replayed",
-      })
+    expect(await authorizeInvocation({ ...request, credential })).toMatchObject(
+      { audience: "plugin:test", tool: "read_document" }
     );
+    await expect(
+      authorizeInvocation({ ...request, credential })
+    ).rejects.toMatchObject({
+      code: "PLUGIN_CAPABILITY_CREDENTIAL_DENIED",
+      reason: "replayed",
+    });
   });
 
-  test("binds the credential to arguments and capability manifest", () => {
+  test("binds the credential to arguments and capability manifest", async () => {
     const credential = issueInvocationCredential(request);
-    expect(() =>
+    await expect(
       authorizeInvocation({
         ...request,
         credential,
         args: { documentId: 43 },
       })
-    ).toThrow(
-      expect.objectContaining({ code: "PLUGIN_CAPABILITY_CREDENTIAL_DENIED" })
-    );
+    ).rejects.toMatchObject({ code: "PLUGIN_CAPABILITY_CREDENTIAL_DENIED" });
   });
 
-  test("rejects expired credentials", () => {
+  test("rejects expired credentials", async () => {
     const now = Date.now();
     const credential = issueInvocationCredential({
       ...request,
       now,
       ttlMs: 1_000,
     });
-    expect(() =>
+    await expect(
       authorizeInvocation({ ...request, credential, now: now + 1_001 })
-    ).toThrow(
-      expect.objectContaining({
-        code: "PLUGIN_CAPABILITY_CREDENTIAL_DENIED",
-        reason: "expired",
-      })
-    );
+    ).rejects.toMatchObject({
+      code: "PLUGIN_CAPABILITY_CREDENTIAL_DENIED",
+      reason: "expired",
+    });
   });
 });

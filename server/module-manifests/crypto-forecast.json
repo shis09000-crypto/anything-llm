@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "crypto-forecast",
+  "name": "Crypto Forecast Service",
+  "version": "1.0.0",
+  "kind": "worker",
+  "owner": "market-intelligence",
+  "criticality": "medium",
+  "runtimeRole": "crypto-forecast",
+  "sourcePaths": ["server/utils/cryptoForecasting/", "server/endpoints/cryptoForecasting.js"],
+  "capabilities": ["signed-models", "shadow-inference", "atomic-model-activation"],
+  "routes": { "public": ["/api/crypto/forecast/"], "internal": ["/internal/v1/crypto/forecast"] },
+  "rpc": { "provides": ["crypto.forecast"], "consumes": ["crypto.market"] },
+  "events": { "publishes": ["crypto.forecast.*"], "subscribes": ["crypto.market.*", "model.artifact.*"] },
+  "data": { "schemas": ["crypto_forecast"], "objectPrefixes": ["crypto/models", "crypto/datasets"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/crypto-forecast",
+    "keyDomains": ["agent"],
+    "allowedCallers": ["athena-api", "tool-runtime", "background-worker"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 60000
+  },
+  "deployment": {
+    "image": "athena/crypto-forecast",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.99,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["crypto-market", "infra:postgresql", "infra:object-store", "infra:nats"]
+}

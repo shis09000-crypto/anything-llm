@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "background-worker",
+  "name": "Background Worker",
+  "version": "1.0.0",
+  "kind": "worker",
+  "owner": "platform",
+  "criticality": "medium",
+  "runtimeRole": "background-worker",
+  "sourcePaths": ["server/background-worker.js", "server/utils/backgroundWorker/", "server/utils/BackgroundWorkers/"],
+  "capabilities": ["maintenance", "cleanup", "recovery", "patrol"],
+  "routes": { "public": [], "internal": ["/health", "/snapshot"] },
+  "rpc": { "provides": ["background.execute"], "consumes": ["knowledge.ingest", "crypto.forecast"] },
+  "events": { "publishes": ["background.job.*"], "subscribes": ["background.requested"] },
+  "data": { "schemas": ["maintenance"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/background-worker",
+    "keyDomains": ["data", "file", "agent"],
+    "allowedCallers": ["scheduler", "operations-plane"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/background-worker",
+    "healthPath": "/health",
+    "readinessPath": "/snapshot",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.99,
+    "reconnectP95Ms": 0
+  },
+  "dependsOn": ["authentication", "knowledge-ingest", "crypto-forecast", "infra:postgresql", "infra:nats"]
+}

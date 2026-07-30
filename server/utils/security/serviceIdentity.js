@@ -11,8 +11,23 @@ function normalizedEnvironment(env = process.env) {
 }
 
 function expectedServiceId(role, env = process.env) {
-  const configured = String(env.ATHENA_SERVICE_ID || "").trim();
-  return configured || `spiffe://athena/${normalizedEnvironment(env)}/${role}`;
+  const normalizedRole = String(role || "")
+    .trim()
+    .toLowerCase();
+  const rolePrefix = `ATHENA_${normalizedRole
+    .toUpperCase()
+    .replace(/-/g, "_")}_SERVICE_ID`;
+  const roleConfigured = String(env[rolePrefix] || "").trim();
+  if (roleConfigured) return roleConfigured;
+
+  const currentRole = String(env.ATHENA_RUNTIME_ROLE || "")
+    .trim()
+    .toLowerCase();
+  const processConfigured = String(env.ATHENA_SERVICE_ID || "").trim();
+  if (processConfigured && currentRole === normalizedRole)
+    return processConfigured;
+
+  return `spiffe://athena/${normalizedEnvironment(env)}/${normalizedRole}`;
 }
 
 function fileSetting(role, suffix, env = process.env) {

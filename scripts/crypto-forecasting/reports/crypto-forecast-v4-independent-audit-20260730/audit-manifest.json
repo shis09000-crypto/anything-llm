@@ -1,0 +1,13 @@
+{
+  "schema": "athena.crypto.forecast-audit-manifest",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-30T06:35:41.319597+00:00",
+  "modelManifestSha256": "34d52ded2f066864a30da9e7a762994ec21d41e806d8198bfc0ad3afbb23d592",
+  "datasetSha256": "2794df646ae9639f45635247ab5876f03fb4653eecea6e7d30ecc97e7d533f32",
+  "replaySha256": "47e40a9c5a73c0388940a8288c6ea94b2269d69650d6862c3b977afa1a5e5685",
+  "v3ReplaySha256": "0aafd2ef76527c059ae15cb6c03f5f91e28f3ceea4c57ef3d7a4466c8630cf85",
+  "auditProgramSha256": "c3f8da1f3be08e6564720ae4930d2aa55e00120a089707576fa6b7bfe3291f3d",
+  "reportSha256": "47d108981b8d4faa04a19b6ab1c4bf64c8ac8b599eeb98aba8f529579f598275",
+  "markdownSha256": "62bcea098ba3152612f41f5dd56a65517cc3d5bdfba2e325cd02da4a36607d76",
+  "verdict": "FAIL"
+}

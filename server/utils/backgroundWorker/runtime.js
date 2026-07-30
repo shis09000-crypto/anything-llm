@@ -1,15 +1,27 @@
 const http = require("http");
+const https = require("https");
 const { BackgroundService } = require("../BackgroundWorkers");
 const {
   metricsRequestAuthorized,
   registry,
 } = require("../observability/metrics");
-const { serviceIdentitySummary } = require("../security/serviceIdentity");
+const {
+  loadServiceIdentity,
+  serviceIdentitySummary,
+} = require("../security/serviceIdentity");
+const { distributedTopology } = require("../microModules/serviceHost");
+const { moduleReadinessEnvelope } = require("../modulePlatform/readiness");
 
 class BackgroundWorkerRuntime {
   constructor({
     now = () => new Date(),
-    backgroundServiceFactory = () => new BackgroundService(),
+    backgroundServiceFactory = () =>
+      new BackgroundService({
+        mode:
+          process.env.ATHENA_RUNTIME_TOPOLOGY === "distributed"
+            ? "maintenance"
+            : "combined",
+      }),
   } = {}) {
     this.startedAt = now().toISOString();
     this.now = now;
@@ -38,17 +50,27 @@ class BackgroundWorkerRuntime {
   }
 
   snapshot() {
-    return {
+    const component = {
       role: "background-worker",
       status: this.status,
       startedAt: this.startedAt,
       now: this.now().toISOString(),
       inline: false,
+      mode: this.service?.mode || null,
       jobs: this.service?.jobs?.().map((job) => job.name) || [],
       lastError: this.lastError,
       serviceIdentity: serviceIdentitySummary("background-worker", {
         required: false,
       }),
+    };
+    const ready = this.status === "running";
+    return {
+      ...moduleReadinessEnvelope("background-worker", component, {
+        source: "background-worker-runtime",
+        ready,
+      }),
+      ...component,
+      ready,
     };
   }
 
@@ -60,7 +82,7 @@ class BackgroundWorkerRuntime {
 
   startHealthServer({ port = 3012 } = {}) {
     if (this.healthServer) return this.healthServer;
-    const server = http.createServer((request, response) => {
+    const handler = (request, response) => {
       if (request.url === "/metrics") {
         if (!metricsRequestAuthorized(request)) {
           response.writeHead(403, { "Content-Type": "application/json" });
@@ -76,13 +98,12 @@ class BackgroundWorkerRuntime {
         return;
       }
       if (request.url === "/health") {
-        const ok = this.status === "running";
+        const snapshot = this.snapshot();
+        const ok = snapshot.ready;
         response.writeHead(ok ? 200 : 503, {
           "Content-Type": "application/json",
         });
-        response.end(
-          JSON.stringify({ success: ok, role: "background-worker" })
-        );
+        response.end(JSON.stringify({ success: ok, ...snapshot }));
         return;
       }
 
@@ -94,7 +115,23 @@ class BackgroundWorkerRuntime {
 
       response.writeHead(404, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ success: false, error: "not_found" }));
+    };
+    const identity = loadServiceIdentity("background-worker", {
+      required: distributedTopology(process.env),
     });
+    const server = identity
+      ? https.createServer(
+          {
+            ca: identity.ca,
+            cert: identity.cert,
+            key: identity.key,
+            minVersion: "TLSv1.3",
+            requestCert: true,
+            rejectUnauthorized: false,
+          },
+          handler
+        )
+      : http.createServer(handler);
 
     server.listen(port, () => {
       console.log(`[BackgroundWorker] health server listening on ${port}`);

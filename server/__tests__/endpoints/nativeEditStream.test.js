@@ -7,9 +7,12 @@ const mockPublishWorkspaceSyncEvent = jest.fn();
 const mockFlushDurableCommits = jest.fn();
 
 function captureApp() {
-  const routes = { post: {} };
+  const routes = { get: {}, post: {} };
   return {
     routes,
+    get(path, _middleware, handler) {
+      routes.get[path] = handler;
+    },
     post(path, _middleware, handler) {
       routes.post[path] = handler;
     },
@@ -79,6 +82,25 @@ function loadRoutes() {
         truncateForNativeEdit: (...args) => mockTruncateForNativeEdit(...args),
         regenerateLastTurn: (...args) => mockRegenerateLastTurn(...args),
       },
+      chatStreamRun: {
+        claim: jest.fn(async (scope) => ({
+          created: true,
+          run: {
+            id: `run-${scope.clientTurnId}`,
+            ...scope,
+            status: "running",
+            revision: 0,
+            partialResponse: "",
+          },
+        })),
+        appendEvents: jest.fn(async () => true),
+        checkpoint: jest.fn(async () => true),
+        renewLease: jest.fn(async () => true),
+        settle: jest.fn(async () => true),
+        getScoped: jest.fn(async () => null),
+        reconcileExpired: jest.fn(async () => null),
+        eventsAfter: jest.fn(async () => []),
+      },
     },
   }));
   jest.doMock("../../utils/chats/stream", () => ({
@@ -117,8 +139,7 @@ function loadRoutes() {
   }));
   jest.doMock("../../utils/helpers/chat/responses", () => ({
     writeResponseChunk: (res, payload) => {
-      res.chunks.push(payload);
-      sequence.push(payload.type);
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
     },
   }));
   jest.doMock("../../endpoints/utils", () => ({ getModelTag: () => "test" }));
@@ -185,6 +206,7 @@ describe("native atomic edit stream", () => {
       "editHistoryTruncated",
       "chat_prompt_submitted",
       "model-context",
+      "finalizeResponseStream",
     ]);
   });
 
@@ -204,6 +226,7 @@ describe("native atomic edit stream", () => {
       "headers",
       "chat_prompt_submitted",
       "model-context",
+      "finalizeResponseStream",
     ]);
   });
 
@@ -241,6 +264,7 @@ describe("native atomic edit stream", () => {
       "regenerateTurnDeleted",
       "chat_prompt_submitted",
       "model-context",
+      "finalizeResponseStream",
     ]);
   });
 

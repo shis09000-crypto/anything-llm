@@ -1,0 +1,527 @@
+{
+  "schema": "athena.gold.factor-registry",
+  "schemaVersion": "1.0",
+  "registryVersion": "gold-gqss-factor-registry-v1",
+  "factors": [
+    {
+      "name": "dxy_return",
+      "family": "macro",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["fred:DTWEXBGS"],
+      "availability": "estimated"
+    },
+    {
+      "name": "real_yield_10y",
+      "family": "macro",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["fred:DFII10"],
+      "availability": "estimated"
+    },
+    {
+      "name": "nominal_curve_10y_2y",
+      "family": "macro",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["fred:DGS10", "fred:DGS2"],
+      "availability": "estimated"
+    },
+    {
+      "name": "breakeven_10y",
+      "family": "macro",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["fred:T10YIE"],
+      "availability": "estimated"
+    },
+    {
+      "name": "cpi_surprise",
+      "family": "macro",
+      "frequency": "event",
+      "eligibility": "unavailable",
+      "sources": ["bls", "consensus_feed"],
+      "availability": "licensed_or_unconfigured"
+    },
+    {
+      "name": "fomc_path_shock",
+      "family": "macro",
+      "frequency": "event",
+      "eligibility": "unavailable",
+      "sources": ["federal_reserve", "treasury_intraday"],
+      "availability": "intraday_source_unconfigured"
+    },
+    {
+      "name": "gdp_surprise",
+      "family": "macro",
+      "frequency": "event",
+      "eligibility": "unavailable",
+      "sources": ["bea", "consensus_feed"],
+      "availability": "licensed_or_unconfigured"
+    },
+    {
+      "name": "return",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "momentum_5",
+      "family": "price_trend",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "momentum_20",
+      "family": "price_trend",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "sma_gap_20",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "rsi_14",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "macd_histogram",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "donchian_breakout_20",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "realized_variance",
+      "family": "volatility",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd_5min"],
+      "availability": "received_proxy"
+    },
+    {
+      "name": "har_week",
+      "family": "volatility",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["derived:realized_variance"],
+      "availability": "received_proxy"
+    },
+    {
+      "name": "har_month",
+      "family": "volatility",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["derived:realized_variance"],
+      "availability": "received_proxy"
+    },
+    {
+      "name": "downside_semivariance",
+      "family": "volatility",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd_5min"],
+      "availability": "received_proxy"
+    },
+    {
+      "name": "bipower_variation",
+      "family": "volatility",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd_5min"],
+      "availability": "received_proxy"
+    },
+    {
+      "name": "jump_intensity",
+      "family": "volatility",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["derived:realized_variance", "derived:bipower_variation"],
+      "availability": "received_proxy"
+    },
+    {
+      "name": "parkinson_volatility",
+      "family": "volatility",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "absolute_spread",
+      "family": "liquidity_order_flow",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_l1"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "relative_spread",
+      "family": "liquidity_order_flow",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_l1"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "depth_imbalance",
+      "family": "liquidity_order_flow",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_l2"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "aggressive_flow_imbalance",
+      "family": "liquidity_order_flow",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_trades"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "amihud_illiquidity",
+      "family": "liquidity_order_flow",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["gld_volume_proxy"],
+      "availability": "proxy_only"
+    },
+    {
+      "name": "vpin",
+      "family": "liquidity_order_flow",
+      "frequency": "volume_clock",
+      "eligibility": "unavailable",
+      "sources": ["licensed_trades"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "managed_money_net",
+      "family": "positioning",
+      "frequency": "weekly",
+      "eligibility": "model_input_candidate",
+      "sources": ["cftc:disaggregated_futures"],
+      "availability": "official_release_clock_or_estimated"
+    },
+    {
+      "name": "commercial_net",
+      "family": "positioning",
+      "frequency": "weekly",
+      "eligibility": "model_input_candidate",
+      "sources": ["cftc:disaggregated_futures"],
+      "availability": "official_release_clock_or_estimated"
+    },
+    {
+      "name": "managed_money_long_ratio",
+      "family": "positioning",
+      "frequency": "weekly",
+      "eligibility": "model_input_candidate",
+      "sources": ["cftc:disaggregated_futures"],
+      "availability": "official_release_clock_or_estimated"
+    },
+    {
+      "name": "managed_money_short_ratio",
+      "family": "positioning",
+      "frequency": "weekly",
+      "eligibility": "model_input_candidate",
+      "sources": ["cftc:disaggregated_futures"],
+      "availability": "official_release_clock_or_estimated"
+    },
+    {
+      "name": "spreading_ratio",
+      "family": "positioning",
+      "frequency": "weekly",
+      "eligibility": "model_input_candidate",
+      "sources": ["cftc:disaggregated_futures"],
+      "availability": "official_release_clock_or_estimated"
+    },
+    {
+      "name": "cot_crowding_z",
+      "family": "positioning",
+      "frequency": "weekly",
+      "eligibility": "model_input_candidate",
+      "sources": ["cftc:disaggregated_futures"],
+      "availability": "official_release_clock_or_estimated"
+    },
+    {
+      "name": "gld_tonnes_change",
+      "family": "etf_flow",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["ssga:gld"],
+      "availability": "received_page"
+    },
+    {
+      "name": "iau_holdings_change",
+      "family": "etf_flow",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["ishares:iau"],
+      "availability": "received_page"
+    },
+    {
+      "name": "global_etf_net_flow",
+      "family": "etf_flow",
+      "frequency": "monthly",
+      "eligibility": "unavailable",
+      "sources": ["world_gold_council"],
+      "availability": "account_or_license_required"
+    },
+    {
+      "name": "regional_etf_flow_spread",
+      "family": "etf_flow",
+      "frequency": "monthly",
+      "eligibility": "unavailable",
+      "sources": ["world_gold_council"],
+      "availability": "account_or_license_required"
+    },
+    {
+      "name": "etf_premium_discount",
+      "family": "etf_flow",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["ssga:gld", "ishares:iau"],
+      "availability": "received_page"
+    },
+    {
+      "name": "gvz",
+      "family": "derivatives",
+      "frequency": "daily",
+      "eligibility": "model_input_candidate",
+      "sources": ["fred:GVZCLS", "cboe:GVZ"],
+      "availability": "estimated"
+    },
+    {
+      "name": "cvol",
+      "family": "derivatives",
+      "frequency": "daily",
+      "eligibility": "unavailable",
+      "sources": ["cme:cvol"],
+      "availability": "license_required"
+    },
+    {
+      "name": "iv_term_slope",
+      "family": "derivatives",
+      "frequency": "daily",
+      "eligibility": "unavailable",
+      "sources": ["cme:gold_options"],
+      "availability": "license_required"
+    },
+    {
+      "name": "rr_25",
+      "family": "derivatives",
+      "frequency": "daily",
+      "eligibility": "unavailable",
+      "sources": ["cme:gold_options"],
+      "availability": "license_required"
+    },
+    {
+      "name": "bf_25",
+      "family": "derivatives",
+      "frequency": "daily",
+      "eligibility": "unavailable",
+      "sources": ["cme:gold_options"],
+      "availability": "license_required"
+    },
+    {
+      "name": "variance_risk_premium",
+      "family": "derivatives",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["fred:GVZCLS", "derived:realized_variance"],
+      "availability": "proxy_only"
+    },
+    {
+      "name": "gpr",
+      "family": "sentiment_event",
+      "frequency": "monthly",
+      "eligibility": "supporting_only",
+      "sources": ["caldara_iacoviello:gpr"],
+      "availability": "received_or_estimated"
+    },
+    {
+      "name": "epu",
+      "family": "sentiment_event",
+      "frequency": "daily_or_monthly",
+      "eligibility": "supporting_only",
+      "sources": ["policyuncertainty:epu"],
+      "availability": "received_or_estimated"
+    },
+    {
+      "name": "gdelt_conflict_pressure",
+      "family": "sentiment_event",
+      "frequency": "hourly_or_daily",
+      "eligibility": "supporting_only",
+      "sources": ["gdelt:event_count", "gdelt:goldstein"],
+      "availability": "received"
+    },
+    {
+      "name": "news_sentiment",
+      "family": "sentiment_event",
+      "frequency": "hourly_or_daily",
+      "eligibility": "unavailable",
+      "sources": ["licensed_news_nlp"],
+      "availability": "provider_unconfigured"
+    },
+    {
+      "name": "event_sentiment_jump",
+      "family": "sentiment_event",
+      "frequency": "event",
+      "eligibility": "unavailable",
+      "sources": ["licensed_news_nlp", "official_event_calendar"],
+      "availability": "provider_unconfigured"
+    },
+    {
+      "name": "kyle_lambda",
+      "family": "microstructure",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_trades"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "roll_spread",
+      "family": "microstructure",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_trades"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "microprice_deviation",
+      "family": "microstructure",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_l1"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "orderbook_slope",
+      "family": "microstructure",
+      "frequency": "tick",
+      "eligibility": "unavailable",
+      "sources": ["licensed_l2"],
+      "availability": "licensed_required"
+    },
+    {
+      "name": "ema_12_26",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "atr_14",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "adx_14",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "shanghai_international_premium",
+      "family": "cross_market",
+      "frequency": "session",
+      "eligibility": "supporting_only",
+      "sources": ["sge:shau", "twelve_data:xau_usd", "frankfurter:usd_cny"],
+      "availability": "received"
+    },
+    {
+      "name": "gold_silver_ratio",
+      "family": "cross_market",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["twelve_data:xau_usd", "twelve_data:xag_usd"],
+      "availability": "received"
+    },
+    {
+      "name": "gold_oil_ratio",
+      "family": "cross_market",
+      "frequency": "daily",
+      "eligibility": "supporting_only",
+      "sources": ["twelve_data:xau_usd", "fred:DCOILWTICO"],
+      "availability": "estimated"
+    },
+    {
+      "name": "bollinger_20_2",
+      "family": "price_trend",
+      "frequency": "multi",
+      "eligibility": "model_input_candidate",
+      "sources": ["twelve_data:xau_usd"],
+      "availability": "exact_or_received"
+    },
+    {
+      "name": "gold_lease_rate",
+      "family": "cross_market",
+      "frequency": "daily",
+      "eligibility": "unavailable",
+      "sources": ["authorized_lease_rate"],
+      "availability": "provider_unconfigured"
+    },
+    {
+      "name": "central_bank_reserves_change",
+      "family": "cross_market",
+      "frequency": "monthly",
+      "eligibility": "unavailable",
+      "sources": ["world_gold_council", "official_reserves"],
+      "availability": "account_or_release_lag"
+    },
+    {
+      "name": "google_trends_gold",
+      "family": "cross_market",
+      "frequency": "daily_or_weekly",
+      "eligibility": "unavailable",
+      "sources": ["google_trends"],
+      "availability": "provider_unconfigured"
+    },
+    {
+      "name": "baidu_gold_interest",
+      "family": "cross_market",
+      "frequency": "daily",
+      "eligibility": "unavailable",
+      "sources": ["baidu_index"],
+      "availability": "provider_unconfigured"
+    },
+    {
+      "name": "china_hk_gold_import_proxy",
+      "family": "cross_market",
+      "frequency": "monthly",
+      "eligibility": "unavailable",
+      "sources": ["hong_kong_statistics", "customs"],
+      "availability": "release_lag_unconfigured"
+    }
+  ]
+}

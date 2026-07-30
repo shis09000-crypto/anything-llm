@@ -22,7 +22,63 @@ const REQUIRED_MODELS = {
     "resourceId",
     "domain",
   ],
-  chat_stream_runs: ["id", "clientTurnId", "workspaceId", "status", "revision"],
+  chat_stream_runs: [
+    "id",
+    "clientTurnId",
+    "workspaceId",
+    "status",
+    "revision",
+    "ownerId",
+    "leaseExpiresAt",
+    "heartbeatAt",
+  ],
+  chat_run_events: [
+    "id",
+    "runId",
+    "sequence",
+    "eventType",
+    "payloadJson",
+    "payloadHash",
+  ],
+  agent_runs: [
+    "id",
+    "invocationId",
+    "workspaceId",
+    "status",
+    "latestSequence",
+    "ownerId",
+    "leaseExpiresAt",
+    "heartbeatAt",
+  ],
+  agent_run_events: [
+    "id",
+    "runId",
+    "sequence",
+    "eventType",
+    "payloadJson",
+    "payloadHash",
+    "sensitivity",
+  ],
+  tool_invocations: [
+    "id",
+    "approvalRequestId",
+    "agentInvocationId",
+    "ownerUserId",
+    "toolName",
+    "status",
+    "scopeHash",
+    "resultHash",
+  ],
+  plugin_capability_nonces: [
+    "id",
+    "nonceHash",
+    "toolInvocationId",
+    "audience",
+    "toolName",
+    "argsHash",
+    "capabilityHash",
+    "expiresAt",
+  ],
 };
 
 function validateDmmfContract(datamodel) {
@@ -85,6 +141,31 @@ async function verifyDatabaseContract(label, client) {
     await client.chat_stream_runs.findFirst({
       select: Object.fromEntries(
         REQUIRED_MODELS.chat_stream_runs.map((field) => [field, true])
+      ),
+    });
+    await client.chat_run_events.findFirst({
+      select: Object.fromEntries(
+        REQUIRED_MODELS.chat_run_events.map((field) => [field, true])
+      ),
+    });
+    await client.agent_runs.findFirst({
+      select: Object.fromEntries(
+        REQUIRED_MODELS.agent_runs.map((field) => [field, true])
+      ),
+    });
+    await client.agent_run_events.findFirst({
+      select: Object.fromEntries(
+        REQUIRED_MODELS.agent_run_events.map((field) => [field, true])
+      ),
+    });
+    await client.tool_invocations.findFirst({
+      select: Object.fromEntries(
+        REQUIRED_MODELS.tool_invocations.map((field) => [field, true])
+      ),
+    });
+    await client.plugin_capability_nonces.findFirst({
+      select: Object.fromEntries(
+        REQUIRED_MODELS.plugin_capability_nonces.map((field) => [field, true])
       ),
     });
   }

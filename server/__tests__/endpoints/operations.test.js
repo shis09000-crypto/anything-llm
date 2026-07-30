@@ -5,7 +5,7 @@ const {
   filtersFromQuery,
   operationsEndpoints,
 } = require("../../endpoints/operations");
-const { operationsPlane } = require("../../utils/operations/operationsPlane");
+const { localOperationsAccess } = require("../../utils/operations/access");
 
 describe("Operations endpoints", () => {
   test("registers every Operations Plane API behind both auth guards", () => {
@@ -16,6 +16,7 @@ describe("Operations endpoints", () => {
     });
     expect(routes.map(([path]) => path)).toEqual([
       "/operations/client-chat-observations",
+      "/operations/client-ui-observations",
       "/operations/health",
       "/operations/schemas",
       "/operations/schemas/:name/:version",
@@ -34,6 +35,7 @@ describe("Operations endpoints", () => {
       "/operations/actions/runs/:runId/reconcile",
       "/operations/timeline",
       "/operations/state-graph",
+      "/operations/flows",
       "/operations/explain",
     ]);
     for (const [, guards, handler] of routes) {
@@ -63,23 +65,23 @@ describe("Operations endpoints", () => {
     });
   });
 
-  test("exposes only read-only shadow state and a redacted corpus manifest", () => {
+  test("exposes only read-only shadow state and a redacted corpus manifest", async () => {
     const routes = [];
     operationsEndpoints({
       get: (...args) => routes.push(args),
       post: (...args) => routes.push(args),
     });
-    const invoke = (path) => {
+    const invoke = async (path) => {
       const route = routes.find(([candidate]) => candidate === path);
       const json = jest.fn();
       const response = { status: jest.fn(() => ({ json })) };
-      route.at(-1)({}, response);
+      await route.at(-1)({}, response);
       return json.mock.calls[0][0];
     };
 
-    const shadow = invoke("/operations/shadow-agents");
-    const evaluation = invoke("/operations/evaluations/latest");
-    const corpus = invoke("/operations/evaluations/corpus");
+    const shadow = await invoke("/operations/shadow-agents");
+    const evaluation = await invoke("/operations/evaluations/latest");
+    const corpus = await invoke("/operations/evaluations/corpus");
 
     expect(shadow).toMatchObject({
       success: true,
@@ -102,8 +104,9 @@ describe("Operations endpoints", () => {
       get: (...args) => routes.push(args),
       post: (...args) => routes.push(args),
     });
-    jest.spyOn(operationsPlane, "timelineWithMetadata").mockResolvedValueOnce({
-      events: [],
+    jest.spyOn(localOperationsAccess, "explain").mockResolvedValueOnce({
+      found: false,
+      timeline: [],
       source: "nats",
       sources: ["nats", "recent-buffer"],
       degraded: true,
@@ -207,5 +210,51 @@ describe("Operations endpoints", () => {
 
     expect(response.status).toHaveBeenCalledWith(202);
     expect(json).toHaveBeenCalledWith({ success: true, accepted: 2 });
+  });
+
+  test("accepts only allowlisted metadata-only workspace overview observations", () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    const route = routes.find(
+      ([path]) => path === "/operations/client-ui-observations"
+    );
+    const json = jest.fn();
+    const response = {
+      locals: { user: { id: 7, role: "default" } },
+      setHeader: jest.fn(),
+      status: jest.fn(() => response),
+      json,
+    };
+    const request = {
+      headers: { "x-athena-client-id": "web-device" },
+      body: {
+        observations: [
+          {
+            event: "overview_recovered",
+            surface: "workspace_overview",
+            platform: "desktop_web",
+            visibility: "visible",
+            outcome: "recovered",
+            reason: "scheduler_abort",
+            durationMs: 184,
+            retryCount: 1,
+            requestId: "overview-request",
+            prompt: "must-not-be-recorded",
+          },
+          {
+            event: "arbitrary_client_event",
+            surface: "workspace_overview",
+          },
+        ],
+      },
+    };
+
+    route.at(-1)(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(202);
+    expect(json).toHaveBeenCalledWith({ success: true, accepted: 1 });
   });
 });

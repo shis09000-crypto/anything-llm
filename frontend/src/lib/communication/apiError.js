@@ -80,3 +80,12 @@ export function apiErrorMessage(error, fallback = "Request failed.") {
   const raw = apiErrorRaw(error);
   return raw?.error || raw?.message || error?.message || fallback;
 }
+
+export function isApiAbortError(error) {
+  return (
+    error?.name === "AbortError" ||
+    error?.code === "ABORT_ERR" ||
+    error?.raw?.name === "AbortError" ||
+    error?.raw?.code === "ABORT_ERR"
+  );
+}

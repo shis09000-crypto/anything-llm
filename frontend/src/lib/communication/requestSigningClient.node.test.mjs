@@ -21,7 +21,12 @@ function memoryStorage() {
   };
 }
 
-async function loadSigningClient({ dev = false, prod = false } = {}) {
+async function loadSigningClient({
+  dev = false,
+  prod = false,
+  deviceSignature = null,
+  postQuantumSignature = null,
+} = {}) {
   const source = await readFile(signingClientUrl, "utf8");
   globalThis.__signingTestBaseHeaders = () => ({
     Authorization: "Bearer test-token",
@@ -49,7 +54,10 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
     assertSecureHttpUrl: (url) => url,
   };
   globalThis.__signingTestDeviceKey = {
-    signWithDeviceIdentityKey: async () => null,
+    signWithDeviceIdentityKey: async () => deviceSignature,
+  };
+  globalThis.__signingTestPostQuantumKey = {
+    signWithPostQuantumDeviceKey: async () => postQuantumSignature,
   };
   globalThis.__signingTestTaskRequestMetadata = {
     runScheduledTaskRequest: (operation, request = {}) =>
@@ -82,6 +90,10 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
     .replace(
       'import { signWithDeviceIdentityKey } from "./deviceIdentityKey";',
       "const { signWithDeviceIdentityKey } = globalThis.__signingTestDeviceKey;"
+    )
+    .replace(
+      'import { signWithPostQuantumDeviceKey } from "@/utils/security/browserHybridKeys";',
+      "const { signWithPostQuantumDeviceKey } = globalThis.__signingTestPostQuantumKey;"
     )
     .replace(
       'import { assertSecureHttpUrl } from "./transportSecurity";',
@@ -290,6 +302,62 @@ test("websocket signing canonical path ignores volatile query parameters", async
         "wss://athenallm.online/api/agent-invocation/abc?token=jwt&resume=1&lastEventSeq=9&athenaClientId=client_1"
       ),
       "/api/agent-invocation/abc"
+    );
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
+test("websocket signing carries the complete hybrid post-quantum envelope", async () => {
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    sessionStorage: memoryStorage(),
+    localStorage: memoryStorage(),
+    location: {
+      href: "https://athenallm.online/workspace/demo",
+      origin: "https://athenallm.online",
+    },
+  };
+
+  try {
+    const mod = await loadSigningClient({
+      dev: true,
+      deviceSignature: {
+        signature: "p256-signature",
+        publicKey: "p256-public-key",
+        algorithm: "P-256",
+      },
+      postQuantumSignature: {
+        hybridSignatureVersion: "device-hybrid-p256-mldsa65:v1",
+        signature: "mldsa65-signature",
+        publicKey: "mldsa65-public-key",
+        keyAlgorithm: "request-device-mldsa65:v1",
+        keyOrigin: "browser-indexeddb",
+        hardwareProtection: "wrapped-non-exportable",
+      },
+    });
+    const envelope = await mod.signedWebSocketEnvelope({
+      payload: {
+        type: "toolApprovalResponse",
+        requestId: "approval_1",
+        approved: true,
+      },
+      url: "wss://athenallm.online/api/agent-invocation/invocation_1",
+      requestId: "request_1",
+    });
+
+    assert.equal(envelope.type, "athenaSignedMessage");
+    assert.equal(
+      envelope.signed.hybridSignatureVersion,
+      "device-hybrid-p256-mldsa65:v1"
+    );
+    assert.equal(envelope.signed.pqSignature, "mldsa65-signature");
+    assert.equal(envelope.signed.pqPublicKey, "mldsa65-public-key");
+    assert.equal(envelope.signed.pqKeyAlgorithm, "request-device-mldsa65:v1");
+    assert.equal(envelope.signed.pqKeyOrigin, "browser-indexeddb");
+    assert.equal(
+      envelope.signed.pqHardwareProtection,
+      "wrapped-non-exportable"
     );
   } finally {
     globalThis.window = originalWindow;

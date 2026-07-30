@@ -18,6 +18,9 @@ const TASK_REGISTRY = {
   quiz_analysis: {
     tier: "refined",
   },
+  crypto_market_analysis: {
+    tier: "refined",
+  },
   knowledge_graph_extract: {
     tier: "rough",
     legacyModelEnv: "KNOWLEDGE_GRAPH_DEEPSEEK_MODEL",

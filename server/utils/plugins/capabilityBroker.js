@@ -1,7 +1,13 @@
 const crypto = require("crypto");
 const { resolveActiveKey } = require("../security/keyCustody");
+const {
+  signCapabilityEnvelope,
+  verifyCapabilityEnvelope,
+} = require("../security/pluginCapabilityHybrid");
 
-const TOKEN_VERSION = "athena-plugin-capability:v1";
+const LEGACY_TOKEN_VERSION = "athena-plugin-capability:v1";
+const HYBRID_TOKEN_VERSION = "athena-plugin-capability:v2";
+const HYBRID_TOKEN_PREFIX = "pc2";
 const DEFAULT_TTL_MS = 30_000;
 const MAX_TTL_MS = 60_000;
 const consumedNonces = new Map();
@@ -58,6 +64,41 @@ function pruneConsumed(now = Date.now()) {
   }
 }
 
+function durableNonceStore(env = process.env) {
+  return (
+    ["distributed", "micro-modules"].includes(
+      String(env.ATHENA_RUNTIME_TOPOLOGY || "")
+        .trim()
+        .toLowerCase()
+    ) && env.ATHENA_DATABASE_PROVIDER === "postgresql"
+  );
+}
+
+async function consumeNonce(payload, { toolInvocationId = null } = {}) {
+  if (!durableNonceStore()) {
+    pruneConsumed();
+    if (consumedNonces.has(payload.nonce)) throw new Error("replayed");
+    consumedNonces.set(payload.nonce, Date.parse(payload.expiresAt));
+    return;
+  }
+  const { DataAccessCenter } = require("../dataAccess");
+  try {
+    await DataAccessCenter.toolInvocation.consumeCapabilityNonce({
+      nonce: payload.nonce,
+      toolInvocationId,
+      audience: payload.audience,
+      toolName: payload.tool,
+      argsHash: payload.argsHash,
+      capabilityHash: payload.capabilityHash,
+      expiresAt: payload.expiresAt,
+    });
+  } catch (error) {
+    if (error?.code === "PLUGIN_CAPABILITY_NONCE_REPLAYED")
+      throw new Error("replayed");
+    throw error;
+  }
+}
+
 function issueInvocationCredential({
   serviceIdentity,
   tool,
@@ -69,6 +110,9 @@ function issueInvocationCredential({
   now = Date.now(),
   nonce = crypto.randomUUID(),
   keyDescriptor,
+  requireHybrid = false,
+  hybridSigners = null,
+  env = process.env,
 } = {}) {
   if (!serviceIdentity || !tool) {
     const error = new Error("plugin_capability_subject_and_tool_required");
@@ -76,10 +120,10 @@ function issueInvocationCredential({
     throw error;
   }
   const boundedTtl = Math.max(1_000, Math.min(Number(ttlMs), MAX_TTL_MS));
-  const key = signingKey(keyDescriptor);
+  const key = requireHybrid ? null : signingKey(keyDescriptor);
   const payload = {
-    version: TOKEN_VERSION,
-    keyId: key.keyId,
+    version: requireHybrid ? HYBRID_TOKEN_VERSION : LEGACY_TOKEN_VERSION,
+    ...(key ? { keyId: key.keyId } : {}),
     issuer: "athena-capability-broker",
     audience: String(serviceIdentity),
     subject: String(subject).slice(0, 160),
@@ -95,6 +139,14 @@ function issueInvocationCredential({
     nonce: String(nonce),
   };
   const body = encoded(canonicalJson(payload));
+  if (requireHybrid) {
+    const envelope = signCapabilityEnvelope(Buffer.from(decoded(body)), {
+      env,
+      signers: hybridSigners,
+      now: new Date(payload.issuedAt),
+    });
+    return `${HYBRID_TOKEN_PREFIX}.${body}.${encoded(canonicalJson(envelope))}`;
+  }
   const signature = crypto
     .createHmac("sha256", key.material)
     .update(body)
@@ -103,7 +155,7 @@ function issueInvocationCredential({
   return `${body}.${signature}`;
 }
 
-function authorizeInvocation({
+async function authorizeInvocation({
   credential,
   serviceIdentity,
   tool,
@@ -112,25 +164,59 @@ function authorizeInvocation({
   now = Date.now(),
   keyDescriptor,
   consume = true,
+  toolInvocationId = null,
+  requireHybrid = false,
+  hybridTrustedKeys = null,
+  env = process.env,
 } = {}) {
   try {
-    const [body, signature, extra] = String(credential || "").split(".");
-    if (!body || !signature || extra) throw new Error("malformed");
-    const payload = JSON.parse(decoded(body));
-    const key = signingKey(keyDescriptor);
-    if (payload.keyId !== key.keyId) throw new Error("key_mismatch");
-    const expected = crypto
-      .createHmac("sha256", key.material)
-      .update(body)
-      .digest();
-    key.material.fill(0);
-    const actual = Buffer.from(signature, "base64url");
-    if (
-      actual.length !== expected.length ||
-      !crypto.timingSafeEqual(actual, expected)
-    )
-      throw new Error("signature_invalid");
-    if (payload.version !== TOKEN_VERSION) throw new Error("version_invalid");
+    const parts = String(credential || "").split(".");
+    const isHybrid = parts[0] === HYBRID_TOKEN_PREFIX;
+    let body;
+    let payload;
+    if (isHybrid) {
+      if (parts.length !== 3 || !parts[1] || !parts[2])
+        throw new Error("malformed");
+      body = parts[1];
+      payload = JSON.parse(decoded(body));
+      if (payload.version !== HYBRID_TOKEN_VERSION)
+        throw new Error("version_invalid");
+      const envelope = JSON.parse(decoded(parts[2]));
+      const verification = verifyCapabilityEnvelope(
+        Buffer.from(decoded(body)),
+        envelope,
+        {
+          env,
+          trustedKeys: hybridTrustedKeys,
+        }
+      );
+      if (!verification.valid) {
+        throw new Error(
+          `hybrid_invalid:${verification.findings.join(",")}`.slice(0, 240)
+        );
+      }
+    } else {
+      if (requireHybrid) throw new Error("hybrid_required");
+      const [legacyBody, signature, extra] = parts;
+      if (!legacyBody || !signature || extra) throw new Error("malformed");
+      body = legacyBody;
+      payload = JSON.parse(decoded(body));
+      const key = signingKey(keyDescriptor);
+      if (payload.keyId !== key.keyId) throw new Error("key_mismatch");
+      const expected = crypto
+        .createHmac("sha256", key.material)
+        .update(body)
+        .digest();
+      key.material.fill(0);
+      const actual = Buffer.from(signature, "base64url");
+      if (
+        actual.length !== expected.length ||
+        !crypto.timingSafeEqual(actual, expected)
+      )
+        throw new Error("signature_invalid");
+      if (payload.version !== LEGACY_TOKEN_VERSION)
+        throw new Error("version_invalid");
+    }
     if (payload.audience !== String(serviceIdentity))
       throw new Error("audience_invalid");
     if (payload.tool !== String(tool)) throw new Error("tool_invalid");
@@ -148,9 +234,7 @@ function authorizeInvocation({
       expiresAt - issuedAt > MAX_TTL_MS
     )
       throw new Error("expired");
-    pruneConsumed(now);
-    if (consumedNonces.has(payload.nonce)) throw new Error("replayed");
-    if (consume) consumedNonces.set(payload.nonce, expiresAt);
+    if (consume) await consumeNonce(payload, { toolInvocationId });
     return payload;
   } catch (cause) {
     const error = new Error("plugin_capability_credential_denied");
@@ -168,5 +252,12 @@ module.exports = {
   authorizeInvocation,
   issueInvocationCredential,
   resetCapabilityBrokerForTests,
-  _internals: { canonicalJson, sha256 },
+  _internals: {
+    canonicalJson,
+    durableNonceStore,
+    sha256,
+    HYBRID_TOKEN_PREFIX,
+    HYBRID_TOKEN_VERSION,
+    LEGACY_TOKEN_VERSION,
+  },
 };

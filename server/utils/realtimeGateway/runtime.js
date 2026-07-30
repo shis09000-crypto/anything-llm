@@ -2,6 +2,12 @@ const { broadcastCenter } = require("../broadcast");
 const { broadcastTransportSummary } = require("../broadcast/transportRegistry");
 const { DataAccessCenter } = require("../dataAccess");
 const { serviceIdentitySummary } = require("../security/serviceIdentity");
+const { moduleReadinessEnvelope } = require("../modulePlatform/readiness");
+const {
+  startSyncV2OutboxDispatcher,
+  stopSyncV2OutboxDispatcher,
+  syncV2OutboxSnapshot,
+} = require("../syncV2/outboxDispatcher");
 
 class RealtimeGatewayRuntime {
   constructor({ now = () => new Date() } = {}) {
@@ -34,6 +40,7 @@ class RealtimeGatewayRuntime {
       const health = await broadcastCenter.startSharedTransport();
       if (!health.ready)
         throw new Error("shared_broadcast_transport_unhealthy");
+      await startSyncV2OutboxDispatcher();
       this.status = "running";
       this.lastError = null;
     } catch (error) {
@@ -50,13 +57,14 @@ class RealtimeGatewayRuntime {
   }
 
   async stop() {
+    await stopSyncV2OutboxDispatcher();
     await broadcastCenter.drainSharedTransport();
     this.status = "stopped";
     return this.snapshot();
   }
 
   snapshot() {
-    return {
+    const component = {
       role: "realtime-gateway",
       status: this.status,
       startedAt: this.startedAt,
@@ -65,14 +73,28 @@ class RealtimeGatewayRuntime {
       realtimeTickets:
         DataAccessCenter.adminSystem.realtimeTicket.storeSummary(),
       broadcast: broadcastCenter.snapshot(),
+      syncOutbox: syncV2OutboxSnapshot(),
       lastError: this.lastError,
       serviceIdentity: serviceIdentitySummary("realtime-gateway", {
         required: false,
       }),
       boundary: {
-        owns: ["sync.events.sse", "realtime.broadcast.websocket"],
+        owns: [
+          "sync.events.sse",
+          "sync.outbox.dispatch",
+          "realtime.broadcast.websocket",
+        ],
         doesNotOwn: ["chat.sse", "agent.websocket", "crypto.websocket"],
       },
+    };
+    const ready = this.status === "running";
+    return {
+      ...moduleReadinessEnvelope("sync-v2", component, {
+        source: "realtime-gateway-runtime",
+        ready,
+      }),
+      ...component,
+      ready,
     };
   }
 }

@@ -69,6 +69,11 @@ enum AuthCenterError: LocalizedError, Equatable {
     }
 }
 
+enum SessionRecoveryResult: Equatable {
+    case recovered
+    case unavailable(reason: String, transient: Bool, terminal: Bool)
+}
+
 private struct LoginRequest: Encodable {
     let identifier: String
     let password: String
@@ -98,6 +103,33 @@ private struct MultiUserModeResponse: Decodable {
     let multiUserMode: Bool
 }
 
+private struct SessionRecoveryEnrollResponse: Decodable {
+    let success: Bool
+    let recoveryHandle: String
+    let expiresAt: String?
+}
+
+private struct SessionRecoveryStartRequest: Encodable {
+    let recoveryHandle: String
+    let source: String
+}
+
+private struct SessionRecoveryStartResponse: Decodable {
+    let success: Bool
+    let recoveryTicket: String
+}
+
+private struct SessionRecoveryFinishRequest: Encodable {
+    let recoveryTicket: String
+}
+
+private struct SessionRecoveryFinishResponse: Decodable {
+    let success: Bool
+    let valid: Bool
+    let user: AthenaUser?
+    let token: String?
+}
+
 @MainActor
 @Observable
 final class AuthCenter {
@@ -109,6 +141,9 @@ final class AuthCenter {
 
     private enum Keys {
         static let accessToken = "auth.accessToken"
+        static let recoveryHandle = "auth.sessionRecovery.handle"
+        static let recoveryClientID = "auth.sessionRecovery.clientID"
+        static let recoveryExpiresAt = "auth.sessionRecovery.expiresAt"
     }
 
     private let secureStore: SecureValueStore
@@ -245,6 +280,132 @@ final class AuthCenter {
         state = .authenticated
     }
 
+    func hasSessionRecoveryBinding(for clientID: String? = nil) -> Bool {
+        guard
+            let handle = try? secureStore.data(forKey: Keys.recoveryHandle),
+            !handle.isEmpty,
+            let storedClientData = try? secureStore.data(
+                forKey: Keys.recoveryClientID
+            ),
+            let storedClientID = String(data: storedClientData, encoding: .utf8),
+            !storedClientID.isEmpty
+        else {
+            return false
+        }
+        return clientID == nil || clientID == storedClientID
+    }
+
+    func enrollSessionRecovery(
+        clientID: String,
+        using apiClient: APIClient
+    ) async throws {
+        guard accessToken != nil, !clientID.isEmpty else {
+            throw AuthCenterError.invalidSession
+        }
+        let response = try await apiClient.requestJSON(
+            SessionRecoveryEnrollResponse.self,
+            method: .post,
+            path: "/api/auth/session/recovery/enroll",
+            body: [String: String](),
+            authorization: .required,
+            signing: .required,
+            retryOnConnectionLoss: true
+        )
+        guard response.success, !response.recoveryHandle.isEmpty else {
+            throw AuthCenterError.invalidSession
+        }
+        try secureStore.setData(
+            Data(response.recoveryHandle.utf8),
+            forKey: Keys.recoveryHandle
+        )
+        try secureStore.setData(
+            Data(clientID.utf8),
+            forKey: Keys.recoveryClientID
+        )
+        if let expiresAt = response.expiresAt {
+            try secureStore.setData(
+                Data(expiresAt.utf8),
+                forKey: Keys.recoveryExpiresAt
+            )
+        } else {
+            try secureStore.removeData(forKey: Keys.recoveryExpiresAt)
+        }
+    }
+
+    func recoverStoredSession(
+        clientID: String,
+        source: String,
+        using apiClient: APIClient
+    ) async -> SessionRecoveryResult {
+        guard
+            !clientID.isEmpty,
+            let handleData = try? secureStore.data(forKey: Keys.recoveryHandle),
+            let handle = String(data: handleData, encoding: .utf8),
+            !handle.isEmpty,
+            let storedClientData = try? secureStore.data(
+                forKey: Keys.recoveryClientID
+            ),
+            let storedClientID = String(data: storedClientData, encoding: .utf8),
+            storedClientID == clientID
+        else {
+            try? clearSessionRecoveryBinding()
+            return .unavailable(
+                reason: "recovery_binding_missing",
+                transient: false,
+                terminal: true
+            )
+        }
+
+        do {
+            let started = try await apiClient.requestJSON(
+                SessionRecoveryStartResponse.self,
+                method: .post,
+                path: "/api/auth/session/recovery/start",
+                body: SessionRecoveryStartRequest(
+                    recoveryHandle: handle,
+                    source: source
+                ),
+                authorization: .none,
+                signing: .none,
+                retryOnConnectionLoss: true
+            )
+            guard started.success, !started.recoveryTicket.isEmpty else {
+                throw AuthCenterError.invalidSession
+            }
+            let finished = try await apiClient.requestJSON(
+                SessionRecoveryFinishResponse.self,
+                method: .post,
+                path: "/api/auth/session/recovery/finish",
+                body: SessionRecoveryFinishRequest(
+                    recoveryTicket: started.recoveryTicket
+                ),
+                authorization: .none,
+                signing: .required,
+                retryOnConnectionLoss: true
+            )
+            guard
+                finished.success,
+                finished.valid,
+                let token = finished.token,
+                !token.isEmpty
+            else {
+                throw AuthCenterError.invalidSession
+            }
+            try acceptAuthenticatedSession(token: token, user: finished.user)
+            return .recovered
+        } catch {
+            let failure = Self.sessionRecoveryFailure(for: error)
+            if failure.terminal {
+                try? clearSessionRecoveryBinding()
+            }
+            return .unavailable(
+                reason: failure.reason,
+                transient: failure.transient,
+                terminal: failure.terminal
+            )
+        }
+    }
+
     func storeToken(_ token: String) throws {
         try secureStore.setData(Data(token.utf8), forKey: Keys.accessToken)
         accessToken = token
@@ -259,10 +420,58 @@ final class AuthCenter {
         state = .signedOut
     }
 
+    func clearSessionRecoveryBinding() throws {
+        try secureStore.removeData(forKey: Keys.recoveryHandle)
+        try secureStore.removeData(forKey: Keys.recoveryClientID)
+        try secureStore.removeData(forKey: Keys.recoveryExpiresAt)
+    }
+
     func cacheOwnerScope(fallbackClientID: String?) -> String {
         if let user {
             return "user:\(user.stableID)"
         }
         return "single-user:\(fallbackClientID ?? "native")"
+    }
+
+    private static func sessionRecoveryFailure(
+        for error: Error
+    ) -> (reason: String, transient: Bool, terminal: Bool) {
+        if let urlError = error as? URLError {
+            return (
+                String(urlError.code.rawValue),
+                true,
+                false
+            )
+        }
+        if let apiError = error as? APIClientError,
+           case .httpStatus(let status, let code, _) = apiError
+        {
+            let reason = code?.lowercased() ?? "session_recovery_unavailable"
+            let transient = status == 429 || status >= 500
+            let terminalReasons: Set<String> = [
+                "account_unavailable",
+                "challenge_invalid_or_consumed",
+                "client_revoked",
+                "device_key_mismatch",
+                "device_key_missing",
+                "post_quantum_device_key_mismatch",
+                "post_quantum_signature_required",
+                "recovery_binding_missing",
+                "session_absolute_expired",
+                "session_client_mismatch",
+                "session_idle_expired",
+                "session_revoked",
+                "shadow_user_unavailable",
+            ]
+            return (
+                reason,
+                transient,
+                !transient || terminalReasons.contains(reason)
+            )
+        }
+        if error is APIClientError {
+            return ("session_recovery_unavailable", true, false)
+        }
+        return ("session_recovery_unavailable", true, false)
     }
 }

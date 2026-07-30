@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "model-gateway",
+  "name": "Model Gateway",
+  "version": "1.1.0",
+  "kind": "service",
+  "owner": "ai-platform",
+  "criticality": "critical",
+  "runtimeRole": "model-gateway",
+  "sourcePaths": ["server/utils/llmTasks/", "server/utils/agents/aibitat/providers/"],
+  "capabilities": ["provider-routing", "streaming", "rate-limits", "retries"],
+  "routes": { "public": [], "internal": ["/internal/v1/models/stream", "/internal/v1/models/catalog", "/internal/v1/models/agent/complete", "/internal/v1/models/agent/stream"] },
+  "rpc": { "provides": ["model.stream", "model.catalog", "model.agent.complete", "model.agent.stream"], "consumes": ["identity.assert"] },
+  "events": { "publishes": ["model.stream.*", "model.provider.*"], "subscribes": ["model.configuration.*"] },
+  "data": { "schemas": ["model_runtime"], "objectPrefixes": ["models/artifacts"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/model-gateway",
+    "keyDomains": ["provider"],
+    "allowedCallers": ["chat-runtime", "agent-runtime", "background-worker"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/model-gateway",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "infra:model-provider", "infra:nats"]
+}

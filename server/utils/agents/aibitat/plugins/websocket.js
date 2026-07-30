@@ -4,6 +4,7 @@ const {
 } = require("../../../../repositories/telemetryRepository");
 const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
 const AgentSkillWhitelist = lazyDataAccessFacade("agentSkillWhitelist");
+const ToolInvocation = lazyDataAccessFacade("toolInvocation");
 const { v4: uuidv4 } = require("uuid");
 const { safeJsonParse } = require("../../../http");
 const { skillIsAutoApproved } = require("../../../helpers/agents");
@@ -344,6 +345,7 @@ const websocket = {
           description = null,
           forceApproval = false,
           allowAlwaysAllow = true,
+          approvalClass = null,
         }) {
           if (!forceApproval && skillIsAutoApproved({ skillName })) {
             return {
@@ -373,10 +375,20 @@ const websocket = {
           }
 
           const requestId = uuidv4();
+          const invocation = aibitat.handlerProps?.invocation || {};
+          await ToolInvocation.requestApproval({
+            approvalRequestId: requestId,
+            agentInvocationId: invocation.uuid,
+            clientTurnId: invocation.clientTurnId,
+            ownerUserId: invocation.user_id ?? userId ?? null,
+            toolName: skillName,
+            approvalClass,
+            scope: payload,
+          });
           return new Promise((resolve) => {
             let timeoutId = null;
 
-            socket.handleToolApproval = (message) => {
+            socket.handleToolApproval = async (message) => {
               try {
                 const data = safeJsonParse(message, {});
                 if (
@@ -388,33 +400,49 @@ const websocket = {
                 delete socket.handleToolApproval;
                 delete socket.activeToolApprovalRequest;
                 clearTimeout(timeoutId);
+                const approved = Boolean(data.approved);
+                const persisted = await ToolInvocation.resolveApproval({
+                  approvalRequestId: requestId,
+                  approved,
+                  reasonCode: approved ? null : "approval_denied",
+                });
+                if (!persisted)
+                  throw new Error("tool_approval_persistence_failed");
                 recordAgentEvent(aibitat, {
                   type: "approval_result",
                   requestId,
                   skillName,
-                  approved: !!data.approved,
+                  approved,
                 });
                 socket.send(
                   JSON.stringify({
                     type: "toolApprovalResolved",
                     requestId,
-                    approved: !!data.approved,
+                    approved,
                   })
                 );
 
-                if (data.approved) {
+                if (approved) {
                   return resolve({
                     approved: true,
                     message: "User approved the tool execution.",
+                    requestId,
                   });
                 }
 
                 return resolve({
                   approved: false,
                   message: "Tool call was rejected by the user.",
+                  requestId,
                 });
               } catch (e) {
                 console.error("Error handling tool approval response:", e);
+                return resolve({
+                  approved: false,
+                  message: "Tool approval could not be persisted.",
+                  requestId,
+                  reasonCode: "tool_approval_persistence_failed",
+                });
               }
             };
 
@@ -447,9 +475,14 @@ const websocket = {
               })
             );
 
-            timeoutId = setTimeout(() => {
+            timeoutId = setTimeout(async () => {
               delete socket.handleToolApproval;
               delete socket.activeToolApprovalRequest;
+              await ToolInvocation.resolveApproval({
+                approvalRequestId: requestId,
+                approved: false,
+                reasonCode: "approval_timeout",
+              }).catch(() => false);
               recordAgentEvent(aibitat, {
                 type: "approval_result",
                 requestId,
@@ -466,6 +499,8 @@ const websocket = {
                 approved: false,
                 message:
                   "Tool approval request timed out. User did not respond in time.",
+                requestId,
+                reasonCode: "approval_timeout",
               });
             }, TOOL_APPROVAL_TIMEOUT_MS);
           });

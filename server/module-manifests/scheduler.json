@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "scheduler",
+  "name": "Unified Scheduler",
+  "version": "1.0.0",
+  "kind": "control-plane",
+  "owner": "platform",
+  "criticality": "high",
+  "runtimeRole": "scheduler",
+  "sourcePaths": ["server/scheduler.js", "server/utils/scheduler/", "server/endpoints/scheduledJobs.js", "server/jobs/run-scheduled-job.js", "server/models/scheduledJob.js"],
+  "capabilities": ["durable-jobs", "owner-binding", "preapproval", "checkpoint", "retry"],
+  "routes": { "public": ["/api/scheduled-jobs/"], "internal": ["/internal/v1/scheduler/jobs/", "/internal/drain"] },
+  "rpc": { "provides": ["scheduler.create", "scheduler.status"], "consumes": ["agent.submit", "tool.invoke"] },
+  "events": { "publishes": ["scheduler.run.*"], "subscribes": ["agent.run.*", "tool.invocation.*"] },
+  "data": { "schemas": ["scheduler"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/scheduler",
+    "keyDomains": ["agent"],
+    "allowedCallers": ["athena-api", "operations-plane"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/scheduler",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "agent-runtime", "tool-runtime", "infra:postgresql", "infra:nats"]
+}

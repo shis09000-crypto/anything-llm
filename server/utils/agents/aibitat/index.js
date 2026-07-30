@@ -1,7 +1,7 @@
 /* eslint-disable unused-imports/no-unused-vars */
 const { EventEmitter } = require("events");
 const { APIError } = require("./error.js");
-const Providers = require("./providers/index.js");
+const { createAgentProvider } = require("./providers/factory.js");
 const {
   TelemetryRepository: Telemetry,
 } = require("../../../repositories/telemetryRepository");
@@ -30,6 +30,7 @@ const {
 } = require("../../observability/operationContext.js");
 const { emitSemanticEvent } = require("../../observability/semanticEvents.js");
 const { metrics } = require("../../observability/metrics.js");
+const { resolveTaskProviderModel } = require("../../llmTasks");
 const {
   REQUEST_USER_INPUT_TOOL_NAME,
 } = require("./plugins/request-user-input.js");
@@ -51,6 +52,15 @@ function readyToolInvocationEvent(functionCall, depth, fallbackUuid) {
     toolName: name,
     phase: "ready",
     content: `Calling ${name}.`,
+  };
+}
+
+function continuationProviderConfigForFunction(fn = {}) {
+  const taskName = String(fn?.continuationTask || "").trim();
+  if (!taskName) return null;
+  return {
+    taskName,
+    ...resolveTaskProviderModel(taskName),
   };
 }
 
@@ -1195,6 +1205,104 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     }
   }
 
+  async #modelResultForTool(fn, result, toolRun) {
+    const projected =
+      typeof fn?.prepareResultForModel === "function"
+        ? await fn.prepareResultForModel(result, toolRun)
+        : result;
+    return prepareToolResultForModel(
+      projected,
+      toolRun,
+      fn?.modelResultMaxChars
+    );
+  }
+
+  #providerForToolContinuation(fn, currentProvider) {
+    const resolved = continuationProviderConfigForFunction(fn);
+    if (!resolved) return currentProvider;
+    const provider = this.getProviderForConfig(resolved);
+    provider.attachHandlerProps(this.handlerProps);
+    this.handlerProps?.log?.(
+      `[debug]: Tool ${fn.name} continuation is pinned to ${resolved.provider}:${resolved.model} via ${resolved.taskName}.`
+    );
+    return provider;
+  }
+
+  async #validatedContinuationForTool({
+    fn,
+    provider,
+    messages,
+    result,
+    modelResult,
+    toolRun,
+  }) {
+    if (typeof fn?.validatedContinuation !== "function") return null;
+    const generate = async (extraMessages = [], options = {}) => {
+      const { isolated = false, ...providerOptions } = options || {};
+      const completionMessages = isolated
+        ? [...extraMessages]
+        : [...messages, ...extraMessages];
+      const completion = await this.#safeProviderCall(
+        () =>
+          provider.complete(
+            appendCurrentDateTimeToLastUserMessage(completionMessages),
+            [],
+            providerOptions
+          ),
+        provider
+      );
+      return completion?.textResponse || "";
+    };
+    return fn.validatedContinuation({
+      result,
+      modelResult,
+      toolRun,
+      generate,
+      handlerProps: this.handlerProps,
+    });
+  }
+
+  #emitToolCompleted({ name, toolCallId, toolRun, continuationTask = null }) {
+    const invocation = this.handlerProps?.invocation || {};
+    runWithOperationContext(
+      {
+        invocationId: invocation.uuid,
+        clientTurnId: invocation.clientTurnId,
+        workspaceId: invocation.workspace_id,
+        threadId: invocation.thread_id,
+        toolCallId,
+        journey: "agent_tool",
+      },
+      () =>
+        emitSemanticEvent({
+          eventType: "agent.tool.completed",
+          category: "agent_tool",
+          severity: "info",
+          outcome: "success",
+          subject: {
+            type: "tool",
+            component: String(name || "unknown").slice(0, 96),
+            operation: "execute",
+          },
+          impact: { userEffect: "agent_task_continued" },
+          evidence: [
+            {
+              type: "trace",
+              ref: currentOperationContext()?.traceId || "unavailable",
+            },
+          ],
+          metadata: {
+            runId: toolRun?.runId || null,
+            resultSha256: toolRun?.resultSha256 || null,
+            stored: Boolean(toolRun?.stored),
+            resultSize: Number(toolRun?.resultSize || 0),
+            fullResultExceededDefaultModelLimit: Boolean(toolRun?.truncated),
+            continuationTask: continuationTask || null,
+          },
+        })
+    );
+  }
+
   /**
    * Handle the async (streaming) execution of the provider
    * with tool calls.
@@ -1285,21 +1393,24 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
-      const result = await this.#executeToolHandler(
-        fn,
-        args,
-        name,
+      const toolCallId =
         completionStream.functionCall?.id ||
-          completionStream.functionCall?.call_id ||
-          toolInvocationEvent?.uuid
-      );
+        completionStream.functionCall?.call_id ||
+        toolInvocationEvent?.uuid;
+      const result = await this.#executeToolHandler(fn, args, name, toolCallId);
       const toolRun = await storeToolRun({
         toolName: name,
         arguments: args,
         result,
         resultPolicy: fn.resultPolicy || null,
       });
-      const modelResult = prepareToolResultForModel(result, toolRun);
+      const modelResult = await this.#modelResultForTool(fn, result, toolRun);
+      this.#emitToolCompleted({
+        name,
+        toolCallId,
+        toolRun,
+        continuationTask: fn.continuationTask,
+      });
       Telemetry.sendTelemetry("agent_tool_call", { tool: name }, null, true);
       this.emitter.emit("toolCallResult", {
         toolName: name,
@@ -1348,6 +1459,12 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           originalFunctionCall: completionStream.functionCall,
         },
       ];
+      if (fn.continuationInstruction) {
+        newMessages.push({
+          role: "system",
+          content: String(fn.continuationInstruction),
+        });
+      }
 
       if (toolAttachments.length > 0) {
         this.handlerProps?.log?.(
@@ -1371,8 +1488,36 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         }
       }
 
+      const continuationProvider = this.#providerForToolContinuation(
+        fn,
+        provider
+      );
+      const validatedContinuation = await this.#validatedContinuationForTool({
+        fn,
+        provider: continuationProvider,
+        messages: newMessages,
+        result,
+        modelResult,
+        toolRun,
+      });
+      if (validatedContinuation?.handled) {
+        const responseUuid = completionStream?.uuid || v4();
+        eventHandler?.("reportStreamEvent", {
+          type: "fullTextResponse",
+          uuid: responseUuid,
+          content: validatedContinuation.text,
+        });
+        eventHandler?.("reportStreamEvent", {
+          type: "usageMetrics",
+          uuid: responseUuid,
+          metrics: continuationProvider.getUsage(),
+        });
+        this?.flushCitations?.(responseUuid);
+        this?.emitChatId?.(responseUuid);
+        return validatedContinuation.text;
+      }
       return await this.handleAsyncExecution(
-        provider,
+        continuationProvider,
         newMessages,
         reachedToolLimit ? [] : functions,
         byAgent,
@@ -1488,21 +1633,24 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
-      const result = await this.#executeToolHandler(
-        fn,
-        args,
-        name,
+      const toolCallId =
         completion.functionCall?.id ||
-          completion.functionCall?.call_id ||
-          toolInvocationEvent?.uuid
-      );
+        completion.functionCall?.call_id ||
+        toolInvocationEvent?.uuid;
+      const result = await this.#executeToolHandler(fn, args, name, toolCallId);
       const toolRun = await storeToolRun({
         toolName: name,
         arguments: args,
         result,
         resultPolicy: fn.resultPolicy || null,
       });
-      const modelResult = prepareToolResultForModel(result, toolRun);
+      const modelResult = await this.#modelResultForTool(fn, result, toolRun);
+      this.#emitToolCompleted({
+        name,
+        toolCallId,
+        toolRun,
+        continuationTask: fn.continuationTask,
+      });
       Telemetry.sendTelemetry("agent_tool_call", { tool: name }, null, true);
       this.emitter.emit("toolCallResult", {
         toolName: name,
@@ -1538,6 +1686,12 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           originalFunctionCall: completion.functionCall,
         },
       ];
+      if (fn.continuationInstruction) {
+        newMessages.push({
+          role: "system",
+          content: String(fn.continuationInstruction),
+        });
+      }
 
       if (toolAttachments.length > 0) {
         this.handlerProps?.log?.(
@@ -1561,8 +1715,30 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         }
       }
 
+      const continuationProvider = this.#providerForToolContinuation(
+        fn,
+        provider
+      );
+      const validatedContinuation = await this.#validatedContinuationForTool({
+        fn,
+        provider: continuationProvider,
+        messages: newMessages,
+        result,
+        modelResult,
+        toolRun,
+      });
+      if (validatedContinuation?.handled) {
+        eventHandler?.("reportStreamEvent", {
+          type: "usageMetrics",
+          uuid: msgUUID,
+          metrics: continuationProvider.getUsage(),
+        });
+        this?.flushCitations?.(msgUUID);
+        this?.emitChatId?.(msgUUID);
+        return validatedContinuation.text;
+      }
       return await this.handleExecution(
-        provider,
+        continuationProvider,
         newMessages,
         reachedToolLimit ? [] : functions,
         byAgent,
@@ -1681,83 +1857,18 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
    */
   getProviderForConfig(config) {
     if (typeof config.provider === "object") return config.provider;
-
-    switch (config.provider) {
-      case "openai":
-        return new Providers.OpenAIProvider({ model: config.model });
-      case "anthropic":
-        return new Providers.AnthropicProvider({ model: config.model });
-      case "lmstudio":
-        return new Providers.LMStudioProvider({ model: config.model });
-      case "ollama":
-        return new Providers.OllamaProvider({ model: config.model });
-      case "groq":
-        return new Providers.GroqProvider({ model: config.model });
-      case "togetherai":
-        return new Providers.TogetherAIProvider({ model: config.model });
-      case "azure":
-        return new Providers.AzureOpenAiProvider({ model: config.model });
-      case "koboldcpp":
-        return new Providers.KoboldCPPProvider({});
-      case "localai":
-        return new Providers.LocalAIProvider({ model: config.model });
-      case "openrouter":
-        return new Providers.OpenRouterProvider({ model: config.model });
-      case "mistral":
-        return new Providers.MistralProvider({ model: config.model });
-      case "generic-openai":
-        return new Providers.GenericOpenAiProvider({ model: config.model });
-      case "perplexity":
-        return new Providers.PerplexityProvider({ model: config.model });
-      case "textgenwebui":
-        return new Providers.TextWebGenUiProvider({});
-      case "bedrock":
-        return new Providers.AWSBedrockProvider({});
-      case "fireworksai":
-        return new Providers.FireworksAIProvider({ model: config.model });
-      case "nvidia-nim":
-        return new Providers.NvidiaNimProvider({ model: config.model });
-      case "moonshotai":
-        return new Providers.MoonshotAiProvider({ model: config.model });
-      case "deepseek":
-        return new Providers.DeepSeekProvider({ model: config.model });
-      case "litellm":
-        return new Providers.LiteLLMProvider({ model: config.model });
-      case "apipie":
-        return new Providers.ApiPieProvider({ model: config.model });
-      case "xai":
-        return new Providers.XAIProvider({ model: config.model });
-      case "zai":
-        return new Providers.ZAIProvider({ model: config.model });
-      case "novita":
-        return new Providers.NovitaProvider({ model: config.model });
-      case "ppio":
-        return new Providers.PPIOProvider({ model: config.model });
-      case "gemini":
-        return new Providers.GeminiProvider({ model: config.model });
-      case "dpais":
-        return new Providers.DellProAiStudioProvider({ model: config.model });
-      case "cometapi":
-        return new Providers.CometApiProvider({ model: config.model });
-      case "foundry":
-        return new Providers.FoundryProvider({ model: config.model });
-      case "giteeai":
-        return new Providers.GiteeAIProvider({ model: config.model });
-      case "cohere":
-        return new Providers.CohereProvider({ model: config.model });
-      case "docker-model-runner":
-        return new Providers.DockerModelRunnerProvider({ model: config.model });
-      case "privatemode":
-        return new Providers.PrivatemodeProvider({ model: config.model });
-      case "sambanova":
-        return new Providers.SambaNovaProvider({ model: config.model });
-      case "lemonade":
-        return new Providers.LemonadeProvider({ model: config.model });
-      default:
-        throw new Error(
-          `Unknown provider: ${config.provider}. Please use a valid provider.`
-        );
-    }
+    const {
+      agentGatewayEnabled,
+      createRemoteAgentProvider,
+    } = require("../../modelGateway/agentRemoteProvider");
+    if (agentGatewayEnabled(process.env))
+      return createRemoteAgentProvider({
+        provider: config.provider,
+        model: config.model,
+        env: process.env,
+      });
+    const provider = createAgentProvider(config);
+    return provider;
   }
 
   /**
@@ -1772,6 +1883,8 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
 }
 
 module.exports = AIbitat;
+module.exports.continuationProviderConfigForFunction =
+  continuationProviderConfigForFunction;
 module.exports.readyToolInvocationEvent = readyToolInvocationEvent;
 module.exports.shouldForwardProviderStreamEvent =
   shouldForwardProviderStreamEvent;

@@ -26,19 +26,22 @@ describe("llmTasks runtime", () => {
     expect(resolveTaskConfig("thread_title_generation")).toEqual(
       expect.objectContaining({ tier: "rough" })
     );
-    expect(() => resolveTaskConfig("missing_task")).toThrow(
-      "Unknown LLM task"
-    );
+    expect(() => resolveTaskConfig("missing_task")).toThrow("Unknown LLM task");
   });
 
   it("maps rough and refined tiers to current default models", () => {
-    const { resolveTier } = loadRuntime();
+    const { resolveTaskProviderModel, resolveTier } = loadRuntime();
     expect(resolveTier("rough")).toEqual({
       provider: "deepseek",
       model: "deepseek-v4-flash",
       tier: "rough",
     });
     expect(resolveTier("refined")).toEqual({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+      tier: "refined",
+    });
+    expect(resolveTaskProviderModel("crypto_market_analysis")).toEqual({
       provider: "deepseek",
       model: "deepseek-v4-pro",
       tier: "refined",

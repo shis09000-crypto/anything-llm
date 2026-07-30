@@ -28,11 +28,25 @@ function decimalString(value, fractionDigits = 2) {
   return value.toFixed(fractionDigits);
 }
 
-function addAllocationBalance(balances, asset, amount) {
+function allocationBalanceFor(balances, asset) {
   const symbol = normalizeAsset(asset);
+  if (!symbol) return null;
+  if (!balances.has(symbol)) {
+    balances.set(symbol, {
+      symbol,
+      spotAmount: 0,
+      earnAmount: 0,
+    });
+  }
+  return balances.get(symbol);
+}
+
+function addAllocationBalance(balances, asset, amount, source) {
+  const balance = allocationBalanceFor(balances, asset);
   const value = numberValue(amount);
-  if (!symbol || value <= 0) return;
-  balances.set(symbol, (balances.get(symbol) || 0) + value);
+  if (!balance || value <= 0) return;
+  if (source === "earn") balance.earnAmount += value;
+  else balance.spotAmount += value;
 }
 
 function collectAllocationBalances(accounts = [], earns = []) {
@@ -42,7 +56,8 @@ function collectAllocationBalances(accounts = [], earns = []) {
       addAllocationBalance(
         balances,
         account?.currency,
-        numberValue(account?.available) + numberValue(account?.locked)
+        numberValue(account?.available) + numberValue(account?.locked),
+        "spot"
       );
     }
   }
@@ -51,7 +66,8 @@ function collectAllocationBalances(accounts = [], earns = []) {
       addAllocationBalance(
         balances,
         lend?.currency,
-        lend?.amount || lend?.lent_amount
+        lend?.amount || lend?.lent_amount,
+        "earn"
       );
     }
   }
@@ -78,11 +94,15 @@ function tickerMapByPair(tickers = []) {
   return map;
 }
 
-function allocationItemFor({ symbol, amount, quoteAsset, ticker }) {
+function allocationItemFor({ balance, quoteAsset, ticker }) {
+  const { symbol, spotAmount, earnAmount } = balance;
+  const amount = spotAmount + earnAmount;
   const stable = STABLE_ALLOCATION_ASSETS.has(symbol);
   const priceUsd = stable ? 1 : ticker?.price;
   if (!priceUsd || priceUsd <= 0) return null;
   const valueUsd = amount * priceUsd;
+  const spotValueUsd = spotAmount * priceUsd;
+  const earnValueUsd = earnAmount * priceUsd;
   if (valueUsd <= 0) return null;
   return {
     symbol,
@@ -92,6 +112,16 @@ function allocationItemFor({ symbol, amount, quoteAsset, ticker }) {
     valueUsd: decimalString(valueUsd, 2),
     percentage: "0",
     amount: decimalString(amount, stable ? 2 : 8),
+    amountScope: "spot_plus_earn",
+    totalAmount: decimalString(amount, 12),
+    spotAmount: decimalString(spotAmount, 12),
+    earnAmount: decimalString(earnAmount, 12),
+    spotValueUsd: decimalString(spotValueUsd, 2),
+    earnValueUsd: decimalString(earnValueUsd, 2),
+    holdingSources: [
+      ...(spotAmount > 0 ? ["spot"] : []),
+      ...(earnAmount > 0 ? ["earn"] : []),
+    ],
     priceUsd: decimalString(priceUsd, stable ? 2 : 8),
     change24hPct:
       ticker?.change24hPct === undefined || ticker?.change24hPct === null
@@ -150,14 +180,22 @@ class AllocationHubService {
     const tickers = tickerMapByPair(tickersResult.value.data);
     const rawItems = [];
 
-    for (const [symbol, amount] of balances.entries()) {
-      const ticker = tickers.get(`${symbol}_${quoteAsset}`);
-      const item = allocationItemFor({ symbol, amount, quoteAsset, ticker });
+    for (const balance of balances.values()) {
+      const ticker = tickers.get(`${balance.symbol}_${quoteAsset}`);
+      const item = allocationItemFor({ balance, quoteAsset, ticker });
       if (item) rawItems.push(item);
     }
 
     const totalValue = rawItems.reduce(
       (sum, item) => sum + numberValue(item.valueUsd),
+      0
+    );
+    const spotValue = rawItems.reduce(
+      (sum, item) => sum + numberValue(item.spotValueUsd),
+      0
+    );
+    const earnValue = rawItems.reduce(
+      (sum, item) => sum + numberValue(item.earnValueUsd),
       0
     );
     const items = rawItems
@@ -179,8 +217,12 @@ class AllocationHubService {
       exchange: "gate",
       marketType: "spot",
       scope: "all",
+      holdingScope: "spot_and_earn",
       quoteAsset,
       totalValueUsd: decimalString(totalValue, 2),
+      combinedValueUsd: decimalString(totalValue, 2),
+      spotValueUsd: decimalString(spotValue, 2),
+      earnValueUsd: decimalString(earnValue, 2),
       items,
       connectionStatus: partialFailures.length ? "degraded" : "connected",
       config,
@@ -191,4 +233,5 @@ class AllocationHubService {
 
 module.exports = {
   AllocationHubService,
+  collectAllocationBalances,
 };

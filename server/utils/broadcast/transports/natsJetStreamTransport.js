@@ -112,12 +112,21 @@ function natsSecurityFindings(env = process.env) {
     findings.push(
       "Production NATS requires CA, client certificate, and client key files for mTLS."
     );
+  if (
+    production &&
+    env.ATHENA_KEY_CUSTODY_CUTOVER === "true" &&
+    !String(env.ATHENA_NATS_SUBJECT_KEY_FILE || "").trim()
+  )
+    findings.push(
+      "Remote Key Custody requires ATHENA_NATS_SUBJECT_KEY_FILE for irreversible NATS subject scoping."
+    );
   for (const [label, filePath] of [
     ["credentials", config.credentialsFile],
     ["NKey seed", config.nkeySeedFile],
     ["TLS CA", config.tls.caFile],
     ["TLS certificate", config.tls.certFile],
     ["TLS private key", config.tls.keyFile],
+    ["subject key", env.ATHENA_NATS_SUBJECT_KEY_FILE],
   ]) {
     if (!filePath) continue;
     try {
@@ -129,6 +138,7 @@ function natsSecurityFindings(env = process.env) {
           config.credentialsFile,
           config.nkeySeedFile,
           config.tls.keyFile,
+          env.ATHENA_NATS_SUBJECT_KEY_FILE,
         ].includes(filePath) &&
         (stat.mode & 0o077) !== 0
       ) {
@@ -248,14 +258,33 @@ function subjectScope(event = {}) {
 }
 
 function irreversibleScope(event = {}) {
-  const active = resolveActiveKey();
-  if (!active?.material) {
+  let material = null;
+  const dedicatedKeyFile = String(
+    process.env.ATHENA_NATS_SUBJECT_KEY_FILE || ""
+  ).trim();
+  if (dedicatedKeyFile) {
+    const target = assertSecureCredentialFile(
+      dedicatedKeyFile,
+      "nats_subject_key_file"
+    );
+    const encoded = fs.readFileSync(target, "utf8").trim();
+    if (!/^[a-fA-F0-9]{64}$/.test(encoded)) {
+      const error = new Error("nats_subject_key_invalid");
+      error.code = "NATS_SUBJECT_KEY_INVALID";
+      throw error;
+    }
+    material = Buffer.from(encoded, "hex");
+  } else {
+    const active = resolveActiveKey();
+    material = active?.material || null;
+  }
+  if (!material) {
     const error = new Error("nats_subject_key_unavailable");
     error.code = "NATS_SUBJECT_KEY_UNAVAILABLE";
     throw error;
   }
   return crypto
-    .createHmac("sha256", active.material)
+    .createHmac("sha256", material)
     .update("athena-nats-subject:v1\0")
     .update(subjectScope(event))
     .digest("hex")

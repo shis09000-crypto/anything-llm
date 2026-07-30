@@ -160,10 +160,35 @@ final class RequestSigningCenter {
         postQuantumContractReady =
             pqHighRiskRequired &&
             pqHighRiskAvailable &&
-            policy?.minimumOSVersion == "26.0"
+            Self.isVersion(
+                policy?.minimumOSVersion,
+                atLeast: "26.0"
+            )
         signingSecretPath = bootstrap?.security.signingSecretPath ?? "/api/client-identity/signing-secret"
         signingHeaders = bootstrap?.security.requestSigningHeaders ?? [:]
         updateStatus()
+    }
+
+    private static func isVersion(
+        _ value: String?,
+        atLeast minimum: String
+    ) -> Bool {
+        guard let value else { return false }
+        let current = value.split(separator: ".").map {
+            Int($0.prefix { $0.isNumber }) ?? 0
+        }
+        let required = minimum.split(separator: ".").map {
+            Int($0.prefix { $0.isNumber }) ?? 0
+        }
+        let width = max(current.count, required.count)
+        for index in 0..<width {
+            let lhs = current.indices.contains(index) ? current[index] : 0
+            let rhs = required.indices.contains(index) ? required[index] : 0
+            if lhs != rhs {
+                return lhs > rhs
+            }
+        }
+        return true
     }
 
     func prepareDeviceKey() throws {

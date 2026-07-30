@@ -5,6 +5,7 @@ const SECRET_ENV_KEYS = Object.freeze({
   qweather: "QWEATHER_API_KEY_ENCRYPTED",
   juheStock: "JUHE_STOCK_API_KEY_ENCRYPTED",
   juheForex: "JUHE_FOREX_API_KEY_ENCRYPTED",
+  twelveData: "TWELVE_DATA_API_KEY_ENCRYPTED",
 });
 
 function readManagedSecret(name) {

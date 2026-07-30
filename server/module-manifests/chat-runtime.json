@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "chat-runtime",
+  "name": "Chat Runtime",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "ai-platform",
+  "criticality": "critical",
+  "runtimeRole": "chat-runtime",
+  "sourcePaths": ["server/endpoints/chat.js", "server/utils/chats/", "server/models/chatStreamRun.js"],
+  "capabilities": ["context", "streaming", "durable-runs", "resume"],
+  "routes": { "public": ["/api/workspace/:slug/chat"], "internal": ["/internal/v1/chat/runs", "/internal/v1/chat/runs/:id/drain"] },
+  "rpc": { "provides": ["chat.submit", "chat.status"], "consumes": ["identity.assert", "model.stream", "rag.retrieve"] },
+  "events": { "publishes": ["chat.run.*"], "subscribes": ["model.stream.*", "rag.result.*"] },
+  "data": { "schemas": ["chat"], "objectPrefixes": ["chat/content"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/chat-runtime",
+    "keyDomains": ["data"],
+    "allowedCallers": ["edge-web", "athena-api", "agent-runtime"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/chat-runtime",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "model-gateway", "rag", "sync-v2", "infra:postgresql", "infra:nats"]
+}

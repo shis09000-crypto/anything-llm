@@ -113,7 +113,18 @@ function safeError(error, tool) {
   };
 }
 
-function jsonTool({ name, description, examples = [], parameters, execute }) {
+function jsonTool({
+  name,
+  description,
+  examples = [],
+  parameters,
+  execute,
+  continuationTask = null,
+  continuationInstruction = null,
+  prepareResultForModel = null,
+  modelResultMaxChars = null,
+  validatedContinuation = null,
+}) {
   return {
     name,
     startupConfig: { params: {} },
@@ -130,6 +141,17 @@ function jsonTool({ name, description, examples = [], parameters, execute }) {
               $schema: "http://json-schema.org/draft-07/schema#",
               ...parameters,
             },
+            ...(continuationTask ? { continuationTask } : {}),
+            ...(continuationInstruction ? { continuationInstruction } : {}),
+            ...(typeof prepareResultForModel === "function"
+              ? { prepareResultForModel }
+              : {}),
+            ...(Number.isFinite(Number(modelResultMaxChars))
+              ? { modelResultMaxChars: Number(modelResultMaxChars) }
+              : {}),
+            ...(typeof validatedContinuation === "function"
+              ? { validatedContinuation }
+              : {}),
             handler: async function (input = {}) {
               const startedAt = Date.now();
               try {

@@ -11,7 +11,8 @@ later.date.UTC();
 
 class BackgroundService {
   name = "BackgroundWorkerService";
-  static _instance = null;
+  static _instances = new Map();
+  mode = "combined";
   documentSyncEnabled = false;
   #root = path.resolve(__dirname, "../../jobs");
   #scheduledJobTimers = new Map();
@@ -72,14 +73,20 @@ class BackgroundService {
     },
   ];
 
-  constructor() {
-    if (BackgroundService._instance) {
+  constructor({ mode = "combined" } = {}) {
+    const normalizedMode = ["combined", "maintenance", "scheduler"].includes(
+      mode
+    )
+      ? mode
+      : "combined";
+    if (BackgroundService._instances.has(normalizedMode)) {
       this.#log("SINGLETON LOCK: Using existing BackgroundService.");
-      return BackgroundService._instance;
+      return BackgroundService._instances.get(normalizedMode);
     }
 
+    this.mode = normalizedMode;
     this.logger = setLogger();
-    BackgroundService._instance = this;
+    BackgroundService._instances.set(normalizedMode, this);
   }
 
   #log(text, ...args) {
@@ -120,14 +127,21 @@ class BackgroundService {
     const DocumentSyncQueue = DataAccessCenter.documentSyncQueue;
     const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
-    this.documentSyncEnabled = await DocumentSyncQueue.enabled();
+    const ownsMaintenance = ["combined", "maintenance"].includes(this.mode);
+    const ownsScheduler = ["combined", "scheduler"].includes(this.mode);
+    this.documentSyncEnabled = ownsMaintenance
+      ? await DocumentSyncQueue.enabled()
+      : false;
 
-    // Mark any orphaned scheduled job runs as failed (server crashed mid-execution)
-    const orphanedCount = await ScheduledJobRun.failOrphanedRuns();
-    if (orphanedCount > 0) {
-      this.#log(
-        `Marked ${orphanedCount} orphaned scheduled job run(s) as failed`
-      );
+    if (ownsScheduler) {
+      // Mark any orphaned scheduled job runs as failed (server crashed
+      // mid-execution). Maintenance workers never mutate scheduler state.
+      const orphanedCount = await ScheduledJobRun.failOrphanedRuns();
+      if (orphanedCount > 0) {
+        this.#log(
+          `Marked ${orphanedCount} orphaned scheduled job run(s) as failed`
+        );
+      }
     }
 
     const jobsToRun = this.jobs();
@@ -145,22 +159,23 @@ class BackgroundService {
     if (process.env.NODE_ENV !== "test") this.graceful.listen();
 
     this.bree.start();
-    this.bree.run("system-patrol").catch((error) => {
-      this.logger.warn(
-        `Failed to run startup system patrol: ${error.message}`,
-        {
-          service: "bg-worker",
-          origin: "system-patrol",
-        }
-      );
-    });
+    if (ownsMaintenance)
+      this.bree.run("system-patrol").catch((error) => {
+        this.logger.warn(
+          `Failed to run startup system patrol: ${error.message}`,
+          {
+            service: "bg-worker",
+            origin: "system-patrol",
+          }
+        );
+      });
     this.#log(
       `Service started with ${jobsToRun.length} jobs`,
       jobsToRun.map((j) => j.name)
     );
 
-    await this.#bootScheduledJobs();
-    void this.#startCryptoHubBackgroundRuntime();
+    if (ownsScheduler) await this.#bootScheduledJobs();
+    if (this.mode === "combined") void this.#startCryptoHubBackgroundRuntime();
   }
 
   async #startCryptoHubBackgroundRuntime() {
@@ -227,6 +242,7 @@ class BackgroundService {
 
   /** @returns {import("@mintplex-labs/bree").Job[]} */
   jobs() {
+    if (this.mode === "scheduler") return [];
     const activeJobs = [...this.#alwaysRunJobs];
     if (this.documentSyncEnabled) activeJobs.push(...this.#documentSyncJobs);
     return activeJobs;
@@ -326,6 +342,25 @@ class BackgroundService {
   }
 
   /**
+   * Reconcile the in-process cron registry with the durable scheduled_jobs
+   * table. This is the recovery path when the API changed a job while the
+   * scheduler service was unavailable or rolling between blue/green slots.
+   */
+  async reconcileScheduledJobs() {
+    const { DataAccessCenter } = require("../dataAccess");
+    const ScheduledJob = DataAccessCenter.scheduledJob.job;
+    const enabledJobs = await ScheduledJob.allEnabled();
+    const enabledIds = new Set(enabledJobs.map((job) => Number(job.id)));
+    for (const jobId of this.#scheduledJobTimers.keys())
+      if (!enabledIds.has(Number(jobId))) this.removeScheduledJob(jobId);
+    for (const job of enabledJobs) this.addScheduledJob(job);
+    return {
+      enabled: enabledJobs.length,
+      registered: this.#scheduledJobTimers.size,
+    };
+  }
+
+  /**
    * Register an in-process cron timer for a scheduled job.
    * When the cron fires, the jobId is enqueued for execution.
    * @param {object} job - scheduled_jobs DB record
@@ -411,16 +446,18 @@ class BackgroundService {
    * atomically rejects the call if the job already has a run in flight.
    *
    * @param {number} jobId - scheduled_jobs.id
+   * @param {{idempotencyKey?: string}} options
    * @returns {Promise<object|null>} the created run row, or null if skipped
    *   because a run is already in flight for this job.
    */
-  async enqueueScheduledJob(jobId) {
+  async enqueueScheduledJob(jobId, { idempotencyKey = null } = {}) {
     const { DataAccessCenter } = require("../dataAccess");
     const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
-    const run = await ScheduledJobRun.start(jobId);
+    const run = await ScheduledJobRun.start(jobId, { idempotencyKey });
     // if start returns null, skip enqueuing, schueduled job already has a run in flight
     if (!run) return null;
+    if (run.idempotentReplay) return run;
 
     this.#scheduledJobQueue.add(() =>
       this.#runScheduledJobWorker(jobId, run.id).catch(async (err) => {

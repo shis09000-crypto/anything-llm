@@ -119,7 +119,7 @@ class MCPCompatibilityLayer extends MCPHypervisor {
                       subject: `agent:${invocation.uuid || "unknown"}`,
                       maxCostUsd: manifest.maxCostUsd,
                     });
-                    authorizeInvocation({
+                    await authorizeInvocation({
                       credential,
                       serviceIdentity:
                         currentMcp.athenaPolicy?.serviceIdentity ||

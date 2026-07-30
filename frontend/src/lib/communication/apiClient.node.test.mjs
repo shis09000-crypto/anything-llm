@@ -183,6 +183,7 @@ test("requestJson returns data, requestId, and DEV logs correlated metadata", as
   const originalFetch = globalThis.fetch;
   const originalDebug = console.debug;
   const logs = [];
+  const requestMetadata = [];
   let receivedUrl;
   let receivedInit;
 
@@ -198,6 +199,7 @@ test("requestJson returns data, requestId, and DEV logs correlated metadata", as
     const result = await requestJson("/ping", {
       method: "POST",
       body: { hello: "world" },
+      onRequestMetadata: (metadata) => requestMetadata.push(metadata),
     });
 
     assert.equal(receivedUrl, "/api/ping");
@@ -208,6 +210,14 @@ test("requestJson returns data, requestId, and DEV logs correlated metadata", as
     assert.equal(receivedInit.body, JSON.stringify({ hello: "world" }));
     assert.deepEqual(result.data, { ok: true });
     assert.equal(typeof result.requestId, "string");
+    assert.deepEqual(requestMetadata, [
+      {
+        requestId: "req-api-test",
+        method: "POST",
+        path: "/ping",
+        retryAttempt: 0,
+      },
+    ]);
 
     const startLog = logs.find((entry) => entry[0] === "[apiClient] start");
     const successLog = logs.find((entry) => entry[0] === "[apiClient] success");

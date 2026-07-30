@@ -4,6 +4,7 @@ module.exports = {
   ...require("./tradingPairDetail"),
   ...require("./topSpotAssets"),
   ...require("./marketCandles"),
+  ...require("./marketEvidence"),
   ...require("./marketStream"),
   ...require("./openFuturesPositions"),
   ...require("./tradeRecords"),

@@ -21,6 +21,7 @@ const { cryptoMarketAgent } = require("./crypto-market");
 const { cryptoAccountAgent } = require("./crypto-account");
 const { weatherAgent } = require("./weather");
 const { globalMarketAgent } = require("./global-market");
+const { goldMarketAgent } = require("./gold-market");
 const { documentFormattingAgent } = require("./document-formatting");
 
 module.exports = {
@@ -47,6 +48,7 @@ module.exports = {
   cryptoAccountAgent,
   weatherAgent,
   globalMarketAgent,
+  goldMarketAgent,
   documentFormattingAgent,
 
   // Plugin name aliases so they can be pulled by slug as well.
@@ -73,5 +75,6 @@ module.exports = {
   [cryptoAccountAgent.name]: cryptoAccountAgent,
   [weatherAgent.name]: weatherAgent,
   [globalMarketAgent.name]: globalMarketAgent,
+  [goldMarketAgent.name]: goldMarketAgent,
   [documentFormattingAgent.name]: documentFormattingAgent,
 };

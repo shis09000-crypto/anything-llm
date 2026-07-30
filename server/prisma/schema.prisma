@@ -441,22 +441,22 @@ model users {
 }
 
 model auth_sessions {
-  sessionId            String    @id
-  subjectType          String
-  authUserId           Int?
-  clientId             String?
-  authMode             String
-  tokenVersion         Int       @default(1)
-  createdAt            DateTime  @default(now())
-  lastSeenAt           DateTime  @default(now())
-  idleExpiresAt        DateTime
-  absoluteExpiresAt    DateTime
-  revokedAt            DateTime?
-  revokeReason         String?
-  recoveryHandleHash   String?   @unique
-  recoveryEnabledAt    DateTime?
-  recoveryLastUsedAt   DateTime?
-  authUser             users?    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  sessionId          String    @id
+  subjectType        String
+  authUserId         Int?
+  clientId           String?
+  authMode           String
+  tokenVersion       Int       @default(1)
+  createdAt          DateTime  @default(now())
+  lastSeenAt         DateTime  @default(now())
+  idleExpiresAt      DateTime
+  absoluteExpiresAt  DateTime
+  revokedAt          DateTime?
+  revokeReason       String?
+  recoveryHandleHash String?   @unique
+  recoveryEnabledAt  DateTime?
+  recoveryLastUsedAt DateTime?
+  authUser           users?    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
 
   @@index([authUserId, revokedAt])
   @@index([clientId, revokedAt])
@@ -1940,6 +1940,9 @@ model chat_stream_runs {
   finalChatId       Int?
   finalPublicChatId String?
   errorCode         String?
+  ownerId           String?
+  leaseExpiresAt    DateTime?
+  heartbeatAt       DateTime?
   startedAt         DateTime  @default(now())
   completedAt       DateTime?
   lastUpdatedAt     DateTime  @updatedAt
@@ -1947,6 +1950,98 @@ model chat_stream_runs {
   @@index([workspaceId, threadId, userId, status])
   @@index([status, lastUpdatedAt])
   @@index([completedAt])
+}
+
+model chat_run_events {
+  id          Int      @id @default(autoincrement())
+  runId       String
+  sequence    Int
+  eventType   String
+  payloadJson String
+  payloadHash String
+  createdAt   DateTime @default(now())
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
+}
+
+model agent_runs {
+  id                String    @id
+  invocationId      String    @unique
+  clientTurnId      String?
+  workspaceId       Int
+  threadId          Int?
+  userId            Int?
+  status            String    @default("running")
+  latestSequence    Int       @default(0)
+  ownerId           String?
+  leaseExpiresAt    DateTime?
+  heartbeatAt       DateTime?
+  finalChatId       Int?
+  finalPublicChatId String?
+  errorCode         String?
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  lastUpdatedAt     DateTime  @updatedAt
+
+  @@index([workspaceId, threadId, userId, status])
+  @@index([status, leaseExpiresAt])
+}
+
+model agent_run_events {
+  id          Int      @id @default(autoincrement())
+  runId       String
+  sequence    Int
+  eventType   String
+  payloadJson String
+  payloadHash String
+  sensitivity String   @default("metadata-only")
+  createdAt   DateTime @default(now())
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
+}
+
+model tool_invocations {
+  id                  String    @id @default(uuid())
+  approvalRequestId   String    @unique
+  agentInvocationId   String?
+  clientTurnId        String?
+  ownerUserId         Int?
+  ownerAuthUserId     String?
+  toolName            String
+  approvalClass       String?
+  status              String    @default("approval_requested")
+  scopeJson           String    @default("{}")
+  scopeHash           String
+  argumentHash        String?
+  resultHash          String?
+  reasonCode          String?
+  approvalRequestedAt DateTime  @default(now())
+  approvedAt          DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  lastUpdatedAt       DateTime  @updatedAt
+
+  @@index([agentInvocationId, status])
+  @@index([ownerUserId, status, approvalRequestedAt])
+  @@index([toolName, status, approvalRequestedAt])
+}
+
+model plugin_capability_nonces {
+  id               String   @id @default(uuid())
+  nonceHash        String   @unique
+  toolInvocationId String?
+  audience         String
+  toolName         String
+  argsHash         String
+  capabilityHash   String
+  expiresAt        DateTime
+  consumedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+
+  @@index([expiresAt])
+  @@index([toolInvocationId, consumedAt])
 }
 
 model content_objects {
@@ -2944,15 +3039,16 @@ model scheduled_jobs {
 }
 
 model scheduled_job_runs {
-  id          Int            @id @default(autoincrement())
-  jobId       Int
-  status      String         @default("queued") // queued | running | completed | failed | timed_out — model always sets explicitly
-  result      String? // JSON execution trace
-  error       String?
-  startedAt   DateTime       @default(now())
-  completedAt DateTime?
-  readAt      DateTime? // null = unread
-  job         scheduled_jobs @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id             Int            @id @default(autoincrement())
+  jobId          Int
+  idempotencyKey String?        @unique
+  status         String         @default("queued") // queued | running | completed | failed | timed_out — model always sets explicitly
+  result         String? // JSON execution trace
+  error          String?
+  startedAt      DateTime       @default(now())
+  completedAt    DateTime?
+  readAt         DateTime? // null = unread
+  job            scheduled_jobs @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
 }

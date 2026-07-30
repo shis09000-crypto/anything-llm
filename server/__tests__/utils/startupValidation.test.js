@@ -72,6 +72,58 @@ describe("production startup security validation", () => {
     );
   });
 
+  it("fails closed when private-account cutover lacks hybrid capability keys", () => {
+    const findings = productionSecurityFindings({
+      ...secureProductionEnv,
+      ATHENA_CRYPTO_ACCOUNT_CUTOVER: "true",
+    });
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/PLUGIN_CAPABILITY_HYBRID_REQUIRED=true/),
+        expect.stringMatching(/ATHENA_REQUIRE_NODE24_PQ_PROBE=true/),
+        expect.stringMatching(
+          /ATHENA_PLUGIN_CAPABILITY_ED25519_PRIVATE_KEY_FILE/
+        ),
+        expect.stringMatching(
+          /ATHENA_PLUGIN_CAPABILITY_MLDSA65_PUBLIC_KEY_FILE/
+        ),
+      ])
+    );
+  });
+
+  it("rejects platform key material mounted beside a remote custody client", () => {
+    const findings = productionSecurityFindings({
+      ...secureProductionEnv,
+      ATHENA_RUNTIME_ROLE: "crypto-account",
+      ATHENA_KEY_CUSTODY_CUTOVER: "true",
+      ATHENA_KEY_CUSTODY_URL: "https://key-custody.internal",
+    });
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /ENCRYPTION_MASTER_KEY must not be mounted outside/
+        ),
+      ])
+    );
+  });
+
+  it("rejects model provider credentials mounted in the remote Agent runtime", () => {
+    const findings = productionSecurityFindings({
+      ...secureProductionEnv,
+      ATHENA_RUNTIME_ROLE: "agent-runtime",
+      ATHENA_MODEL_GATEWAY_CUTOVER: "true",
+      ATHENA_MODEL_GATEWAY_URL: "https://model-gateway.internal",
+      DEEPSEEK_API_KEY: "must-not-be-visible-to-agent",
+    });
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          /DEEPSEEK_API_KEY must be mounted only in Model Gateway/
+        ),
+      ])
+    );
+  });
+
   it("rejects disabled sessions, weak realtime auth, and non-strict readiness", () => {
     const findings = productionSecurityFindings({
       ...secureProductionEnv,

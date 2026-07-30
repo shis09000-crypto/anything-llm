@@ -10,6 +10,7 @@ const { ClickHouseEventStore } = require("./clickHouseEventStore");
 const { OperationsJetStreamTransport } = require("./jetStreamTransport");
 const { validateRegistered } = require("./schemaRegistry");
 const { metrics } = require("../observability/metrics");
+const { loadManifests } = require("../modulePlatform/manifestRegistry");
 
 const MAX_RETRY_QUEUE = 1_000;
 
@@ -107,6 +108,8 @@ class OperationsPlane {
     this.lastError = null;
     this.rejected = 0;
     this.queued = 0;
+    this.producers = new Map();
+    this.moduleHeartbeats = new Map();
   }
 
   securityFindings() {
@@ -174,6 +177,7 @@ class OperationsPlane {
       error.code = "SEMANTIC_EVENT_SCHEMA_REJECTED";
       throw error;
     }
+    this.observeProducer(event);
     try {
       const transportHealth = this.transport.health();
       if (transportHealth.connected || transportHealth.ready)
@@ -187,6 +191,34 @@ class OperationsPlane {
       this.lastError = error?.code || error?.message || String(error);
       return { accepted: false, queued: true };
     }
+  }
+
+  async ingestBatch(events = []) {
+    const batch = Array.isArray(events) ? events.slice(0, 100) : [];
+    if (!batch.length) {
+      const error = new Error("semantic_event_batch_required");
+      error.code = "SEMANTIC_EVENT_BATCH_REQUIRED";
+      throw error;
+    }
+    for (const event of batch) {
+      const validation = validateRegistered(event);
+      if (!validation.valid) {
+        this.rejected += 1;
+        metrics.operationsEvents.inc({
+          stage: "schema_validation",
+          outcome: "rejected",
+        });
+        const error = new Error(`semantic_event_rejected:${validation.errors}`);
+        error.code = "SEMANTIC_EVENT_SCHEMA_REJECTED";
+        throw error;
+      }
+    }
+    const results = await Promise.all(batch.map((event) => this.ingest(event)));
+    return {
+      accepted: results.filter((result) => result?.accepted !== false).length,
+      queued: results.filter((result) => result?.queued).length,
+      total: batch.length,
+    };
   }
 
   async consume(event) {
@@ -208,11 +240,42 @@ class OperationsPlane {
         error.code = "SEMANTIC_EVENT_SCHEMA_REJECTED";
         throw error;
       }
+      this.observeProducer(event);
     }
     if (typeof this.store.insertBatch === "function")
       return this.store.insertBatch(batch);
     for (const event of batch) await this.store.insert(event);
     return true;
+  }
+
+  observeProducer(event = {}) {
+    const runtimeRole = String(event.producer?.runtimeRole || "unknown").slice(
+      0,
+      96
+    );
+    const service = String(event.producer?.service || "unknown").slice(0, 160);
+    this.producers.set(runtimeRole, {
+      runtimeRole,
+      service,
+      lastEventAt: event.occurredAt || null,
+      lastReceivedAt: new Date().toISOString(),
+    });
+    if (event.eventType === "module.telemetry.heartbeat" && event.subject?.id) {
+      this.moduleHeartbeats.set(String(event.subject.id), {
+        moduleId: String(event.subject.id),
+        runtimeRole,
+        service,
+        lastEventAt: event.occurredAt || null,
+        lastReceivedAt: new Date().toISOString(),
+      });
+    }
+    if (this.producers.size > 100) {
+      const oldest = [...this.producers.entries()].sort(
+        ([, left], [, right]) =>
+          Date.parse(left.lastReceivedAt) - Date.parse(right.lastReceivedAt)
+      )[0];
+      if (oldest) this.producers.delete(oldest[0]);
+    }
   }
 
   enqueue(event) {
@@ -366,6 +429,34 @@ class OperationsPlane {
         : dynamicallyReady
           ? "running"
           : "degraded";
+    const producerStaleAfterMs = Math.max(
+      30_000,
+      Number(this.env.ATHENA_OPERATIONS_PRODUCER_STALE_MS || 180_000)
+    );
+    const producers = [...this.producers.values()]
+      .map((producer) => ({
+        ...producer,
+        stale:
+          Date.now() - Date.parse(producer.lastReceivedAt || 0) >
+          producerStaleAfterMs,
+      }))
+      .sort((left, right) => left.runtimeRole.localeCompare(right.runtimeRole));
+    const expectedModuleIds = loadManifests()
+      .map((manifest) => manifest.id)
+      .sort();
+    const moduleHeartbeats = [...this.moduleHeartbeats.values()]
+      .map((heartbeat) => ({
+        ...heartbeat,
+        stale:
+          Date.now() - Date.parse(heartbeat.lastReceivedAt || 0) >
+          producerStaleAfterMs,
+      }))
+      .sort((left, right) => left.moduleId.localeCompare(right.moduleId));
+    const freshModuleIds = new Set(
+      moduleHeartbeats
+        .filter((heartbeat) => !heartbeat.stale)
+        .map((heartbeat) => heartbeat.moduleId)
+    );
     return {
       enabled: this.config.enabled,
       status: dynamicStatus,
@@ -374,6 +465,21 @@ class OperationsPlane {
       retryQueue: this.retryQueue.length,
       queuedTotal: this.queued,
       rejected: this.rejected,
+      producerCoverage: {
+        observed: producers.length,
+        stale: producers.filter((producer) => producer.stale).length,
+        staleAfterMs: producerStaleAfterMs,
+        producers,
+      },
+      moduleHeartbeatCoverage: {
+        expected: expectedModuleIds.length,
+        observed: moduleHeartbeats.length,
+        fresh: freshModuleIds.size,
+        stale: moduleHeartbeats.filter((heartbeat) => heartbeat.stale).length,
+        missing: expectedModuleIds.filter((id) => !freshModuleIds.has(id)),
+        staleAfterMs: producerStaleAfterMs,
+        heartbeats: moduleHeartbeats,
+      },
       jetstream,
       clickhouse,
     };

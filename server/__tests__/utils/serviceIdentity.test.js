@@ -2,7 +2,10 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { loadServiceIdentity } = require("../../utils/security/serviceIdentity");
+const {
+  expectedServiceId,
+  loadServiceIdentity,
+} = require("../../utils/security/serviceIdentity");
 
 function command(args) {
   execFileSync("openssl", args, { stdio: "ignore" });
@@ -82,6 +85,25 @@ describe("service workload identity", () => {
 
   afterEach(() => {
     fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  test("keeps process-local service ids from overriding peer identities", () => {
+    const env = {
+      APP_ENV: "preproduction",
+      ATHENA_RUNTIME_ROLE: "operations-plane",
+      ATHENA_SERVICE_ID: "spiffe://athena/preproduction/operations-plane",
+      ATHENA_API_SERVICE_ID: "spiffe://athena/preproduction/api-v2",
+    };
+
+    expect(expectedServiceId("operations-plane", env)).toBe(
+      "spiffe://athena/preproduction/operations-plane"
+    );
+    expect(expectedServiceId("api", env)).toBe(
+      "spiffe://athena/preproduction/api-v2"
+    );
+    expect(expectedServiceId("chat-runtime", env)).toBe(
+      "spiffe://athena/preproduction/chat-runtime"
+    );
   });
 
   test("accepts only a CA-issued certificate bound to the expected SPIFFE ID", () => {

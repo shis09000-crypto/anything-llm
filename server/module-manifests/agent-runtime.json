@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "agent-runtime",
+  "name": "Agent Orchestrator",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "ai-platform",
+  "criticality": "critical",
+  "runtimeRole": "agent-runtime",
+  "sourcePaths": ["server/endpoints/agentWebsocket.js", "server/utils/agents/"],
+  "capabilities": ["planning", "approval", "tool-routing", "durable-runs", "recovery"],
+  "routes": { "public": ["/api/agent-invocation/"], "internal": ["/internal/v1/agent/runs", "/internal/v1/agent/runs/:id/drain"] },
+  "rpc": { "provides": ["agent.submit", "agent.status"], "consumes": ["identity.assert", "model.stream", "tool.invoke"] },
+  "events": { "publishes": ["agent.run.*", "approval.*"], "subscribes": ["tool.invocation.*", "model.stream.*"] },
+  "data": { "schemas": ["agent"], "objectPrefixes": ["agent/results"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/agent-runtime",
+    "keyDomains": ["agent"],
+    "allowedCallers": ["edge-web", "athena-api", "scheduler"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/agent-runtime",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "chat-runtime", "model-gateway", "tool-runtime", "sync-v2", "infra:postgresql", "infra:nats"]
+}

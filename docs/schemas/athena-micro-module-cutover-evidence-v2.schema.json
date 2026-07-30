@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/micro-module-cutover-evidence-v2.json",
+  "title": "Athena Micro Module Cutover Evidence v2",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "version",
+    "databases",
+    "contentObjects",
+    "userDomainWraps",
+    "backupRestore",
+    "schemaOwnership",
+    "reverseShadow",
+    "legacyRuntime",
+    "keyCustody",
+    "runtimeDrills"
+  ],
+  "properties": {
+    "version": {
+      "const": "athena.micro-module-cutover-evidence:v2"
+    },
+    "databases": {
+      "type": "object",
+      "required": ["main", "auth"]
+    },
+    "contentObjects": {
+      "type": "object",
+      "required": ["coverage", "failureCount"]
+    },
+    "userDomainWraps": {
+      "type": "object",
+      "required": ["coverage", "pending"]
+    },
+    "backupRestore": {
+      "type": "object",
+      "required": ["passed"]
+    },
+    "schemaOwnership": {
+      "type": "object",
+      "required": [
+        "coverage",
+        "crossSchemaWriteViolations",
+        "moduleRolesEnforced"
+      ]
+    },
+    "reverseShadow": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "observationDays",
+        "readFallbackHits"
+      ]
+    },
+    "legacyRuntime": {
+      "type": "object",
+      "required": [
+        "routeHits",
+        "toolExecutorHits",
+        "sqliteReadHits",
+        "sharedDirectoryHits",
+        "memoryTransportHits",
+        "monolithImageReadOnly"
+      ]
+    },
+    "keyCustody": {
+      "type": "object",
+      "required": [
+        "remoteAuthority",
+        "masterKeyMountedOutsideCustody",
+        "localMaterialReadHits",
+        "decryptOnlyReadHits",
+        "observationDays",
+        "wrapUnwrapDrillPassed",
+        "rotationRecoveryPassed"
+      ]
+    },
+    "runtimeDrills": {
+      "type": "object",
+      "required": [
+        "chatAgentRolloutPassed",
+        "identityCustodyFailurePassed",
+        "cryptoIsolationPassed"
+      ]
+    }
+  }
+}

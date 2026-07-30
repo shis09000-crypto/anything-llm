@@ -2,6 +2,7 @@ import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
 import {
   apiErrorFallback as rawOrFallback,
   apiErrorMessage as responseError,
+  isApiAbortError,
 } from "@/lib/communication/apiError";
 import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
 
@@ -32,6 +33,15 @@ function overviewActionTask(label, slug, surface = "workspace-overview") {
   };
 }
 
+function overviewInitialLoadTask(slug) {
+  return {
+    ...overviewTask("workspace-overview:get", slug),
+    protected: true,
+    abortable: false,
+    intentRank: 2,
+  };
+}
+
 const WorkspaceOverview = {
   async get(slug, params = {}, options = {}) {
     if (!slug) return { error: "missing_workspace" };
@@ -44,15 +54,21 @@ const WorkspaceOverview = {
     return await getJson(`/workspace/${slug}/overview${query}`, {
       signal: options.signal,
       communicationScene: options.communicationScene || "workspace-overview",
+      onRequestMetadata: options.onRequestMetadata,
       task:
         options.task === undefined
-          ? overviewTask("workspace-overview:get", slug)
+          ? overviewInitialLoadTask(slug)
           : options.task,
     })
       .then(({ data }) => data.overview)
-      .catch((error) => ({
-        error: responseError(error, "加载工作区首页失败。"),
-      }));
+      .catch((error) => {
+        if (isApiAbortError(error)) throw error;
+        return {
+          error: responseError(error, "加载工作区首页失败。"),
+          failureKind: error?.status ? "http_error" : "network_error",
+          requestId: error?.details?.requestId || "",
+        };
+      });
   },
 
   async recordUsage(slug, body = {}, options = {}) {

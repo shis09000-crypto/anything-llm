@@ -460,7 +460,7 @@ function chatEndpoints(app) {
         await chatStreamRunManager.attach(
           response,
           scope,
-          request.query.afterRevision
+          request.query?.afterRevision
         );
       } catch (error) {
         if (!response.writableEnded && !response.destroyed) {
@@ -558,7 +558,7 @@ function chatEndpoints(app) {
         await chatStreamRunManager.attach(
           response,
           scope,
-          request.query.afterRevision
+          request.query?.afterRevision
         );
       } catch (error) {
         if (!response.writableEnded && !response.destroyed) {
@@ -674,7 +674,7 @@ function chatEndpoints(app) {
           await chatStreamRunManager.attach(
             response,
             scope,
-            request.query.afterRevision
+            request.query?.afterRevision
           );
           return;
         }
@@ -697,7 +697,7 @@ function chatEndpoints(app) {
         );
         runtime.sink.__athenaGoldenJourney =
           response.__athenaGoldenJourney || null;
-        await runtime.attach(response, request.query.afterRevision);
+        await runtime.attach(response, request.query?.afterRevision);
       } catch (e) {
         console.error(e);
         const workspace = response.locals.workspace;
@@ -813,7 +813,7 @@ function chatEndpoints(app) {
           await chatStreamRunManager.attach(
             response,
             scope,
-            request.query.afterRevision
+            request.query?.afterRevision
           );
           return;
         }
@@ -838,7 +838,7 @@ function chatEndpoints(app) {
         );
         runtime.sink.__athenaGoldenJourney =
           response.__athenaGoldenJourney || null;
-        await runtime.attach(response, request.query.afterRevision);
+        await runtime.attach(response, request.query?.afterRevision);
       } catch (e) {
         console.error(e);
         const workspace = response.locals.workspace;

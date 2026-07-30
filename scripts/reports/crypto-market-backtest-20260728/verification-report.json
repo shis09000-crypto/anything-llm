@@ -1,0 +1,9 @@
+{
+  "recordsChecked": 9963,
+  "fieldComparisons": 126198,
+  "mismatchCount": 0,
+  "mismatches": [],
+  "rawDataSha256": "a306e910e49a71cb3239c955147ae19dee59a9caed0ba68a12f2ec7f0c883902",
+  "recordsSha256": "aa794816f8b5bd54a7bab092c34ca165c9cf0d5a592144b114d85899cc39d381",
+  "verifierSha256": "6b7f87d2a64b02d5dc9e90f3c7c3ffaf234eb340051a2825a11923acc75970a4"
+}

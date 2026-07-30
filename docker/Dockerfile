@@ -173,6 +173,7 @@ FROM build AS backend-build
 COPY --chown=anythingllm:anythingllm ./server /app/server/
 WORKDIR /app/server
 RUN yarn install --production --network-timeout 100000 --ignore-engines && yarn cache clean
+RUN yarn prisma:postgresql:generate
 WORKDIR /app
 
 # Install collector dependencies
@@ -227,7 +228,7 @@ ENV ATHENA_BACKGROUND_INLINE=false
 ENV BACKGROUND_WORKER_PORT=3012
 ENV DEPLOYMENT_VERSION=2.1.1
 HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
-  CMD curl --silent --fail "http://localhost:${BACKGROUND_WORKER_PORT}/health" || exit 1
+  CMD if [ "$ATHENA_RUNTIME_TOPOLOGY" = "distributed" ]; then curl --silent --fail --insecure "https://localhost:${BACKGROUND_WORKER_PORT}/health"; else curl --silent --fail "http://localhost:${BACKGROUND_WORKER_PORT}/health"; fi || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
 FROM backend-build AS realtime-gateway-build
@@ -241,7 +242,7 @@ ENV ATHENA_BACKGROUND_INLINE=false
 ENV REALTIME_GATEWAY_PORT=3013
 ENV DEPLOYMENT_VERSION=2.1.1
 HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
-  CMD curl --silent --fail "http://localhost:${REALTIME_GATEWAY_PORT}/health" || exit 1
+  CMD if [ "$ATHENA_RUNTIME_TOPOLOGY" = "distributed" ]; then curl --silent --fail --insecure "https://localhost:${REALTIME_GATEWAY_PORT}/health"; else curl --silent --fail "http://localhost:${REALTIME_GATEWAY_PORT}/health"; fi || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
 FROM backend-build AS reader-worker-build
@@ -254,7 +255,147 @@ ENV ATHENA_COLLECTOR_INLINE=false
 ENV READER_WORKER_PORT=3011
 ENV DEPLOYMENT_VERSION=2.1.1
 HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
-  CMD curl --silent --fail "http://localhost:${READER_WORKER_PORT}/health" || exit 1
+  CMD if [ "$ATHENA_RUNTIME_TOPOLOGY" = "distributed" ]; then curl --silent --fail --insecure "https://localhost:${READER_WORKER_PORT}/health"; else curl --silent --fail "http://localhost:${READER_WORKER_PORT}/health"; fi || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS scheduler-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=scheduler
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV SCHEDULER_PORT=3014
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${SCHEDULER_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS operations-plane-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=operations-plane
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV OPERATIONS_PLANE_PORT=3015
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${OPERATIONS_PLANE_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS chat-runtime-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=chat-runtime
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV CHAT_RUNTIME_PORT=3016
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${CHAT_RUNTIME_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS agent-runtime-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=agent-runtime
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV AGENT_RUNTIME_PORT=3017
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${AGENT_RUNTIME_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS model-gateway-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=model-gateway
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV MODEL_GATEWAY_PORT=3018
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${MODEL_GATEWAY_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS tool-broker-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=tool-broker
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV TOOL_BROKER_PORT=3019
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${TOOL_BROKER_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS crypto-market-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=crypto-market
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV CRYPTO_MARKET_PORT=3020
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${CRYPTO_MARKET_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS crypto-account-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=crypto-account
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV CRYPTO_ACCOUNT_PORT=3021
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${CRYPTO_ACCOUNT_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS crypto-forecast-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=crypto-forecast
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV CRYPTO_FORECAST_PORT=3022
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${CRYPTO_FORECAST_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS key-custody-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=key-custody
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV KEY_CUSTODY_PORT=3023
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${KEY_CUSTODY_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
 FROM backend-build AS collector-build
@@ -265,12 +406,29 @@ ENV ATHENA_RUNTIME_ROLE=collector
 ENV COLLECTOR_PORT=8888
 ENV DEPLOYMENT_VERSION=2.1.1
 HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
-  CMD curl --silent --fail "http://localhost:${COLLECTOR_PORT}/health" || exit 1
+  CMD if [ "$ATHENA_SERVICE_MTLS_REQUIRED" = "true" ]; then curl --silent --fail --insecure --cert "$COLLECTOR_MTLS_CERT_FILE" --key "$COLLECTOR_MTLS_KEY_FILE" "https://localhost:${COLLECTOR_PORT}/health"; else curl --silent --fail "http://localhost:${COLLECTOR_PORT}/health"; fi || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS edge-probe-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=edge-web
+ENV EDGE_PROBE_PORT=3025
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${EDGE_PROBE_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
 FROM nginx:1.27-alpine AS web-production-build
 ENV ATHENA_WEB_PORT=3000
 ENV ATHENA_API_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_REALTIME_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_CHAT_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_AGENT_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_TOOL_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_CRYPTO_ACCOUNT_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_CRYPTO_FORECAST_UPSTREAM=http://anything-llm-api:3001
 COPY ./docker/nginx-web.conf.template /etc/nginx/templates/default.conf.template
+RUN touch /etc/nginx/conf.d/athena-proxy-ssl.conf
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html

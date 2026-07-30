@@ -66,7 +66,9 @@ const {
   _zkLoginTestUtils: {
     isTrustedDeviceSchemaError,
     normalizeDeviceId,
+    normalizePasskeyReauthPurpose,
     opaqueIdentifiers,
+    passkeyChallengeType,
     sanitizeTrustedDevice,
     setOpaqueModuleOverrideForTest,
     zkUserIdentifier,
@@ -164,9 +166,7 @@ describe("ZK login endpoints", () => {
 
 describe("ZK login endpoint helpers", () => {
   it("accepts only base64url-style trusted device ids", () => {
-    expect(normalizeDeviceId("abcDEF_123-4567890")).toBe(
-      "abcDEF_123-4567890"
-    );
+    expect(normalizeDeviceId("abcDEF_123-4567890")).toBe("abcDEF_123-4567890");
     expect(normalizeDeviceId("short")).toBe(null);
     expect(normalizeDeviceId("unsafe/device/id")).toBe(null);
   });
@@ -179,6 +179,17 @@ describe("ZK login endpoint helpers", () => {
     expect(zkUserIdentifier(91, "device_1234567890abcdef")).toBe(
       "athena:user:91:device:device_1234567890abcdef"
     );
+  });
+
+  it("purpose-binds passkey reauthentication challenges", () => {
+    expect(normalizePasskeyReauthPurpose()).toBe("zk_enroll");
+    expect(normalizePasskeyReauthPurpose("vault_access")).toBe("vault_access");
+    expect(normalizePasskeyReauthPurpose("password_change")).toBe(
+      "password_change"
+    );
+    expect(normalizePasskeyReauthPurpose("account_delete")).toBe(null);
+    expect(passkeyChallengeType("zk_enroll")).toBe("zk_reauth");
+    expect(passkeyChallengeType("vault_access")).toBe("zk_reauth:vault_access");
   });
 
   it("sanitizes trusted devices without registration records or verifier data", () => {

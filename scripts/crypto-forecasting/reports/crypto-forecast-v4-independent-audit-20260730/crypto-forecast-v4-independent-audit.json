@@ -1,0 +1,3263 @@
+{
+  "schema": "athena.crypto.forecast-independent-audit",
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-07-30T06:35:41.319597+00:00",
+  "classification": "historical_semi_blind",
+  "verdict": "FAIL",
+  "artifactAudit": {
+    "manifestSha256": "34d52ded2f066864a30da9e7a762994ec21d41e806d8198bfc0ad3afbb23d592",
+    "signaturePresent": true,
+    "signatureSha256": "070ef37fbb3c7236e114193b1e7a3a5af9e25724ca413edddab61535356b2edb",
+    "artifactsChecked": 27,
+    "artifactFailures": []
+  },
+  "replay": {
+    "path": "/audit/v4-hourly.jsonl",
+    "sha256": "47e40a9c5a73c0388940a8288c6ea94b2269d69650d6862c3b977afa1a5e5685",
+    "records": 82662,
+    "cadence": "hourly"
+  },
+  "traceAudit": {
+    "traces": 60,
+    "independentFeatureValuesChecked": 390,
+    "failures": [],
+    "passed": true
+  },
+  "riskHeadAudit": {
+    "samples": 12108,
+    "horizons": {
+      "4h": {
+        "samples": 10356,
+        "futureVolatility": {
+          "qlike": 0.07889295700108541,
+          "ewmaBaselineQlike": 0.0975888198034979,
+          "qlikeSkill": 0.19157791681524539,
+          "p50P90Coverage": 0.3405755117806103
+        },
+        "tailRisk": {
+          "brier": 0.06675748512461896,
+          "referenceBrier": 0.08645801584115344,
+          "brierSkill": 0.22786239685085574,
+          "prevalence": 0.09559675550405562
+        },
+        "passed": true
+      },
+      "24h": {
+        "samples": 1752,
+        "futureVolatility": {
+          "qlike": 0.05370790039366261,
+          "ewmaBaselineQlike": 0.06256455137989848,
+          "qlikeSkill": 0.14156020927022017,
+          "p50P90Coverage": 0.4349315068493151
+        },
+        "tailRisk": {
+          "brier": 0.053862551298697485,
+          "referenceBrier": 0.06625663299347384,
+          "brierSkill": 0.1870617496665904,
+          "prevalence": 0.07134703196347032
+        },
+        "passed": true
+      }
+    },
+    "passed": true
+  },
+  "baselineReplay": {
+    "path": "/audit/v3-hourly.jsonl",
+    "sha256": "0aafd2ef76527c059ae15cb6c03f5f91e28f3ceea4c57ef3d7a4466c8630cf85",
+    "records": 82662,
+    "modelVersions": [
+      "crypto-forecast-v3-20260729"
+    ],
+    "passed": true
+  },
+  "horizons": {
+    "4h": {
+      "samples": 41331,
+      "candidate": {
+        "samples": 41331,
+        "accuracy": 0.46248578548789043,
+        "balancedAccuracy": 0.4444107763929086,
+        "macroF1": 0.3944245098924057,
+        "mcc": 0.03575454646803118,
+        "confusionMatrix": [
+          [
+            12327,
+            1506,
+            6254
+          ],
+          [
+            690,
+            681,
+            300
+          ],
+          [
+            12053,
+            1413,
+            6107
+          ]
+        ],
+        "classes": {
+          "down": {
+            "precision": 0.4917032309533307,
+            "recall": 0.6136804898690695,
+            "f1": 0.5459618663773058,
+            "support": 20087
+          },
+          "range": {
+            "precision": 0.18916666666666668,
+            "recall": 0.40754039497307004,
+            "f1": 0.25839499146272055,
+            "support": 1671
+          },
+          "up": {
+            "precision": 0.482347365926862,
+            "recall": 0.3120114443365861,
+            "f1": 0.3789166718371905,
+            "support": 19573
+          }
+        }
+      },
+      "probability": {
+        "brier": 0.5448411964364208,
+        "referenceBrier": 0.5379005311501657,
+        "brierSkill": -0.012903250479069595,
+        "logLoss": 0.8226321417462233,
+        "ece": 0.05011946549217675,
+        "meanProbability": {
+          "down": 0.4947333415177928,
+          "range": 0.04458417031896013,
+          "up": 0.46068248816324425
+        },
+        "actualFrequency": {
+          "down": 0.4860032421185067,
+          "range": 0.040429701676707556,
+          "up": 0.47356705620478573
+        }
+      },
+      "selective": {
+        "coverage": 0.08114974232416346,
+        "samples": 3354,
+        "accuracy": 0.4740608228980322,
+        "bestNonMlBaseline": "momentum",
+        "baselineAccuracy": 0.357185450208706,
+        "actualClassDistribution": {
+          "down": 0.4907573047107931,
+          "range": 0.027429934406678593,
+          "up": 0.48181276088252833
+        },
+        "predictedClassDistribution": {
+          "down": 0.5307096004770423,
+          "range": 0.0,
+          "up": 0.46929039952295765
+        }
+      },
+      "baselines": {
+        "random": {
+          "samples": 41331,
+          "accuracy": 0.3359463840700685,
+          "balancedAccuracy": 0.33480363224219906,
+          "macroF1": 0.2882307999265674,
+          "mcc": 0.003273135931810097,
+          "confusionMatrix": [
+            [
+              6705,
+              6704,
+              6678
+            ],
+            [
+              555,
+              555,
+              561
+            ],
+            [
+              6493,
+              6455,
+              6625
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.48752999345597325,
+              "recall": 0.3337979787922537,
+              "f1": 0.3962765957446808,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.04046959311652326,
+              "recall": 0.33213644524236985,
+              "f1": 0.07214819629509263,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.47785631852279287,
+              "recall": 0.3384764726919736,
+              "f1": 0.3962676077399288,
+              "support": 19573
+            }
+          }
+        },
+        "majority": {
+          "samples": 41331,
+          "accuracy": 0.4860032421185067,
+          "balancedAccuracy": 0.3333333333333333,
+          "macroF1": 0.21803597208201722,
+          "mcc": 0.0,
+          "confusionMatrix": [
+            [
+              20087,
+              0,
+              0
+            ],
+            [
+              1671,
+              0,
+              0
+            ],
+            [
+              19573,
+              0,
+              0
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.4860032421185067,
+              "recall": 1.0,
+              "f1": 0.6541079162460517,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 19573
+            }
+          }
+        },
+        "momentum": {
+          "samples": 41331,
+          "accuracy": 0.32619583363576976,
+          "balancedAccuracy": 0.4202900247313483,
+          "macroF1": 0.2944144031361795,
+          "mcc": 0.022974101982335585,
+          "confusionMatrix": [
+            [
+              6219,
+              7541,
+              6327
+            ],
+            [
+              225,
+              1060,
+              386
+            ],
+            [
+              6235,
+              7135,
+              6203
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.49049609590661725,
+              "recall": 0.30960322596704337,
+              "f1": 0.37960080571323934,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.06736146415861718,
+              "recall": 0.6343506882106523,
+              "f1": 0.12179008444878497,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.4802570455249303,
+              "recall": 0.31691616001634904,
+              "f1": 0.3818523192465142,
+              "support": 19573
+            }
+          }
+        },
+        "persistence": {
+          "samples": 41331,
+          "accuracy": 0.48046260676005903,
+          "balancedAccuracy": 0.3338021187222154,
+          "macroF1": 0.3269032866761205,
+          "mcc": 0.0013385153807921493,
+          "confusionMatrix": [
+            [
+              10062,
+              0,
+              10025
+            ],
+            [
+              771,
+              0,
+              900
+            ],
+            [
+              9777,
+              0,
+              9796
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.4882096069868996,
+              "recall": 0.5009209936775029,
+              "f1": 0.49448362287146475,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.4727571063172627,
+              "recall": 0.5004853624891432,
+              "f1": 0.48622623715689683,
+              "support": 19573
+            }
+          }
+        },
+        "cryptoQuantV2": {
+          "samples": 41331,
+          "accuracy": 0.2228835498778157,
+          "balancedAccuracy": 0.36057085917167037,
+          "macroF1": 0.21908295735916616,
+          "mcc": 0.0026698131912789697,
+          "confusionMatrix": [
+            [
+              4020,
+              11721,
+              4346
+            ],
+            [
+              222,
+              1126,
+              323
+            ],
+            [
+              4054,
+              11453,
+              4066
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.4845708775313404,
+              "recall": 0.20012943694927068,
+              "f1": 0.28326815347214884,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.046337448559670785,
+              "recall": 0.6738479952124476,
+              "f1": 0.08671210195987833,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.4654836863194047,
+              "recall": 0.2077351453532928,
+              "f1": 0.28726861664547126,
+              "support": 19573
+            }
+          }
+        },
+        "opportunityOnly": {
+          "samples": 41331,
+          "accuracy": 0.46205027703176793,
+          "balancedAccuracy": 0.4453871741689368,
+          "macroF1": 0.40338367053325946,
+          "mcc": 0.036843099106117,
+          "confusionMatrix": [
+            [
+              9383,
+              1506,
+              9198
+            ],
+            [
+              459,
+              681,
+              531
+            ],
+            [
+              9127,
+              1413,
+              9033
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.494649164426169,
+              "recall": 0.46711803654104644,
+              "f1": 0.48048955346169603,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.18916666666666668,
+              "recall": 0.40754039497307004,
+              "f1": 0.25839499146272055,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.48145187080268625,
+              "recall": 0.46150309099269404,
+              "f1": 0.47126646667536193,
+              "support": 19573
+            }
+          }
+        },
+        "cryptoForecastV3": {
+          "samples": 41331,
+          "accuracy": 0.3312767656238659,
+          "balancedAccuracy": 0.44936740266576153,
+          "macroF1": 0.3017650786915223,
+          "mcc": 0.041169993260455666,
+          "confusionMatrix": [
+            [
+              5897,
+              7777,
+              6413
+            ],
+            [
+              263,
+              1199,
+              209
+            ],
+            [
+              5693,
+              7284,
+              6596
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.49751117860457267,
+              "recall": 0.2935729576342908,
+              "f1": 0.36925485284909204,
+              "support": 20087
+            },
+            "range": {
+              "precision": 0.07373923739237392,
+              "recall": 0.7175344105326152,
+              "f1": 0.13373487256706262,
+              "support": 1671
+            },
+            "up": {
+              "precision": 0.49901649266152215,
+              "recall": 0.3369948398303786,
+              "f1": 0.40230551065841236,
+              "support": 19573
+            }
+          }
+        }
+      },
+      "grouped": {
+        "symbol": {
+          "BTC": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.43797633737388403,
+              "balancedAccuracy": 0.4768238026763741,
+              "macroF1": 0.40185888332211905,
+              "mcc": 0.06852862811857846,
+              "confusionMatrix": [
+                [
+                  3354,
+                  1009,
+                  2187
+                ],
+                [
+                  218,
+                  502,
+                  152
+                ],
+                [
+                  3249,
+                  928,
+                  2178
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.49171675707374285,
+                  "recall": 0.5120610687022901,
+                  "f1": 0.5016827462418667,
+                  "support": 6550
+                },
+                "range": {
+                  "precision": 0.2058220582205822,
+                  "recall": 0.5756880733944955,
+                  "f1": 0.3032316520688614,
+                  "support": 872
+                },
+                "up": {
+                  "precision": 0.4821784370157184,
+                  "recall": 0.34272226593233673,
+                  "f1": 0.40066225165562913,
+                  "support": 6355
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.3248893082674022,
+              "balancedAccuracy": 0.427002192472896,
+              "macroF1": 0.3065886213533078,
+              "mcc": 0.03420997087172852,
+              "confusionMatrix": [
+                [
+                  1935,
+                  2578,
+                  2037
+                ],
+                [
+                  96,
+                  592,
+                  184
+                ],
+                [
+                  1994,
+                  2412,
+                  1949
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.48074534161490684,
+                  "recall": 0.2954198473282443,
+                  "f1": 0.3659574468085106,
+                  "support": 6550
+                },
+                "range": {
+                  "precision": 0.10605517735578646,
+                  "recall": 0.6788990825688074,
+                  "f1": 0.1834521227145956,
+                  "support": 872
+                },
+                "up": {
+                  "precision": 0.46738609112709834,
+                  "recall": 0.3066876475216365,
+                  "f1": 0.3703562945368171,
+                  "support": 6355
+                }
+              }
+            }
+          },
+          "ETH": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.46505044639616755,
+              "balancedAccuracy": 0.40897893184765693,
+              "macroF1": 0.3765353358968077,
+              "mcc": 0.01863592559232915,
+              "confusionMatrix": [
+                [
+                  4331,
+                  379,
+                  2019
+                ],
+                [
+                  270,
+                  145,
+                  88
+                ],
+                [
+                  4252,
+                  362,
+                  1931
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.48921269626115443,
+                  "recall": 0.6436320404220538,
+                  "f1": 0.5558978308304454,
+                  "support": 6729
+                },
+                "range": {
+                  "precision": 0.1636568848758465,
+                  "recall": 0.2882703777335984,
+                  "f1": 0.2087832973362131,
+                  "support": 503
+                },
+                "up": {
+                  "precision": 0.47820703318474495,
+                  "recall": 0.2950343773873186,
+                  "f1": 0.3649248795237645,
+                  "support": 6545
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.3248893082674022,
+              "balancedAccuracy": 0.42328114720272486,
+              "macroF1": 0.29161027971309345,
+              "mcc": 0.022979586391471945,
+              "confusionMatrix": [
+                [
+                  2075,
+                  2534,
+                  2120
+                ],
+                [
+                  63,
+                  324,
+                  116
+                ],
+                [
+                  2051,
+                  2417,
+                  2077
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.495344951062306,
+                  "recall": 0.30836677069401097,
+                  "f1": 0.380106246565305,
+                  "support": 6729
+                },
+                "range": {
+                  "precision": 0.0614218009478673,
+                  "recall": 0.6441351888667992,
+                  "f1": 0.11214953271028037,
+                  "support": 503
+                },
+                "up": {
+                  "precision": 0.48156735450962207,
+                  "recall": 0.3173414820473644,
+                  "f1": 0.38257505986369494,
+                  "support": 6545
+                }
+              }
+            }
+          },
+          "SOL": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.4844305726936198,
+              "balancedAccuracy": 0.36537510281801033,
+              "macroF1": 0.3542517049803657,
+              "mcc": 0.005457291272407351,
+              "confusionMatrix": [
+                [
+                  4642,
+                  118,
+                  2048
+                ],
+                [
+                  202,
+                  34,
+                  60
+                ],
+                [
+                  4552,
+                  123,
+                  1998
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.4940400170285228,
+                  "recall": 0.6818448883666275,
+                  "f1": 0.5729449518637374,
+                  "support": 6808
+                },
+                "range": {
+                  "precision": 0.12363636363636364,
+                  "recall": 0.11486486486486487,
+                  "f1": 0.1190893169877408,
+                  "support": 296
+                },
+                "up": {
+                  "precision": 0.48660496833901606,
+                  "recall": 0.2994155552225386,
+                  "f1": 0.3707208460896187,
+                  "support": 6673
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.3288088843725049,
+              "balancedAccuracy": 0.3790659229196423,
+              "macroF1": 0.27986746187233646,
+              "mcc": 0.008825355043159606,
+              "confusionMatrix": [
+                [
+                  2209,
+                  2429,
+                  2170
+                ],
+                [
+                  66,
+                  144,
+                  86
+                ],
+                [
+                  2190,
+                  2306,
+                  2177
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.49473684210526314,
+                  "recall": 0.3244712103407756,
+                  "f1": 0.3919098731482303,
+                  "support": 6808
+                },
+                "range": {
+                  "precision": 0.029514244722279155,
+                  "recall": 0.4864864864864865,
+                  "f1": 0.05565217391304348,
+                  "support": 296
+                },
+                "up": {
+                  "precision": 0.4910895556056846,
+                  "recall": 0.32624007193166493,
+                  "f1": 0.3920403385557356,
+                  "support": 6673
+                }
+              }
+            }
+          }
+        },
+        "volatilityRegime": {
+          "low": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.43601654932133266,
+              "balancedAccuracy": 0.4769957701381741,
+              "macroF1": 0.39516777975176076,
+              "mcc": 0.07919232624159235,
+              "confusionMatrix": [
+                [
+                  3518,
+                  1114,
+                  1933
+                ],
+                [
+                  236,
+                  520,
+                  135
+                ],
+                [
+                  3251,
+                  1101,
+                  1969
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5022127052105639,
+                  "recall": 0.5358720487433358,
+                  "f1": 0.5184966838614591,
+                  "support": 6565
+                },
+                "range": {
+                  "precision": 0.19012797074954296,
+                  "recall": 0.5836139169472503,
+                  "f1": 0.2868174296745725,
+                  "support": 891
+                },
+                "up": {
+                  "precision": 0.4877384196185286,
+                  "recall": 0.3115013447239361,
+                  "f1": 0.38018922571925085,
+                  "support": 6321
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.31196922406910066,
+              "balancedAccuracy": 0.424537320578021,
+              "macroF1": 0.2974492696152385,
+              "mcc": 0.031395110456824415,
+              "confusionMatrix": [
+                [
+                  1846,
+                  2715,
+                  2004
+                ],
+                [
+                  95,
+                  627,
+                  169
+                ],
+                [
+                  1872,
+                  2624,
+                  1825
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.4841332284290585,
+                  "recall": 0.2811881188118812,
+                  "f1": 0.35575255347851226,
+                  "support": 6565
+                },
+                "range": {
+                  "precision": 0.10509554140127389,
+                  "recall": 0.7037037037037037,
+                  "f1": 0.1828788099752078,
+                  "support": 891
+                },
+                "up": {
+                  "precision": 0.45647823911955976,
+                  "recall": 0.2887201392184781,
+                  "f1": 0.35371644539199537,
+                  "support": 6321
+                }
+              }
+            }
+          },
+          "medium": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.46947811570007986,
+              "balancedAccuracy": 0.41073138908921947,
+              "macroF1": 0.3832963587652474,
+              "mcc": 0.015059936762127132,
+              "confusionMatrix": [
+                [
+                  4219,
+                  316,
+                  2152
+                ],
+                [
+                  229,
+                  122,
+                  82
+                ],
+                [
+                  4272,
+                  258,
+                  2127
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.4838302752293578,
+                  "recall": 0.6309256766861073,
+                  "f1": 0.5476731355877199,
+                  "support": 6687
+                },
+                "range": {
+                  "precision": 0.1752873563218391,
+                  "recall": 0.2817551963048499,
+                  "f1": 0.21612046058458814,
+                  "support": 433
+                },
+                "up": {
+                  "precision": 0.4877321715202935,
+                  "recall": 0.3195132942767012,
+                  "f1": 0.38609548012343436,
+                  "support": 6657
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.32938956231400157,
+              "balancedAccuracy": 0.4117308759701636,
+              "macroF1": 0.2899183473738276,
+              "mcc": 0.019204933892006254,
+              "confusionMatrix": [
+                [
+                  2112,
+                  2467,
+                  2108
+                ],
+                [
+                  65,
+                  257,
+                  111
+                ],
+                [
+                  2153,
+                  2335,
+                  2169
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.48775981524249423,
+                  "recall": 0.3158366980708838,
+                  "f1": 0.38340746119633295,
+                  "support": 6687
+                },
+                "range": {
+                  "precision": 0.050800553469065035,
+                  "recall": 0.5935334872979214,
+                  "f1": 0.09359067734887108,
+                  "support": 433
+                },
+                "up": {
+                  "precision": 0.49430264357338194,
+                  "recall": 0.32582244254168546,
+                  "f1": 0.39275690357627885,
+                  "support": 6657
+                }
+              }
+            }
+          },
+          "high": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.48196269144225884,
+              "balancedAccuracy": 0.3629544775147357,
+              "macroF1": 0.36298267849455473,
+              "mcc": -0.0061918413373130725,
+              "confusionMatrix": [
+                [
+                  4590,
+                  76,
+                  2169
+                ],
+                [
+                  225,
+                  39,
+                  83
+                ],
+                [
+                  4530,
+                  54,
+                  2011
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.4911717495987159,
+                  "recall": 0.6715435259692758,
+                  "f1": 0.5673671199011124,
+                  "support": 6835
+                },
+                "range": {
+                  "precision": 0.23076923076923078,
+                  "recall": 0.11239193083573487,
+                  "f1": 0.1511627906976744,
+                  "support": 347
+                },
+                "up": {
+                  "precision": 0.47173352099460475,
+                  "recall": 0.3049279757391964,
+                  "f1": 0.3704181248848775,
+                  "support": 6595
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.337228714524207,
+              "balancedAccuracy": 0.39098423256319775,
+              "macroF1": 0.28813154145377456,
+              "mcc": 0.013320314082911143,
+              "confusionMatrix": [
+                [
+                  2261,
+                  2359,
+                  2215
+                ],
+                [
+                  65,
+                  176,
+                  106
+                ],
+                [
+                  2210,
+                  2176,
+                  2209
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.4984567901234568,
+                  "recall": 0.3307973664959766,
+                  "f1": 0.3976783044587108,
+                  "support": 6835
+                },
+                "range": {
+                  "precision": 0.037359371683294416,
+                  "recall": 0.5072046109510087,
+                  "f1": 0.06959272439699486,
+                  "support": 347
+                },
+                "up": {
+                  "precision": 0.48763796909492274,
+                  "recall": 0.334950720242608,
+                  "f1": 0.397123595505618,
+                  "support": 6595
+                }
+              }
+            }
+          }
+        }
+      },
+      "failureSamples": [
+        {
+          "passportRef": "8f1e06013b598d019cbf3d7d74ba92165222f465ae145bc8d16a7ef146e83496",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1771689600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.843851397943,
+          "netReturn2Bps": -0.003442046047942002
+        },
+        {
+          "passportRef": "b30cde92c9d7dce7e09cf170798b39457e47e3efb90e7c3f18c18514cee4c8e4",
+          "symbol": "SOL",
+          "horizon": "4h",
+          "decisionAtMs": 1766563200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.842702327277,
+          "netReturn2Bps": -0.008506562783505112
+        },
+        {
+          "passportRef": "490bfc5a0060a4d15e8827d5068751bd34c4124281c968845aeedac11355d40a",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1747080000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.834063142105,
+          "netReturn2Bps": -0.011505791789056228
+        },
+        {
+          "passportRef": "b995cbf3e275ab2c6bc61bca9a87985f7454fcd58c8cbc546da1f17a139d920f",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1748916000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.83394156733,
+          "netReturn2Bps": -0.012070012967479046
+        },
+        {
+          "passportRef": "bc00212292ffd56773f5e79807251a77de76c70d4d9527edeece6525fa94d1e8",
+          "symbol": "ETH",
+          "horizon": "4h",
+          "decisionAtMs": 1777233600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.829257769924,
+          "netReturn2Bps": -0.001538295176142721
+        },
+        {
+          "passportRef": "5aaef0a9b76b3ac4a0692f0ba15a570a19370b9fa07ebe5b35729d40e9e085ba",
+          "symbol": "SOL",
+          "horizon": "4h",
+          "decisionAtMs": 1736294400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.824871695275,
+          "netReturn2Bps": 0.014664243582104402
+        },
+        {
+          "passportRef": "9e8716e5ea8854058515e946513b461b0a3661c504c3186e3e819f477f2fe3c8",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1783378800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.823241849742,
+          "netReturn2Bps": -0.016751379117115925
+        },
+        {
+          "passportRef": "8cb443545ce8df4372dfe0bfc7d5b82d4cf45fb9bb21457d2bfe9af239d246a7",
+          "symbol": "SOL",
+          "horizon": "4h",
+          "decisionAtMs": 1777377600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.820916127045,
+          "netReturn2Bps": -0.003359808038392471
+        },
+        {
+          "passportRef": "e3036de765083b87bcc8c476990fea8733282626e1f45eb58838ddd0cfbac348",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1754596800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.813951673983,
+          "netReturn2Bps": -0.002314695809257292
+        },
+        {
+          "passportRef": "621fe02de0bb496093f88b145464e6ff76b6765817fcebc828a6801c7e9ff776",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1742817600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.812570511697,
+          "netReturn2Bps": 0.00513214295163196
+        },
+        {
+          "passportRef": "8636823ed19894348a4c686d9eae005f4ee45665e90c1eff9809d18e1658ae20",
+          "symbol": "ETH",
+          "horizon": "4h",
+          "decisionAtMs": 1759186800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.811903419113,
+          "netReturn2Bps": -0.008869367521124813
+        },
+        {
+          "passportRef": "5d27cd08bc42459273caa282090a90a9981d910a53902d2435c74f3cf8903114",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1750104000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.811776316597,
+          "netReturn2Bps": -0.01949568005230644
+        },
+        {
+          "passportRef": "7b83770016b2fa9cf96e46ddedcadda94389d4209047b0387e00ae3c187b0111",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1735819200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.809105328366,
+          "netReturn2Bps": -0.005273786608499684
+        },
+        {
+          "passportRef": "ead6e10c68fb20c95ef732a80e6bea1853b7d6ff3866efdef38f3f8865a2ce0f",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1735815600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.807376849405,
+          "netReturn2Bps": 0.003271609380816456
+        },
+        {
+          "passportRef": "1ccb13b9bd1257f034a2701f024e3f49bdc48925166e7ddce0bcbcf1b228256a",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1761472800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.806898266133,
+          "netReturn2Bps": 0.008110285276251752
+        },
+        {
+          "passportRef": "04800e8ee383683cd59eea25b9a20b0772a60d143c2186bf02584299267bff05",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1754568000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.806688756908,
+          "netReturn2Bps": -0.0009387000326297888
+        },
+        {
+          "passportRef": "46b76cc509222d9f04894cfcc9d0ae72720f7822a3dee571e9f80f9a17028f6b",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1758092400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.806660737125,
+          "netReturn2Bps": -0.009864881432290959
+        },
+        {
+          "passportRef": "f28dfabb2ba11948412822850029248d8a58b71c5d8aacc2faa0e3f35cf0df84",
+          "symbol": "ETH",
+          "horizon": "4h",
+          "decisionAtMs": 1773136800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.804985883549,
+          "netReturn2Bps": -0.019100754773543713
+        },
+        {
+          "passportRef": "ab99181270600cfb4a35fe462b906d9f09c592660c20437d31df97dafb52f12b",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1751245200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.804419038161,
+          "netReturn2Bps": -0.006068439517338195
+        },
+        {
+          "passportRef": "2bfc98946d0f6f07999fc686d75b77420964fa0bf043292425e241da7bc2e6ac",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1736146800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.804366854552,
+          "netReturn2Bps": -0.009878981724956201
+        },
+        {
+          "passportRef": "a08e58dca4774d4d06cf2229e1aa9588d0a0e7e4978df278d9b8876dbc879bbe",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1785211200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.80185472799,
+          "netReturn2Bps": -0.005033075343547577
+        },
+        {
+          "passportRef": "74d460cbc64d9c14db8ec876727253ca313f6d689d96ff6d68998bfcbe02a495",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1746702000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.801537865786,
+          "netReturn2Bps": -0.006496084351416506
+        },
+        {
+          "passportRef": "95b1a6e0e874cc21bcf57fdc06fe605b803ae0464edd918f9cd83a02b5e073f5",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1742814000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.799174809507,
+          "netReturn2Bps": -0.0005706417036289023
+        },
+        {
+          "passportRef": "94ac1b7405881bb69a96faeb82387cb62b28a87939ecadd17be84be948549028",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1746097200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.798345296195,
+          "netReturn2Bps": 0.004452311363088948
+        },
+        {
+          "passportRef": "509b70fe10aba7ef1664378767d5209adbaffecaf2e99a8dcba6e6a5f89a5fd4",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1739908800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.79773378458,
+          "netReturn2Bps": -0.018967227973723876
+        },
+        {
+          "passportRef": "516e8ebe2d71b7df5a8eb83c0c88682faa856edf6b2a86d67df78a2ccedbb38c",
+          "symbol": "SOL",
+          "horizon": "4h",
+          "decisionAtMs": 1742306400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.79637566909,
+          "netReturn2Bps": -0.010359713673536136
+        },
+        {
+          "passportRef": "06f14a14f244a6f1e1f46287d5b49a54b0b6a88debeb9bee8b17fe06e1bb4e60",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1748912400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.796198869266,
+          "netReturn2Bps": -0.012926343520089076
+        },
+        {
+          "passportRef": "1dd6a52154ba962db48f690737a90ce44019887be5295a2b77d3e1f89fddde4e",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1749412800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.795764659228,
+          "netReturn2Bps": -0.007630878279318784
+        },
+        {
+          "passportRef": "72d5ec55df93365c4575354cb0d0664210f1dba19514f459013ed017e46f9f47",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1736323200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.795154130973,
+          "netReturn2Bps": 0.0031522790543176073
+        },
+        {
+          "passportRef": "c3e9ad8a12c260469d3c8e99a6460837090249f34af53a3b4f13d9ff54e585ea",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1759104000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.7941272181,
+          "netReturn2Bps": -0.005132161025698509
+        },
+        {
+          "passportRef": "c83d16928fc5e0a2e0121f0b003e91e4d273f031aa10b689f25ccafcb97cb84c",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1746698400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.793435097344,
+          "netReturn2Bps": -0.007419893082510384
+        },
+        {
+          "passportRef": "c76053c4f7ff07cdd9c61d67b22207313563bbbc9acf1c47247b6a7663e3120c",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1767351600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.792166562928,
+          "netReturn2Bps": -0.003362457467298172
+        },
+        {
+          "passportRef": "b8821063119b06463cde1a9ddb130aeb8da509745ad74cdb374a45dbeb2174f4",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1751482800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.791735497548,
+          "netReturn2Bps": -0.006023188405797117
+        },
+        {
+          "passportRef": "a59cd9610b07c6a10aae1baa49d9715dd2c7d99c13af2ec6988f86c025ca9f6d",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1754870400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.7915876043,
+          "netReturn2Bps": 0.018009362494946404
+        },
+        {
+          "passportRef": "1c62b5e790783c1dc4feed66b87843d905175bb9aa60f86ff0e0969de1b7cb11",
+          "symbol": "ETH",
+          "horizon": "4h",
+          "decisionAtMs": 1766505600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.790556690283,
+          "netReturn2Bps": -0.0077428919733961285
+        },
+        {
+          "passportRef": "a19f0300272a77914be631b8965ab687276b4eb098102c94e1708f9615967551",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1761487200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.789899795518,
+          "netReturn2Bps": -0.0047691528906523145
+        },
+        {
+          "passportRef": "94c4c391d4c93f79ae130a25ea2266c654ef1febfcb049b5b065e61ae1fd0c0d",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1759320000000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.787660011706,
+          "netReturn2Bps": 0.003029936937005442
+        },
+        {
+          "passportRef": "e61ebdca3a218d68dabe11414c8f65c18c50801fb629b2fe0174c6c5fa0ade1a",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1742306400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.786837763373,
+          "netReturn2Bps": -0.003685401052965428
+        },
+        {
+          "passportRef": "fee582d9028cee18ea85ca924fd1a83528b9ed86086bbaf4af07dc01a05bc867",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1766473200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.786320615536,
+          "netReturn2Bps": -0.004822174624877376
+        },
+        {
+          "passportRef": "d171fc825baf02ec0cf8a1adc1aa1acc67dcd7dea988dc83dc40f86b8d49095e",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1779894000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.784844172478,
+          "netReturn2Bps": -0.0022901934328879207
+        },
+        {
+          "passportRef": "4365138d6c67f3f683e26fe046974030844fa68e449e1a9a56b613eb04975e9b",
+          "symbol": "ETH",
+          "horizon": "4h",
+          "decisionAtMs": 1778443200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.784596075246,
+          "netReturn2Bps": 2.2279902263291473e-05
+        },
+        {
+          "passportRef": "79feeb887da66398e58b864021cc61e418b728297a5f2c3bb6ab8795125d460e",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1747580400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.784329111898,
+          "netReturn2Bps": -0.009742764359180464
+        },
+        {
+          "passportRef": "feace6406b0a68ffd03b270c300b65a63a440c06b76f39a0ed744333deebe084",
+          "symbol": "SOL",
+          "horizon": "4h",
+          "decisionAtMs": 1775138400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.784215370526,
+          "netReturn2Bps": -0.013530201068211059
+        },
+        {
+          "passportRef": "d46e6e4b6fe0fa67b2991bc29b6dacc389786a65f9ca8defb5317e338e4a6342",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1769601600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.784143478377,
+          "netReturn2Bps": -0.009064410153686794
+        },
+        {
+          "passportRef": "9a901c86724c94d3d008a0f9311fbe3db90760a70ed9c3426a0182bcd4a0ad25",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1767585600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.784021225987,
+          "netReturn2Bps": -0.00625009531836411
+        },
+        {
+          "passportRef": "6011d827df94e59ccdff57b7c8a045893b2bd3854ca7d4cf3a57d1957a703d45",
+          "symbol": "SOL",
+          "horizon": "4h",
+          "decisionAtMs": 1759896000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.783839717137,
+          "netReturn2Bps": -0.014544821264894618
+        },
+        {
+          "passportRef": "b58b6520a76e4606bc1c2fec4b80652767f9014785581a9f2a0f1dad8e843322",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1751486400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.78316265773,
+          "netReturn2Bps": -0.009936187907415392
+        },
+        {
+          "passportRef": "62a6eb0d1dd807e316ba50c2d2f0316dd129c257fe8d776b58dd7c03754fb44f",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1784642400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.782362450583,
+          "netReturn2Bps": -0.011055257089809298
+        },
+        {
+          "passportRef": "c00b10ffb9f661eac689c3538fc0782cc15a44f7b7827301babd016c1e1bfad8",
+          "symbol": "BTC",
+          "horizon": "4h",
+          "decisionAtMs": 1749409200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.781107120983,
+          "netReturn2Bps": -0.007546461487930853
+        },
+        {
+          "passportRef": "9fc9c9fe4476de82a90a872a6a318908b7d39e28c99dc9013b24317766d02886",
+          "symbol": "ETH",
+          "horizon": "4h",
+          "decisionAtMs": 1735815600000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.780682000012,
+          "netReturn2Bps": 0.0052049135005953345
+        }
+      ],
+      "baselineReplayCoverage": {
+        "cryptoForecastV3": 1.0
+      },
+      "trading": {
+        "2": {
+          "signals": 1488,
+          "winRate": 0.35551075268817206,
+          "meanNetReturn": -0.000311320425813119,
+          "totalNetReturn": -0.4632447936099211,
+          "paperPnlUsdt": -46.32447936099211,
+          "profitFactor": 0.9436497012425119,
+          "sharpe": -0.30443452303919266,
+          "sortino": -0.7560874230854714,
+          "maximumDrawdown": 3.096443699855178,
+          "turnover": 2976,
+          "bootstrapMean": {
+            "lower95": -0.002012145079386819,
+            "upper95": 0.0016999730358021267,
+            "blocks": 399
+          }
+        },
+        "5": {
+          "signals": 1488,
+          "winRate": 0.33669354838709675,
+          "meanNetReturn": -0.00091132042581312,
+          "totalNetReturn": -1.3560447936099225,
+          "paperPnlUsdt": -135.60447936099226,
+          "profitFactor": 0.8459755999185136,
+          "sharpe": -0.8911634963997919,
+          "sortino": -2.2057229986640636,
+          "maximumDrawdown": 3.87764369985516,
+          "turnover": 2976,
+          "bootstrapMean": {
+            "lower95": -0.0026121450793868198,
+            "upper95": 0.001099973035802127,
+            "blocks": 399
+          }
+        },
+        "10": {
+          "signals": 1488,
+          "winRate": 0.3131720430107527,
+          "meanNetReturn": -0.0019113204258131202,
+          "totalNetReturn": -2.844044793609923,
+          "paperPnlUsdt": -284.4044793609923,
+          "profitFactor": 0.7101250047353225,
+          "sharpe": -1.869045118667456,
+          "sortino": -4.598237406991939,
+          "maximumDrawdown": 5.202804921959752,
+          "turnover": 2976,
+          "bootstrapMean": {
+            "lower95": -0.0036121450793868207,
+            "upper95": 9.997303580212595e-05,
+            "blocks": 399
+          }
+        },
+        "20": {
+          "signals": 1488,
+          "winRate": 0.2540322580645161,
+          "meanNetReturn": -0.003911320425813119,
+          "totalNetReturn": -5.820044793609922,
+          "paperPnlUsdt": -582.0044793609921,
+          "profitFactor": 0.5127659293348321,
+          "sharpe": -3.8248083632027825,
+          "sortino": -9.179638662672978,
+          "maximumDrawdown": 7.963900263584692,
+          "turnover": 2976,
+          "bootstrapMean": {
+            "lower95": -0.00561214507938682,
+            "upper95": -0.0019000269641978734,
+            "blocks": 399
+          }
+        }
+      },
+      "statistics": {
+        "dieboldMariano": {
+          "empiricalFrequency": {
+            "statistic": 6.581923194808272,
+            "pValue": 4.644018503086045e-11,
+            "candidateBetter": false,
+            "holmAdjustedPValue": 4.644018503086045e-11,
+            "holmRejected": true
+          },
+          "random": {
+            "statistic": -162.49903377003156,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "majority": {
+            "statistic": -68.16102494371194,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "momentum": {
+            "statistic": -127.03952562091673,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "persistence": {
+            "statistic": -79.63826414223365,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "cryptoQuantV2": {
+            "statistic": -170.8606020178888,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "opportunityOnly": {
+            "statistic": -86.01647084347739,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "cryptoForecastV3": {
+            "statistic": -136.63760534637373,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          }
+        },
+        "multipleComparisonCorrection": "holm_bonferroni",
+        "pbo": {
+          "pbo": 1.0,
+          "combinations": 70
+        },
+        "deflatedSharpeConfidence": 0.0029925563775264766
+      },
+      "executionCoverage": {
+        "shortFundingMean": 0.4124850418827284
+      },
+      "gates": {
+        "coverage": false,
+        "selectiveAccuracy": true,
+        "brierSkill": false,
+        "ece": false,
+        "mcc": true,
+        "costBootstrap": false,
+        "pbo": false,
+        "deflatedSharpe": false,
+        "subgroupRegression": true
+      },
+      "historicalGatePassed": false
+    },
+    "24h": {
+      "samples": 41331,
+      "candidate": {
+        "samples": 41331,
+        "accuracy": 0.4871404030872711,
+        "balancedAccuracy": 0.3396671971580392,
+        "macroF1": 0.34159416642367274,
+        "mcc": 0.000868782645599718,
+        "confusionMatrix": [
+          [
+            10022,
+            118,
+            10587
+          ],
+          [
+            512,
+            21,
+            344
+          ],
+          [
+            9561,
+            75,
+            10091
+          ]
+        ],
+        "classes": {
+          "down": {
+            "precision": 0.49873102761881066,
+            "recall": 0.48352390601630724,
+            "f1": 0.4910097496447994,
+            "support": 20727
+          },
+          "range": {
+            "precision": 0.09813084112149532,
+            "recall": 0.02394526795895097,
+            "f1": 0.0384967919340055,
+            "support": 877
+          },
+          "up": {
+            "precision": 0.4800209304538103,
+            "recall": 0.5115324174988595,
+            "f1": 0.49527595769221333,
+            "support": 19727
+          }
+        }
+      },
+      "probability": {
+        "brier": 0.542045801018693,
+        "referenceBrier": 0.520250877733575,
+        "brierSkill": -0.041893102381807656,
+        "logLoss": 0.8034375960948468,
+        "ece": 0.0761526603940299,
+        "meanProbability": {
+          "down": 0.48229501575577716,
+          "range": 0.03884444999540037,
+          "up": 0.47886053424882774
+        },
+        "actualFrequency": {
+          "down": 0.5014879872250853,
+          "range": 0.021218939778858484,
+          "up": 0.4772930729960562
+        }
+      },
+      "selective": {
+        "coverage": 0.11596622389973628,
+        "samples": 4793,
+        "accuracy": 0.47840600876277906,
+        "bestNonMlBaseline": "momentum",
+        "baselineAccuracy": 0.43500938869184225,
+        "actualClassDistribution": {
+          "down": 0.5005215939912372,
+          "range": 0.0089714166492802,
+          "up": 0.49050698935948256
+        },
+        "predictedClassDistribution": {
+          "down": 0.612977258501982,
+          "range": 0.0,
+          "up": 0.38702274149801796
+        }
+      },
+      "baselines": {
+        "random": {
+          "samples": 41331,
+          "accuracy": 0.3352931213858847,
+          "balancedAccuracy": 0.3367258318220905,
+          "macroF1": 0.27938093842404527,
+          "mcc": 0.0034780838358882964,
+          "confusionMatrix": [
+            [
+              6951,
+              6856,
+              6920
+            ],
+            [
+              279,
+              298,
+              300
+            ],
+            [
+              6490,
+              6628,
+              6609
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.5066326530612245,
+              "recall": 0.3353596757852077,
+              "f1": 0.4035765088396667,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.021622406036859672,
+              "recall": 0.33979475484606614,
+              "f1": 0.04065761648134252,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.47790874249764986,
+              "recall": 0.3350230648349977,
+              "f1": 0.3939086899511265,
+              "support": 19727
+            }
+          }
+        },
+        "majority": {
+          "samples": 41331,
+          "accuracy": 0.5014879872250853,
+          "balancedAccuracy": 0.3333333333333333,
+          "macroF1": 0.2226626704051049,
+          "mcc": 0.0,
+          "confusionMatrix": [
+            [
+              20727,
+              0,
+              0
+            ],
+            [
+              877,
+              0,
+              0
+            ],
+            [
+              19727,
+              0,
+              0
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.5014879872250853,
+              "recall": 1.0,
+              "f1": 0.6679880112153147,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 19727
+            }
+          }
+        },
+        "momentum": {
+          "samples": 41331,
+          "accuracy": 0.34601146838934455,
+          "balancedAccuracy": 0.37045736163582016,
+          "macroF1": 0.2877290732420846,
+          "mcc": 0.006593971586854825,
+          "confusionMatrix": [
+            [
+              7278,
+              6273,
+              7176
+            ],
+            [
+              279,
+              371,
+              227
+            ],
+            [
+              6713,
+              6362,
+              6652
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.510021023125438,
+              "recall": 0.35113619916051525,
+              "f1": 0.41592136468840185,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.02852529601722282,
+              "recall": 0.42303306727480045,
+              "f1": 0.053446661384427,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.47328352899324083,
+              "recall": 0.3372028184721448,
+              "f1": 0.3938191936534249,
+              "support": 19727
+            }
+          }
+        },
+        "persistence": {
+          "samples": 41331,
+          "accuracy": 0.48779366577145483,
+          "balancedAccuracy": 0.3322486817446821,
+          "macroF1": 0.32863424495510546,
+          "mcc": -0.0031487448390397368,
+          "confusionMatrix": [
+            [
+              10326,
+              0,
+              10401
+            ],
+            [
+              463,
+              0,
+              414
+            ],
+            [
+              9892,
+              0,
+              9835
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.4992988733620231,
+              "recall": 0.4981907656679693,
+              "f1": 0.49874420401854713,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.47627118644067795,
+              "recall": 0.4985552795660769,
+              "f1": 0.4871585308467692,
+              "support": 19727
+            }
+          }
+        },
+        "cryptoQuantV2": {
+          "samples": 41331,
+          "accuracy": 0.2179719822893228,
+          "balancedAccuracy": 0.3565342733628923,
+          "macroF1": 0.2108579526266646,
+          "mcc": 0.007285261190349564,
+          "confusionMatrix": [
+            [
+              4215,
+              12163,
+              4349
+            ],
+            [
+              141,
+              572,
+              164
+            ],
+            [
+              3940,
+              11565,
+              4222
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.508076181292189,
+              "recall": 0.20335793892024895,
+              "f1": 0.2904592909072115,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.02353909465020576,
+              "recall": 0.6522234891676169,
+              "f1": 0.04543829685824363,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.48334287349742416,
+              "recall": 0.21402139200081108,
+              "f1": 0.2966762701145387,
+              "support": 19727
+            }
+          }
+        },
+        "opportunityOnly": {
+          "samples": 41331,
+          "accuracy": 0.48639036074617115,
+          "balancedAccuracy": 0.33894120284033874,
+          "macroF1": 0.3410437346429805,
+          "mcc": -0.001124387987812823,
+          "confusionMatrix": [
+            [
+              10270,
+              118,
+              10339
+            ],
+            [
+              449,
+              21,
+              407
+            ],
+            [
+              9840,
+              75,
+              9812
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.49953791526825236,
+              "recall": 0.49548897573213685,
+              "f1": 0.49750520757641814,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.09813084112149532,
+              "recall": 0.02394526795895097,
+              "f1": 0.0384967919340055,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.4772837824691118,
+              "recall": 0.4973893648299285,
+              "f1": 0.48712920441851804,
+              "support": 19727
+            }
+          }
+        },
+        "cryptoForecastV3": {
+          "samples": 41331,
+          "accuracy": 0.47272023420676973,
+          "balancedAccuracy": 0.33602776902724063,
+          "macroF1": 0.3335380972413769,
+          "mcc": -0.011813558391042974,
+          "confusionMatrix": [
+            [
+              8370,
+              348,
+              12009
+            ],
+            [
+              436,
+              35,
+              406
+            ],
+            [
+              8209,
+              385,
+              11133
+            ]
+          ],
+          "classes": {
+            "down": {
+              "precision": 0.49191889509256537,
+              "recall": 0.40382110290924883,
+              "f1": 0.4435377033543532,
+              "support": 20727
+            },
+            "range": {
+              "precision": 0.045572916666666664,
+              "recall": 0.039908779931584946,
+              "f1": 0.0425531914893617,
+              "support": 877
+            },
+            "up": {
+              "precision": 0.4727790045863768,
+              "recall": 0.5643534242408881,
+              "f1": 0.5145233968804159,
+              "support": 19727
+            }
+          }
+        }
+      },
+      "grouped": {
+        "symbol": {
+          "BTC": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.4829788778398781,
+              "balancedAccuracy": 0.3456327357399906,
+              "macroF1": 0.3468247904039634,
+              "mcc": 0.009033511853444167,
+              "confusionMatrix": [
+                [
+                  2931,
+                  39,
+                  3832
+                ],
+                [
+                  230,
+                  17,
+                  232
+                ],
+                [
+                  2760,
+                  30,
+                  3706
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.49501773349096434,
+                  "recall": 0.43090267568362245,
+                  "f1": 0.4607403914171186,
+                  "support": 6802
+                },
+                "range": {
+                  "precision": 0.19767441860465115,
+                  "recall": 0.03549060542797495,
+                  "f1": 0.06017699115044248,
+                  "support": 479
+                },
+                "up": {
+                  "precision": 0.47696267696267697,
+                  "recall": 0.5705049261083743,
+                  "f1": 0.5195569886443292,
+                  "support": 6496
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.34680990055890254,
+              "balancedAccuracy": 0.37320296570812356,
+              "macroF1": 0.2976252801517852,
+              "mcc": 0.017487690411091657,
+              "confusionMatrix": [
+                [
+                  2340,
+                  2109,
+                  2353
+                ],
+                [
+                  148,
+                  207,
+                  124
+                ],
+                [
+                  2086,
+                  2179,
+                  2231
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5115872321818977,
+                  "recall": 0.344016465745369,
+                  "f1": 0.41139240506329117,
+                  "support": 6802
+                },
+                "range": {
+                  "precision": 0.04605116796440489,
+                  "recall": 0.4321503131524008,
+                  "f1": 0.08323281061519903,
+                  "support": 479
+                },
+                "up": {
+                  "precision": 0.47387425658453697,
+                  "recall": 0.343442118226601,
+                  "f1": 0.3982506247768654,
+                  "support": 6496
+                }
+              }
+            }
+          },
+          "ETH": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.48972925890977714,
+              "balancedAccuracy": 0.3323160637005776,
+              "macroF1": 0.3296129984094059,
+              "mcc": -0.0016375937938801724,
+              "confusionMatrix": [
+                [
+                  3431,
+                  17,
+                  3425
+                ],
+                [
+                  166,
+                  0,
+                  76
+                ],
+                [
+                  3342,
+                  4,
+                  3316
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.4944516500936734,
+                  "recall": 0.4991997672050051,
+                  "f1": 0.4968143643208804,
+                  "support": 6873
+                },
+                "range": {
+                  "precision": 0.0,
+                  "recall": 0.0,
+                  "f1": 0.0,
+                  "support": 242
+                },
+                "up": {
+                  "precision": 0.48643098137010415,
+                  "recall": 0.4977484238967277,
+                  "f1": 0.49202463090733733,
+                  "support": 6662
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.3352689264716557,
+              "balancedAccuracy": 0.37749237323480583,
+              "macroF1": 0.27896902200579937,
+              "mcc": -0.0035122752325577483,
+              "confusionMatrix": [
+                [
+                  2352,
+                  2112,
+                  2409
+                ],
+                [
+                  71,
+                  113,
+                  58
+                ],
+                [
+                  2256,
+                  2252,
+                  2154
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5026715110066253,
+                  "recall": 0.3422086425141859,
+                  "f1": 0.407202216066482,
+                  "support": 6873
+                },
+                "range": {
+                  "precision": 0.02524011614920706,
+                  "recall": 0.4669421487603306,
+                  "f1": 0.04789150243695698,
+                  "support": 242
+                },
+                "up": {
+                  "precision": 0.4661328716727981,
+                  "recall": 0.32332632842990094,
+                  "f1": 0.38181334751395907,
+                  "support": 6662
+                }
+              }
+            }
+          },
+          "SOL": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.48871307251215795,
+              "balancedAccuracy": 0.33727904173853956,
+              "macroF1": 0.33826025061172665,
+              "mcc": -0.005689799675502425,
+              "confusionMatrix": [
+                [
+                  3660,
+                  62,
+                  3330
+                ],
+                [
+                  116,
+                  4,
+                  36
+                ],
+                [
+                  3459,
+                  41,
+                  3069
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5058742225293711,
+                  "recall": 0.5190017016449234,
+                  "f1": 0.5123538881500664,
+                  "support": 7052
+                },
+                "range": {
+                  "precision": 0.037383177570093455,
+                  "recall": 0.02564102564102564,
+                  "f1": 0.030418250950570342,
+                  "support": 156
+                },
+                "up": {
+                  "precision": 0.47692307692307695,
+                  "recall": 0.46719439792966966,
+                  "f1": 0.4720086127345432,
+                  "support": 6569
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.3559555781374755,
+              "balancedAccuracy": 0.34624445263030973,
+              "macroF1": 0.28476538329489826,
+              "mcc": 0.00459811441788349,
+              "confusionMatrix": [
+                [
+                  2586,
+                  2052,
+                  2414
+                ],
+                [
+                  60,
+                  51,
+                  45
+                ],
+                [
+                  2371,
+                  1931,
+                  2267
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5154474785728523,
+                  "recall": 0.36670448099829833,
+                  "f1": 0.4285359184688044,
+                  "support": 7052
+                },
+                "range": {
+                  "precision": 0.01264253842340109,
+                  "recall": 0.3269230769230769,
+                  "f1": 0.0243436754176611,
+                  "support": 156
+                },
+                "up": {
+                  "precision": 0.4796868387642827,
+                  "recall": 0.345105799969554,
+                  "f1": 0.4014165559982293,
+                  "support": 6569
+                }
+              }
+            }
+          }
+        },
+        "volatilityRegime": {
+          "low": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.497931334833418,
+              "balancedAccuracy": 0.34052209667899264,
+              "macroF1": 0.33468932106959276,
+              "mcc": 0.02192520600796387,
+              "confusionMatrix": [
+                [
+                  2973,
+                  12,
+                  3801
+                ],
+                [
+                  164,
+                  0,
+                  165
+                ],
+                [
+                  2769,
+                  6,
+                  3887
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5033863867253641,
+                  "recall": 0.4381078691423519,
+                  "f1": 0.46848408446265366,
+                  "support": 6786
+                },
+                "range": {
+                  "precision": 0.0,
+                  "recall": 0.0,
+                  "f1": 0.0,
+                  "support": 329
+                },
+                "up": {
+                  "precision": 0.4949700751305234,
+                  "recall": 0.5834584208946262,
+                  "f1": 0.5355838787461247,
+                  "support": 6662
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.3131305799520941,
+              "balancedAccuracy": 0.38837669102805544,
+              "macroF1": 0.2744006270082003,
+              "mcc": 0.019307793067148755,
+              "confusionMatrix": [
+                [
+                  1971,
+                  2579,
+                  2236
+                ],
+                [
+                  93,
+                  181,
+                  55
+                ],
+                [
+                  1738,
+                  2762,
+                  2162
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5184113624408206,
+                  "recall": 0.29045092838196285,
+                  "f1": 0.37230827351718926,
+                  "support": 6786
+                },
+                "range": {
+                  "precision": 0.032777978993118434,
+                  "recall": 0.5501519756838906,
+                  "f1": 0.06186976585199111,
+                  "support": 329
+                },
+                "up": {
+                  "precision": 0.4855153828879407,
+                  "recall": 0.3245271690183128,
+                  "f1": 0.3890238416554206,
+                  "support": 6662
+                }
+              }
+            }
+          },
+          "medium": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.4980765043187922,
+              "balancedAccuracy": 0.3454013146327126,
+              "macroF1": 0.34528181485906745,
+              "mcc": 0.02291468784548759,
+              "confusionMatrix": [
+                [
+                  3306,
+                  23,
+                  3531
+                ],
+                [
+                  214,
+                  5,
+                  112
+                ],
+                [
+                  3028,
+                  7,
+                  3551
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5048869883934025,
+                  "recall": 0.48192419825072885,
+                  "f1": 0.4931384248210024,
+                  "support": 6860
+                },
+                "range": {
+                  "precision": 0.14285714285714285,
+                  "recall": 0.015105740181268883,
+                  "f1": 0.0273224043715847,
+                  "support": 331
+                },
+                "up": {
+                  "precision": 0.4936057825966083,
+                  "recall": 0.5391740054661402,
+                  "f1": 0.5153846153846153,
+                  "support": 6586
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.36234303549393915,
+              "balancedAccuracy": 0.37689410602490764,
+              "macroF1": 0.300487002403605,
+              "mcc": 0.022181504757333412,
+              "confusionMatrix": [
+                [
+                  2415,
+                  2032,
+                  2413
+                ],
+                [
+                  97,
+                  135,
+                  99
+                ],
+                [
+                  2197,
+                  1947,
+                  2442
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5128477383733276,
+                  "recall": 0.3520408163265306,
+                  "f1": 0.41749502982107356,
+                  "support": 6860
+                },
+                "range": {
+                  "precision": 0.032814778804083615,
+                  "recall": 0.4078549848942598,
+                  "f1": 0.06074240719910011,
+                  "support": 331
+                },
+                "up": {
+                  "precision": 0.4929350020185709,
+                  "recall": 0.3707865168539326,
+                  "f1": 0.4232235701906413,
+                  "support": 6586
+                }
+              }
+            }
+          },
+          "high": {
+            "candidate": {
+              "samples": 13777,
+              "accuracy": 0.465413370109603,
+              "balancedAccuracy": 0.3372690485663364,
+              "macroF1": 0.33973154498857633,
+              "mcc": -0.046706382179635644,
+              "confusionMatrix": [
+                [
+                  3743,
+                  83,
+                  3255
+                ],
+                [
+                  134,
+                  16,
+                  67
+                ],
+                [
+                  3764,
+                  62,
+                  2653
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.48985734851459234,
+                  "recall": 0.5285976556983477,
+                  "f1": 0.5084906941991577,
+                  "support": 7081
+                },
+                "range": {
+                  "precision": 0.09937888198757763,
+                  "recall": 0.07373271889400922,
+                  "f1": 0.08465608465608465,
+                  "support": 217
+                },
+                "up": {
+                  "precision": 0.44401673640167366,
+                  "recall": 0.40947677110665226,
+                  "f1": 0.42604785611048657,
+                  "support": 6479
+                }
+              }
+            },
+            "bestNonMlBaseline": {
+              "samples": 13777,
+              "accuracy": 0.36256078972200045,
+              "balancedAccuracy": 0.3259904249215659,
+              "macroF1": 0.28308239407637414,
+              "mcc": -0.025562059311389478,
+              "confusionMatrix": [
+                [
+                  2892,
+                  1662,
+                  2527
+                ],
+                [
+                  89,
+                  55,
+                  73
+                ],
+                [
+                  2778,
+                  1653,
+                  2048
+                ]
+              ],
+              "classes": {
+                "down": {
+                  "precision": 0.5021705157145337,
+                  "recall": 0.40841689026973593,
+                  "f1": 0.4504672897196262,
+                  "support": 7081
+                },
+                "range": {
+                  "precision": 0.016320474777448073,
+                  "recall": 0.2534562211981567,
+                  "f1": 0.03066629495400056,
+                  "support": 217
+                },
+                "up": {
+                  "precision": 0.4406196213425129,
+                  "recall": 0.31609816329680507,
+                  "f1": 0.36811359755549566,
+                  "support": 6479
+                }
+              }
+            }
+          }
+        }
+      },
+      "failureSamples": [
+        {
+          "passportRef": "a76226d49a45687163537890d72bea943def5fca850ff4e7f3b5603c23d6ae36",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1769889600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.871047026573,
+          "netReturn2Bps": 0.004841010135443075
+        },
+        {
+          "passportRef": "969931e25b9866d92e37df52e75c34e02914dc5e7af806f07d2e47a81639277c",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1764565200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.809651505432,
+          "netReturn2Bps": 0.003738459986705871
+        },
+        {
+          "passportRef": "31050f778d487d221e67c5a00bb6a0fd7134c36bff8cc2c931bdc7582f7e1207",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1769893200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.807486532238,
+          "netReturn2Bps": 0.024973895235695043
+        },
+        {
+          "passportRef": "816390c95de4e62f446f07edfa3a17f40eaecd32614e5f9a74b234d70ec93acb",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1750608000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.799783877295,
+          "netReturn2Bps": -0.027936022500068287
+        },
+        {
+          "passportRef": "1a0194c36bf00e8240b10163ae31e35e6a32978d354fc4a67d933688a7d917e8",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1746021600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.797603573876,
+          "netReturn2Bps": -0.051828674241497764
+        },
+        {
+          "passportRef": "1fda3085073fe966439ffdc188e7e61f9f30113cdde2cdd0b9c5eaccf443ad9e",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1736769600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.795300277564,
+          "netReturn2Bps": -0.054511802433680895
+        },
+        {
+          "passportRef": "1f2a7ee4aa597a6974e715801351c325b4f80df38d2ff51d66a90006c1b097be",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1736769600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.791369760959,
+          "netReturn2Bps": -0.06891941646837388
+        },
+        {
+          "passportRef": "ada40aa5a1cdfdcb5d7801f5bf1e470083165d1866ed085447f25c8d0b7ed777",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1782327600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.790794165271,
+          "netReturn2Bps": -0.0008165210426476336
+        },
+        {
+          "passportRef": "8a52661a481b3de06e45797bd07bc52fa33ec5637770384b1a69ae13f4df16a0",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1782324000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.78971146515,
+          "netReturn2Bps": -0.007342743051398514
+        },
+        {
+          "passportRef": "acdc8877be1423293f91988669bf83ac6fe1a65132e5900e5fbbc3eb54268b7d",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1747609200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.783689753866,
+          "netReturn2Bps": -0.022592829785214416
+        },
+        {
+          "passportRef": "dd2b8f72221d38b04b57f578cf238fe951a23cc908728f13bbb6bf41f53bf59e",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1764568800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.783371712949,
+          "netReturn2Bps": -0.014016985938990435
+        },
+        {
+          "passportRef": "f28081f3ccdc06113410bdba43f6130623410a2c29569b6898985aaf0dfb9645",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1737331200000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.783239505452,
+          "netReturn2Bps": -0.0428516640253566
+        },
+        {
+          "passportRef": "aa587396a8395216bb53ab94db8c29b4a77c774f55c712b14c26197cd549fc48",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1736780400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.782964441358,
+          "netReturn2Bps": -0.06952422379562037
+        },
+        {
+          "passportRef": "563cfdc25a64c0763849dd05199cba5ef8d57e245909fc8404bd21a8f5190790",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1764565200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.782282286711,
+          "netReturn2Bps": -0.015887590712645998
+        },
+        {
+          "passportRef": "7ce4cd789068ac043a3ae4ad009f19cb3a6b9c3d74f22e588757842301a74dcd",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1764550800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.782215025555,
+          "netReturn2Bps": 0.011948231581617175
+        },
+        {
+          "passportRef": "3c7645e0899950f2fe844e433247f5c225134f79289bc8aad270a6edad63cf60",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1778688000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.782043789195,
+          "netReturn2Bps": -0.03351930542606304
+        },
+        {
+          "passportRef": "ed48a20ee0ee45f3325be0338d385c472ec62b96635e805e118f58dc23f635f7",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1768186800000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.781847322755,
+          "netReturn2Bps": -0.014170261365179335
+        },
+        {
+          "passportRef": "578b016ce62c921a0e674dcee0767a54b88057ff4e727427fffe366e1a76fd92",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1764572400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.781789862835,
+          "netReturn2Bps": -0.012346491245620218
+        },
+        {
+          "passportRef": "b83abf024aebf319a706301caf9dfbe622794532bca38fcbf4cba169aaf46272",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1746025200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.780445454031,
+          "netReturn2Bps": -0.05348805396114048
+        },
+        {
+          "passportRef": "7ff525170224510fb6171e0cd6d32fdcf7f6642d2ebe505cc599b103ad58c8ba",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1737979200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.777570528658,
+          "netReturn2Bps": -0.05756797846283329
+        },
+        {
+          "passportRef": "df0bbffdb84d3a0923ebe6bf9b505e75b3387d309cc6f2fffccfd1e54dbdaec3",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1782208800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.777463855588,
+          "netReturn2Bps": -0.012419466340495185
+        },
+        {
+          "passportRef": "20b6e6d47e5ea820aa1e34c8b9a1a46c79765283f4a7a0b8a4a1bfa52895e6b7",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1746540000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.775586435038,
+          "netReturn2Bps": -0.042110733851447826
+        },
+        {
+          "passportRef": "8342ff014ce01e4ba336a8a1aeddbdb580c7519597b795d9c73b9cd6cf06a127",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1782205200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.771574345756,
+          "netReturn2Bps": -0.017667925656660727
+        },
+        {
+          "passportRef": "ab1249c06b520b5e19518438652373a965a02b656f66181fcb99f90b289dcdb5",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1736773200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.771537936265,
+          "netReturn2Bps": -0.06440908265486722
+        },
+        {
+          "passportRef": "e0f654be1c678306d855c199e412288a3d79ee423810034a4b7d2f93adbfb92a",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1746543600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.771196629464,
+          "netReturn2Bps": -0.03283415939129946
+        },
+        {
+          "passportRef": "fe19e5375fcf2e34b299460346255e0026504d7c5c202caea5e32fc63fb38bd2",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1779894000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.769648063224,
+          "netReturn2Bps": 0.024532725108765634
+        },
+        {
+          "passportRef": "0b550233d82b838693af4ad5a3b88964a150dd3993b47ba8458af6bba0b42d47",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1758535200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.76922473163,
+          "netReturn2Bps": -0.01210429542121036
+        },
+        {
+          "passportRef": "3962a3754581d41c90459fb1b73abd873a21c0c697a5c43bd0c116b1f38d5c61",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1747605600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.768857938119,
+          "netReturn2Bps": -0.051264297448046614
+        },
+        {
+          "passportRef": "488e1675741ebca9365b78435f9185ed273cc20e9d10db28e9abb53cb82cdd0a",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1764572400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.768701566148,
+          "netReturn2Bps": 0.001882356822571947
+        },
+        {
+          "passportRef": "a31aaf39eb85da606f359e70e88769d39ee6949fbcca811b879fc143fe6b5c28",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1746025200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.76861320037,
+          "netReturn2Bps": -0.08097272455160749
+        },
+        {
+          "passportRef": "0ca29f97365284c28e8a7a9c2c17014d972b54fe0189332bbad4845246d27c5f",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1751198400000,
+          "actual": "down",
+          "predicted": "up",
+          "confidence": 0.767162014116,
+          "netReturn2Bps": -0.009986115855583219
+        },
+        {
+          "passportRef": "4160f3e22def1aa84d78cb9b89715600557fc87f046c6210827f1f3030175700",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1737982800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.765540751393,
+          "netReturn2Bps": -0.024979969709002754
+        },
+        {
+          "passportRef": "b9129b1179582afaf36a21875a675ef333e533c358c0efe2e4ff1a48b0bbae5a",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1737975600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.764414181409,
+          "netReturn2Bps": -0.07574610252410569
+        },
+        {
+          "passportRef": "d461598254eaaba189cf026ca1125bcf41e305571c329745613d183c18881c26",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1764550800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.763845193899,
+          "netReturn2Bps": 0.003370471645705694
+        },
+        {
+          "passportRef": "7dd99831b4792fbf19450c13544b17073e20e73a4de8d512b567f58fde1ace12",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1780416000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.763519606442,
+          "netReturn2Bps": 0.038599448146292535
+        },
+        {
+          "passportRef": "c496de15a129e95888e8a8f14fe3bbbc799f90a45049e29b952ca22a0f9ab2d1",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1738000800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.763388703459,
+          "netReturn2Bps": -0.03668278694420195
+        },
+        {
+          "passportRef": "053febdab74beed62bd00ba9f9655633e330a2b21a0274e3ded50cbe635f2cac",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1769371200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.763134284928,
+          "netReturn2Bps": -0.01972600521169488
+        },
+        {
+          "passportRef": "6dfaf0fb1c8add1b1de6183caf0881e29eea9c2a8bd7ef4dc7e790243ed59c43",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1746028800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.762844060655,
+          "netReturn2Bps": -0.05241468644161203
+        },
+        {
+          "passportRef": "3244834c1383d6f3b86595f10ef746ece2fea793f2ed51e0e2417f41b8d39799",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1782237600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.762651988794,
+          "netReturn2Bps": 0.04508418962778758
+        },
+        {
+          "passportRef": "bcc0c5b474c396235818d65ad61014c4062fc43512bff36856087288547b1b8c",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1746021600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.762403015185,
+          "netReturn2Bps": -0.0732179419681458
+        },
+        {
+          "passportRef": "a45b99698a2c2a811709d90c3c1904e90faf1d7d9938affa52dfddcef539b729",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1738015200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.762343849816,
+          "netReturn2Bps": 0.007747774629995193
+        },
+        {
+          "passportRef": "d899affd60fe36dc6cb1010862f4d72e3827b226804c1fe3f1766ccdc78f8bba",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1777305600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.762164683193,
+          "netReturn2Bps": 0.005347106302021256
+        },
+        {
+          "passportRef": "139c138d63f65a3c451a3077a09797a9789b6b85a1fb15cbd008eef2cec95a54",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1737964800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.761630755569,
+          "netReturn2Bps": -0.04020543431002974
+        },
+        {
+          "passportRef": "a3159eb81463a84f8478cf6d9f3ef986e214ce508ebbbf01b16575b4bdd6ac07",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1738018800000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.761287839762,
+          "netReturn2Bps": 0.0013707364251451064
+        },
+        {
+          "passportRef": "bca3615eb2575371d71b874762ab9d638ec5316805944e96ddf9435b859bb144",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1782331200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.760804823675,
+          "netReturn2Bps": 0.00827046353776543
+        },
+        {
+          "passportRef": "ded2d7ef318b9f26e28020868e6129fc3487c66962dba083c2fc3326ec41f0a3",
+          "symbol": "SOL",
+          "horizon": "24h",
+          "decisionAtMs": 1768838400000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.760642602787,
+          "netReturn2Bps": 0.040402040797123055
+        },
+        {
+          "passportRef": "3010db26e52014c73c64c1cfac296afe1c3f6aa643b2878e35afbb5825335f11",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1747602000000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.760461771479,
+          "netReturn2Bps": -0.055496812235412106
+        },
+        {
+          "passportRef": "971ae1c4af27816bdd6f0d00ff28fb8e63e9380c8e033e3fbd178e31f9228b20",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1746021600000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.75876611317,
+          "netReturn2Bps": -0.03243077693465783
+        },
+        {
+          "passportRef": "8156cf399d86046cc18e20c49e934cf89af5a807635f6e3a57b6cd58d85c0d91",
+          "symbol": "BTC",
+          "horizon": "24h",
+          "decisionAtMs": 1782241200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.758743319989,
+          "netReturn2Bps": 0.04033843556480484
+        },
+        {
+          "passportRef": "32392ac31784c69b0d3d70bd00bf46339fc167ed0fd1c638adc3bf557489dbf0",
+          "symbol": "ETH",
+          "horizon": "24h",
+          "decisionAtMs": 1736809200000,
+          "actual": "up",
+          "predicted": "down",
+          "confidence": 0.758404632119,
+          "netReturn2Bps": -0.03520881346536176
+        }
+      ],
+      "baselineReplayCoverage": {
+        "cryptoForecastV3": 1.0
+      },
+      "trading": {
+        "2": {
+          "signals": 616,
+          "winRate": 0.42857142857142855,
+          "meanNetReturn": -0.0012682158803060618,
+          "totalNetReturn": -0.7812209822685341,
+          "paperPnlUsdt": -78.12209822685341,
+          "profitFactor": 0.9094601228810353,
+          "sharpe": -0.643184787394268,
+          "sortino": -1.0991423412355383,
+          "maximumDrawdown": 2.157584219034031,
+          "turnover": 1232,
+          "bootstrapMean": {
+            "lower95": -0.004931332051380098,
+            "upper95": 0.0027478886244509094,
+            "blocks": 342
+          }
+        },
+        "5": {
+          "signals": 616,
+          "winRate": 0.42045454545454547,
+          "meanNetReturn": -0.0018682158803060632,
+          "totalNetReturn": -1.150820982268535,
+          "paperPnlUsdt": -115.08209822685349,
+          "profitFactor": 0.8698375035824054,
+          "sharpe": -0.9474790944040721,
+          "sortino": -1.6163809497500272,
+          "maximumDrawdown": 2.4556024987533807,
+          "turnover": 1232,
+          "bootstrapMean": {
+            "lower95": -0.0055313320513801,
+            "upper95": 0.002147888624450908,
+            "blocks": 342
+          }
+        },
+        "10": {
+          "signals": 616,
+          "winRate": 0.4042207792207792,
+          "meanNetReturn": -0.0028682158803060636,
+          "totalNetReturn": -1.7668209822685352,
+          "paperPnlUsdt": -176.68209822685353,
+          "profitFactor": 0.8080101686696523,
+          "sharpe": -1.4546362727537445,
+          "sortino": -2.472105343968446,
+          "maximumDrawdown": 2.9596024987533824,
+          "turnover": 1232,
+          "bootstrapMean": {
+            "lower95": -0.006531332051380101,
+            "upper95": 0.001147888624450908,
+            "blocks": 342
+          }
+        },
+        "20": {
+          "signals": 616,
+          "winRate": 0.3814935064935065,
+          "meanNetReturn": -0.004868215880306062,
+          "totalNetReturn": -2.9988209822685343,
+          "paperPnlUsdt": -299.88209822685343,
+          "profitFactor": 0.698521843288605,
+          "sharpe": -2.4689506294530883,
+          "sortino": -4.1683395915544725,
+          "maximumDrawdown": 4.008542742438935,
+          "turnover": 1232,
+          "bootstrapMean": {
+            "lower95": -0.008531332051380099,
+            "upper95": -0.0008521113755490912,
+            "blocks": 342
+          }
+        }
+      },
+      "statistics": {
+        "dieboldMariano": {
+          "empiricalFrequency": {
+            "statistic": 8.213293220359207,
+            "pValue": 2.220446049250313e-16,
+            "candidateBetter": false,
+            "holmAdjustedPValue": 2.220446049250313e-16,
+            "holmRejected": true
+          },
+          "random": {
+            "statistic": -139.66190316588802,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "majority": {
+            "statistic": -30.390452675390694,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "momentum": {
+            "statistic": -64.09272080199337,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "persistence": {
+            "statistic": -43.54633589119487,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "cryptoQuantV2": {
+            "statistic": -107.95790887237216,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "opportunityOnly": {
+            "statistic": -43.786660085972734,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          },
+          "cryptoForecastV3": {
+            "statistic": -47.868564217246515,
+            "pValue": 0.0,
+            "candidateBetter": true,
+            "holmAdjustedPValue": 0.0,
+            "holmRejected": true
+          }
+        },
+        "multipleComparisonCorrection": "holm_bonferroni",
+        "pbo": {
+          "pbo": 0.8428571428571429,
+          "combinations": 70
+        },
+        "deflatedSharpeConfidence": 0.0012632033851681626
+      },
+      "executionCoverage": {
+        "shortFundingMean": 0.9352243509994194
+      },
+      "gates": {
+        "coverage": true,
+        "selectiveAccuracy": false,
+        "brierSkill": false,
+        "ece": false,
+        "mcc": true,
+        "costBootstrap": false,
+        "pbo": false,
+        "deflatedSharpe": false,
+        "subgroupRegression": true
+      },
+      "historicalGatePassed": false
+    }
+  },
+  "prospectiveActivationAllowed": false,
+  "inspectorConclusion": "真实性链路可以复算，但至少一个准确度、校准、风险头、过拟合或成本后门槛未通过。v4未优于完整基线，必须保持Shadow且本轮审计判定失败。"
+}

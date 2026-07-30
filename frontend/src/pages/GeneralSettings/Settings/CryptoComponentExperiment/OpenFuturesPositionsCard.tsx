@@ -95,6 +95,12 @@ function formatPercent(value?: string | number | null) {
   return `${prefix}${Math.abs(number).toFixed(2)}%`;
 }
 
+function formatOptionalPercent(value?: string | number | null) {
+  return parseOptionalNumber(value == null ? null : String(value)) === null
+    ? "--"
+    : formatPercent(value);
+}
+
 function quantityAmount(value?: string | null) {
   return String(value || "")
     .trim()
@@ -127,6 +133,7 @@ function contractTypeLabel(type: OpenFuturesPositionItem["contractType"]) {
 function riskTone(riskLevel: FuturesRiskLevel) {
   if (riskLevel === "danger") return "text-[#EF4444]";
   if (riskLevel === "watch") return "text-[#F59E0B]";
+  if (riskLevel === "unavailable") return "!text-[#A1A1AA]";
   return "!text-white";
 }
 
@@ -322,7 +329,12 @@ export default function OpenFuturesPositionsCard({
   const displayUpdatedAt = lastUpdatedAt || internalUpdatedAt;
   const marginRatio = Math.max(
     0,
-    Math.min(100, parseNumber(summary.marginRatioPct))
+    Math.min(
+      100,
+      parseNumber(
+        summary.initialMarginToCrossAvailablePct ?? summary.marginRatioPct
+      )
+    )
   );
   const marginRatioTone =
     marginRatio >= 35
@@ -452,9 +464,9 @@ export default function OpenFuturesPositionsCard({
             <thead className="sticky top-0 z-10 bg-[#08090B]/95 backdrop-blur">
               <tr className="border-b border-white/[.08] text-xs font-black !text-[#A1A1AA]">
                 <th className={LEFT_HEAD_CELL}>合约</th>
-                <th className={LEFT_HEAD_CELL}>方向 / 杠杆</th>
+                <th className={LEFT_HEAD_CELL}>方向 / 杠杆配置</th>
                 <th className={CENTER_HEAD_CELL}>持仓价值</th>
-                <th className={CENTER_HEAD_CELL}>持币数量</th>
+                <th className={CENTER_HEAD_CELL}>标记价等值数量</th>
                 <th className={CENTER_HEAD_CELL}>开仓均价</th>
                 <th className={CENTER_HEAD_CELL}>当前价格</th>
                 <th className={CENTER_HEAD_CELL}>未实现盈亏</th>
@@ -525,7 +537,8 @@ export default function OpenFuturesPositionsCard({
                             position.side
                           )}`}
                         >
-                          {sideLabel(position.side)} {position.leverage}x
+                          {sideLabel(position.side)}{" "}
+                          {position.configuredLeverage || position.leverage}x
                         </div>
                         <div className="mt-1 text-xs font-extrabold !text-[#A1A1AA]">
                           {marginModeLabel(position.marginMode)}
@@ -590,7 +603,7 @@ export default function OpenFuturesPositionsCard({
                             position.pnlPct
                           )}`}
                         >
-                          {formatPercent(position.pnlPct)}
+                          {formatOptionalPercent(position.pnlPct)}
                         </div>
                       </td>
                       <td className={CENTER_BODY_CELL}>
@@ -640,23 +653,38 @@ export default function OpenFuturesPositionsCard({
             />
             <MetricBlock
               label="盈亏率"
-              value={formatPercent(summary.weightedPnlPct)}
+              value={formatOptionalPercent(summary.weightedPnlPct)}
               tone={pnlTone(summary.weightedPnlPct)}
             />
             <MetricBlock
-              label="保证金总额"
-              value={`${formatMoney(summary.totalMarginUsd)} USD`}
+              label="账户初始保证金"
+              value={`${formatMoney(
+                summary.accountInitialMarginUsd || summary.totalMarginUsd
+              )} USD`}
             />
             <MetricBlock
-              label="账户权益"
-              value={`${formatMoney(summary.accountEquityUsd)} USD`}
+              label={
+                summary.accountEquitySemantics?.includes(
+                  "cross_available_not_total_equity"
+                )
+                  ? "全仓可用余额"
+                  : "账户权益"
+              }
+              value={`${formatMoney(
+                summary.crossAvailableUsd || summary.accountEquityUsd
+              )} USD`}
             />
             <div className="rounded-2xl border border-white/10 bg-white/[.035] px-3 py-3">
-              <div className="text-xs font-bold !text-[#A1A1AA]">保证金率</div>
+              <div className="text-xs font-bold !text-[#A1A1AA]">
+                初始保证金 / 可用余额
+              </div>
               <div
                 className={`mt-1 min-h-[22px] text-[15px] ${NUMBER_TEXT} !text-white`}
               >
-                {formatPercent(summary.marginRatioPct)}
+                {formatOptionalPercent(
+                  summary.initialMarginToCrossAvailablePct ??
+                    summary.marginRatioPct
+                )}
               </div>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
                 <div

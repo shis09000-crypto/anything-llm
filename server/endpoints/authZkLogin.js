@@ -34,6 +34,11 @@ const LOCK_MS = 10 * 60 * 1000;
 const OPAQUE_SERVER_SETUP_SETTING = "opaque_server_setup";
 const TRUSTED_DEVICE_SCHEMA_ERROR =
   "可信设备数据库未初始化，请应用迁移后重启服务。";
+const PASSKEY_REAUTH_PURPOSES = new Set([
+  "zk_enroll",
+  "vault_access",
+  "password_change",
+]);
 
 let opaqueModule = null;
 let opaqueModuleOverride = null;
@@ -91,6 +96,15 @@ function authZkLoginEndpoints(app) {
 
         const user = response.locals.user;
         const authUserId = await currentAuthUserId(user);
+        const purpose = normalizePasskeyReauthPurpose(
+          reqBody(request)?.purpose
+        );
+        if (!purpose) {
+          return response.status(400).json({
+            success: false,
+            error: "不支持的安全验证用途。",
+          });
+        }
         const passkeys = await authPrisma.passkeyCredential.findMany({
           where: { userId: authUserId },
           select: { credentialId: true, transports: true },
@@ -117,6 +131,7 @@ function authZkLoginEndpoints(app) {
           challenge: normalizeBase64Url(options.challenge),
           userId: authUserId,
           request,
+          purpose,
         });
 
         return response.status(200).json({ success: true, options });
@@ -142,6 +157,13 @@ function authZkLoginEndpoints(app) {
         const user = response.locals.user;
         const authUserId = await currentAuthUserId(user);
         const body = reqBody(request) || {};
+        const purpose = normalizePasskeyReauthPurpose(body.purpose);
+        if (!purpose) {
+          return response.status(400).json({
+            success: false,
+            error: "不支持的安全验证用途。",
+          });
+        }
         const authResponse = body.response;
         const credentialId = normalizeBase64Url(authResponse?.id);
         const challenge = normalizeBase64Url(
@@ -152,6 +174,7 @@ function authZkLoginEndpoints(app) {
         const challengeRecord = await consumePasskeyChallenge({
           challenge,
           userId: authUserId,
+          purpose,
         });
         if (!challengeRecord) {
           return response.status(400).json({
@@ -214,7 +237,7 @@ function authZkLoginEndpoints(app) {
 
         return response.status(200).json({
           success: true,
-          reauthToken: issueReauthToken(user.id, "passkey", "zk_enroll"),
+          reauthToken: issueReauthToken(user.id, "passkey", purpose),
         });
       } catch (error) {
         console.error("[ZK reauth passkey verify failed]", error.message);
@@ -868,14 +891,30 @@ function zkUnavailableError(error) {
   return "零知识证明快速登录暂不可用。";
 }
 
-async function rememberPasskeyChallenge({ challenge, userId, request }) {
+function normalizePasskeyReauthPurpose(value = "zk_enroll") {
+  const purpose = String(value || "zk_enroll")
+    .trim()
+    .toLowerCase();
+  return PASSKEY_REAUTH_PURPOSES.has(purpose) ? purpose : null;
+}
+
+function passkeyChallengeType(purpose = "zk_enroll") {
+  return purpose === "zk_enroll" ? "zk_reauth" : `zk_reauth:${String(purpose)}`;
+}
+
+async function rememberPasskeyChallenge({
+  challenge,
+  userId,
+  request,
+  purpose = "zk_enroll",
+}) {
   await authPrisma.passkeyChallenge.deleteMany({
     where: { expiresAt: { lte: new Date() } },
   });
   return authPrisma.passkeyChallenge.create({
     data: {
       challenge,
-      type: "zk_reauth",
+      type: passkeyChallengeType(purpose),
       userId,
       requestIp: requestIp(request),
       userAgent: request.get("user-agent") || null,
@@ -884,12 +923,16 @@ async function rememberPasskeyChallenge({ challenge, userId, request }) {
   });
 }
 
-async function consumePasskeyChallenge({ challenge, userId }) {
+async function consumePasskeyChallenge({
+  challenge,
+  userId,
+  purpose = "zk_enroll",
+}) {
   if (!challenge) return null;
   const record = await authPrisma.passkeyChallenge.findFirst({
     where: {
       challenge,
-      type: "zk_reauth",
+      type: passkeyChallengeType(purpose),
       userId,
       expiresAt: { gt: new Date() },
     },
@@ -1171,8 +1214,10 @@ module.exports = {
   _zkLoginTestUtils: {
     isTrustedDeviceSchemaError,
     normalizeDeviceId,
+    normalizePasskeyReauthPurpose,
     opaqueIdentifiers,
     OPAQUE_SERVER_SETUP_SETTING,
+    passkeyChallengeType,
     sanitizeTrustedDevice,
     setOpaqueModuleOverrideForTest,
     zkUserIdentifier,

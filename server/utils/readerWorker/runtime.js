@@ -1,4 +1,5 @@
 const http = require("http");
+const https = require("https");
 const { DataAccessCenter } = require("../dataAccess/dataAccessCenter");
 const { READER_WORKER_EVENTS, READER_WORKER_TASKS } = require("./contract");
 const {
@@ -10,6 +11,9 @@ const {
   metricsRequestAuthorized,
   registry,
 } = require("../observability/metrics");
+const { distributedTopology } = require("../microModules/serviceHost");
+const { moduleReadinessEnvelope } = require("../modulePlatform/readiness");
+const { loadServiceIdentity } = require("../security/serviceIdentity");
 
 const WORKER_SUPPORTED_POSTPROCESS_TASKS = new Set([
   READER_WORKER_TASKS.PREVIEW,
@@ -238,7 +242,7 @@ class ReaderWorkerRuntime {
       };
     }
 
-    return {
+    const component = {
       role: "reader-worker",
       status: this.processing ? "processing" : "idle",
       ready: this.ready,
@@ -258,11 +262,18 @@ class ReaderWorkerRuntime {
       events: Object.values(READER_WORKER_EVENTS),
       previewEngine,
     };
+    return {
+      ...moduleReadinessEnvelope("reader-worker", component, {
+        source: "reader-worker-runtime",
+        ready: this.ready,
+      }),
+      ...component,
+    };
   }
 
   startHealthServer({ port = 3011 } = {}) {
     if (this.healthServer) return this.healthServer;
-    const server = http.createServer((request, response) => {
+    const handler = (request, response) => {
       if (request.url === "/metrics") {
         if (!metricsRequestAuthorized(request)) {
           response.writeHead(403, { "Content-Type": "application/json" });
@@ -278,15 +289,16 @@ class ReaderWorkerRuntime {
         return;
       }
       if (request.url === "/health") {
-        response.writeHead(this.ready ? 200 : 503, {
+        const snapshot = this.snapshot();
+        response.writeHead(snapshot.ready ? 200 : 503, {
           "Content-Type": "application/json",
         });
         response.end(
           JSON.stringify({
-            success: this.ready,
-            role: "reader-worker",
-            status: this.lifecycleStatus,
-            error: this.ready ? null : this.lastError?.code || "not_ready",
+            success: snapshot.ready,
+            ...snapshot,
+            status: snapshot.lifecycleStatus,
+            error: snapshot.ready ? null : this.lastError?.code || "not_ready",
           })
         );
         return;
@@ -318,7 +330,23 @@ class ReaderWorkerRuntime {
 
       response.writeHead(404, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ success: false, error: "not_found" }));
+    };
+    const identity = loadServiceIdentity("reader-worker", {
+      required: distributedTopology(process.env),
     });
+    const server = identity
+      ? https.createServer(
+          {
+            ca: identity.ca,
+            cert: identity.cert,
+            key: identity.key,
+            minVersion: "TLSv1.3",
+            requestCert: true,
+            rejectUnauthorized: false,
+          },
+          handler
+        )
+      : http.createServer(handler);
 
     server.listen(port, () => {
       console.log(`[ReaderWorker] health server listening on ${port}`);

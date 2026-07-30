@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "rag",
+  "name": "Knowledge Retrieval",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "knowledge",
+  "criticality": "high",
+  "runtimeRole": "rag",
+  "sourcePaths": ["server/utils/vectorDbProviders/", "server/utils/chats/"],
+  "capabilities": ["retrieval", "rerank", "citations"],
+  "routes": { "public": [], "internal": ["/internal/v1/rag/retrieve"] },
+  "rpc": { "provides": ["rag.retrieve"], "consumes": ["identity.assert"] },
+  "events": { "publishes": ["rag.result.*"], "subscribes": ["knowledge.index.*"] },
+  "data": { "schemas": ["knowledge_query"], "objectPrefixes": ["knowledge/index"] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/rag",
+    "keyDomains": ["file"],
+    "allowedCallers": ["chat-runtime", "agent-runtime", "athena-api"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/rag",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "infra:postgresql", "infra:vector-database", "infra:embedding-provider", "infra:object-store"]
+}

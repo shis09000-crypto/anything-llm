@@ -174,10 +174,18 @@ function loadAgentRoutes() {
       mockClearInvocationFileAccess(...args),
   }));
   jest.doMock("../../utils/agents/agentSessionLedger", () => ({
+    drainAgentSessionJournal: jest.fn(async () => ({ pendingWrites: 0 })),
+    ensureDurableAgentSession: jest.fn(async () => null),
     getAgentSessionState: (...args) => mockGetAgentSessionState(...args),
+    loadDurableAgentSession: jest.fn(async () => ({
+      state: { latestSeq: 0 },
+      events: [],
+    })),
     markAgentSessionState: (...args) => mockMarkAgentSessionState(...args),
     readAgentSessionEvents: jest.fn(() => []),
     recordAgentSessionEvent: jest.fn(),
+    startAgentRunHeartbeat: jest.fn(),
+    stopAgentRunHeartbeat: jest.fn(),
   }));
   jest.doMock("../../utils/authz/resourceAccess", () => ({
     getAuthorizedAgentInvocation: (...args) =>
@@ -223,6 +231,11 @@ function loadAgentRoutes() {
 describe("P0 resource access route guards", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetAgentSessionState.mockReturnValue({
+      status: "running",
+      terminal: false,
+      retryable: true,
+    });
     mockWorkspaceAgentClose.mockResolvedValue(true);
   });
 

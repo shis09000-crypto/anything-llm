@@ -18,10 +18,15 @@ const User = DataAccessCenter.authIdentity.shadowUser;
 const EncryptionMgr = new EncryptionManager();
 
 function rejectAuthentication(response, status, payload, reasonCode) {
-  response.locals.authFailureReason = String(
+  const normalizedReasonCode = String(
     reasonCode || "authentication_failed"
   ).slice(0, 96);
-  return response.status(status).json(payload);
+  response.locals.authFailureReason = normalizedReasonCode;
+  const responsePayload =
+    payload && typeof payload === "object" && !Array.isArray(payload)
+      ? { ...payload, reasonCode: normalizedReasonCode }
+      : payload;
+  return response.status(status).json(responsePayload);
 }
 
 async function validateRequest(request, response, next) {

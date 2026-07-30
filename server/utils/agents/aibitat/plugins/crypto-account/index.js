@@ -1,5 +1,6 @@
 const { lazyDataAccessFacade } = require("../../../../dataAccess/lazyFacade");
 const User = lazyDataAccessFacade("user");
+const ToolInvocation = lazyDataAccessFacade("toolInvocation");
 const {
   accountCryptoHubRegistry,
   cryptoAccountEligibility,
@@ -9,6 +10,10 @@ const {
   emitSemanticEvent,
 } = require("../../../../observability/semanticEvents");
 const { metrics } = require("../../../../observability/metrics");
+const {
+  cryptoAccountToolBrokerEnabled,
+  invokeCryptoAccountTool,
+} = require("../../../../toolRuntime/remoteClient");
 
 const SKILL_NAME = "crypto-account-agent";
 const RESULT_POLICY = "account-private/summary-only";
@@ -135,6 +140,7 @@ function createAccountTool({ name, description, parameters, scope, execute }) {
               const startedAt = Date.now();
               let readStartedAt = null;
               let phase = "eligibility";
+              let approvalRequestId = null;
               try {
                 const user = await sessionUser(this.super);
                 const eligibility = await cryptoAccountEligibility(user);
@@ -194,22 +200,63 @@ function createAccountTool({ name, description, parameters, scope, execute }) {
                     error: "crypto_account_approval_denied",
                   });
                 }
+                approvalRequestId = String(approval.requestId || "").trim();
+                if (!approvalRequestId) {
+                  const error = new Error(
+                    "crypto_account_approval_binding_missing"
+                  );
+                  error.code = "crypto_account_approval_binding_missing";
+                  throw error;
+                }
+
+                const agentInvocationId =
+                  this.super.handlerProps?.invocation?.uuid;
+                phase = "capability";
+                await ToolInvocation.startExecution({
+                  approvalRequestId,
+                  agentInvocationId,
+                  toolName: name,
+                  scope: payload,
+                  args: input,
+                });
 
                 phase = "resolve";
-                const resolved = await resolveApprovedConnection({
-                  user,
-                  expectedCredentialVersion: eligibility.credentialVersion,
-                  expectedRootKeyId: eligibility.rootKeyId,
-                  expectedDomainKeyVersion: eligibility.domainKeyVersion,
-                });
-                const hub = accountCryptoHubRegistry.get(resolved);
                 phase = "read";
                 readStartedAt = Date.now();
                 eventFor(this.super, "crypto.account.read.started", {
                   toolName: name,
                   outcome: "started",
                 });
-                const result = await execute(hub, input);
+                const result = cryptoAccountToolBrokerEnabled()
+                  ? await invokeCryptoAccountTool({
+                      approvalRequestId,
+                      toolName: name,
+                      args: input,
+                    })
+                  : await (async () => {
+                      const resolved = await resolveApprovedConnection({
+                        user,
+                        expectedCredentialVersion:
+                          eligibility.credentialVersion,
+                        expectedRootKeyId: eligibility.rootKeyId,
+                        expectedDomainKeyVersion: eligibility.domainKeyVersion,
+                      });
+                      return execute(
+                        accountCryptoHubRegistry.get(resolved),
+                        input
+                      );
+                    })();
+                const completed = await ToolInvocation.completeExecution({
+                  approvalRequestId,
+                  result,
+                });
+                if (!completed) {
+                  const error = new Error(
+                    "crypto_account_invocation_completion_failed"
+                  );
+                  error.code = "crypto_account_invocation_completion_failed";
+                  throw error;
+                }
                 eventFor(this.super, "crypto.account.read.completed", {
                   toolName: name,
                   outcome: "completed",
@@ -222,6 +269,12 @@ function createAccountTool({ name, description, parameters, scope, execute }) {
               } catch (error) {
                 const reasonCode =
                   error?.code || error?.message || "crypto_account_read_failed";
+                if (approvalRequestId) {
+                  await ToolInvocation.failExecution({
+                    approvalRequestId,
+                    reasonCode,
+                  }).catch(() => false);
+                }
                 if (phase === "approval") {
                   eventFor(this.super, "approval_resolved", {
                     toolName: name,
@@ -268,20 +321,20 @@ function createAccountTool({ name, description, parameters, scope, execute }) {
 const cryptoAccountOverview = createAccountTool({
   name: "crypto_account_overview",
   description:
-    "Read the current user's private Gate account overview, equity, allocation and position summary. This is read-only and requires approval for every interactive call.",
+    "Read the current user's private Gate account overview, equity, spot-versus-Earn allocation, and futures position summary. Holdings explicitly separate spotAmount and earnAmount; totalAmount is their sum and must never be described as spot-only. For cross-margin positions, configuredLeverage is not effective portfolio leverage, per-position pnlPct can be unavailable, and liquidation prices are reference-only. This is read-only and requires approval for every interactive call.",
   scope: "账户概览",
   parameters: {
     type: "object",
     properties: {},
     additionalProperties: false,
   },
-  execute: (hub) => hub.overview(),
+  execute: (hub) => hub.toolOverview(),
 });
 
 const cryptoAccountHoldings = createAccountTool({
   name: "crypto_account_holdings",
   description:
-    "Read the current user's Gate spot and earn holdings with public-market valuation. Optional symbol returns one asset. Read-only; approval is mandatory.",
+    "Read the current user's Gate spot and Earn holdings with public-market valuation. Every item separates spotAmount, earnAmount, and totalAmount; totalAmount is combined and must not be labeled as spot holdings. Optional symbol returns one asset. Read-only; approval is mandatory.",
   scope: "现货与理财资产",
   parameters: {
     type: "object",
@@ -309,7 +362,7 @@ const cryptoAccountHoldings = createAccountTool({
 const cryptoAccountPositions = createAccountTool({
   name: "crypto_account_positions",
   description:
-    "Read the current user's Gate futures positions and risk summary. Optional symbol filters one contract. Read-only; approval is mandatory.",
+    "Read the current user's Gate futures positions and Gate account-level margin fields. For cross margin, configuredLeverage is not effective portfolio leverage, per-position return percentage is unavailable, position margins are not additive, and liquidation price is reference-only; do not infer liquidation safety. Optional symbol filters one contract. Read-only; approval is mandatory.",
   scope: "合约持仓与风险",
   parameters: {
     type: "object",
@@ -328,7 +381,7 @@ const cryptoAccountPositions = createAccountTool({
     additionalProperties: false,
   },
   execute: (hub, input) =>
-    hub.openPositions({
+    hub.toolOpenPositions({
       symbol: symbolValue(input.symbol),
       limit: boundedInteger(input.limit, 50, 1, 50),
     }),

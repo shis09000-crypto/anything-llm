@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/module-manifest-v1.json",
+  "title": "Athena Module Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "id",
+    "name",
+    "version",
+    "kind",
+    "owner",
+    "criticality",
+    "runtimeRole",
+    "sourcePaths",
+    "capabilities",
+    "routes",
+    "rpc",
+    "events",
+    "data",
+    "security",
+    "deployment",
+    "dependsOn"
+  ],
+  "properties": {
+    "schema": { "const": "athena.module.manifest" },
+    "schemaVersion": { "const": "1.0" },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 96 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$" },
+    "kind": {
+      "enum": [
+        "service",
+        "worker",
+        "gateway",
+        "control-plane",
+        "security-service",
+        "diagnostic",
+        "compatibility-service"
+      ]
+    },
+    "owner": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "criticality": { "enum": ["critical", "high", "medium", "low"] },
+    "runtimeRole": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "sourcePaths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public", "internal"],
+      "properties": {
+        "public": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/" }
+        },
+        "internal": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/" }
+        }
+      }
+    },
+    "rpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provides", "consumes"],
+      "properties": {
+        "provides": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "consumes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publishes", "subscribes"],
+      "properties": {
+        "publishes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9.*_-]+$" }
+        },
+        "subscribes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9.*_-]+$" }
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemas", "objectPrefixes"],
+      "properties": {
+        "schemas": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+        },
+        "objectPrefixes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9/_-]*$" }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serviceIdentity",
+        "keyDomains",
+        "allowedCallers",
+        "failureMode",
+        "principalFreshnessMs"
+      ],
+      "properties": {
+        "serviceIdentity": {
+          "type": "string",
+          "pattern": "^spiffe://athena/\\{environment\\}/[a-z0-9-]+$"
+        },
+        "keyDomains": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "allowedCallers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "failureMode": { "enum": ["fail-closed", "isolated-degraded"] },
+        "principalFreshnessMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 60000
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image",
+        "healthPath",
+        "readinessPath",
+        "drainPath",
+        "availabilityTarget",
+        "reconnectP95Ms"
+      ],
+      "properties": {
+        "image": { "type": "string", "minLength": 1 },
+        "healthPath": { "type": "string", "pattern": "^/" },
+        "readinessPath": { "type": "string", "pattern": "^/" },
+        "drainPath": { "type": "string", "pattern": "^/" },
+        "availabilityTarget": {
+          "type": "number",
+          "minimum": 0.9,
+          "maximum": 1
+        },
+        "reconnectP95Ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        }
+      }
+    },
+    "dependsOn": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

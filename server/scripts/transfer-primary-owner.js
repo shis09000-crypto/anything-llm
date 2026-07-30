@@ -82,6 +82,7 @@ async function main() {
   const targetEmail = String(arg("--target-email", "")).trim().toLowerCase();
   if (!targetEmail) throw new Error("target_email_required");
   const apply = hasArg("--apply") && hasArg("--execute");
+  const allowRootPending = hasArg("--allow-root-pending");
   const runtime = await bootstrapCliRuntime({
     access: apply ? "write" : "read",
     execute: apply,
@@ -124,7 +125,9 @@ async function main() {
     select: { rootKeyId: true, rootEpoch: true },
     orderBy: { rootEpoch: "desc" },
   });
-  if (!targetRoot) throw new Error("target_active_root_required");
+  if (!targetRoot && !allowRootPending) {
+    throw new Error("target_active_root_required");
+  }
 
   const storageBase = path.dirname(path.dirname(runtime.databasePath));
   const mainDatabasePaths = ["development", "production"]
@@ -184,7 +187,8 @@ async function main() {
         currentRole: target.role,
         nextRole: "owner",
         nextOwnerType: "primary",
-        activeRoot: true,
+        activeRoot: Boolean(targetRoot),
+        rootPendingAcknowledged: !targetRoot && allowRootPending,
       },
       shadows: shadowState.map((entry) => ({
         environment: entry.environment,
@@ -314,7 +318,8 @@ async function main() {
           ...summary,
           verified: true,
           uniquePrimaryOwner: true,
-          targetRootPreserved: true,
+          targetRootPreserved: Boolean(targetRoot),
+          privateKeyBootstrapPending: !targetRoot,
         },
         null,
         2

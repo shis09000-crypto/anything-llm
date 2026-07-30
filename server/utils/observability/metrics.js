@@ -103,6 +103,18 @@ const keyRotationOperations = new client.Counter({
   labelNames: ["operation", "outcome"],
   registers: [registry],
 });
+const keyCustodyOperations = new client.Counter({
+  name: "athena_key_custody_operations_total",
+  help: "Remote and local Key Custody operations without key material labels.",
+  labelNames: ["operation", "outcome", "runtime_role"],
+  registers: [registry],
+});
+const keyCustodyLocalMaterialReads = new client.Counter({
+  name: "athena_key_custody_local_material_reads_total",
+  help: "Local platform-key material resolution attempts outside Key Custody.",
+  labelNames: ["outcome", "runtime_role"],
+  registers: [registry],
+});
 const decryptOnlyKeyReads = new client.Counter({
   name: "athena_decrypt_only_key_reads_total",
   help: "Successful reads served by legacy decrypt-only data keys.",
@@ -227,6 +239,100 @@ const cryptoAccountReadDuration = new client.Histogram({
   help: "Private crypto account read latency grouped by bounded function and outcome.",
   labelNames: ["function", "outcome"],
   buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+  registers: [registry],
+});
+const cryptoForecastEvents = new client.Counter({
+  name: "athena_crypto_forecast_events_total",
+  help: "Public crypto forecasting lifecycle events.",
+  labelNames: ["action", "symbol", "horizon", "status"],
+  registers: [registry],
+});
+const cryptoForecastCollectorLag = new client.Gauge({
+  name: "athena_crypto_forecast_collector_lag_seconds",
+  help: "Age of the newest persisted public market bar.",
+  labelNames: ["symbol"],
+  registers: [registry],
+});
+const cryptoForecastStoreBytes = new client.Gauge({
+  name: "athena_crypto_forecast_store_bytes",
+  help: "Bytes used by the isolated crypto forecasting store.",
+  registers: [registry],
+});
+const cryptoForecastModelAvailable = new client.Gauge({
+  name: "athena_crypto_forecast_model_available",
+  help: "Whether a verified crypto forecast model is loaded.",
+  registers: [registry],
+});
+const cryptoForecastInferenceDuration = new client.Histogram({
+  name: "athena_crypto_forecast_inference_duration_seconds",
+  help: "Crypto forecast feature extraction and inference duration.",
+  labelNames: ["horizon", "status"],
+  buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2],
+  registers: [registry],
+});
+const cryptoForecastContractStatus = new client.Gauge({
+  name: "athena_crypto_forecast_contract_status",
+  help: "Whether a bounded crypto forecast evidence contract is valid.",
+  labelNames: ["contract"],
+  registers: [registry],
+});
+const cryptoForecastPassportEvents = new client.Counter({
+  name: "athena_crypto_forecast_passport_events_total",
+  help: "Prediction Passport generation and replay outcomes.",
+  labelNames: ["action", "outcome"],
+  registers: [registry],
+});
+const cryptoForecastMicrostructureEvents = new client.Counter({
+  name: "athena_crypto_forecast_microstructure_events_total",
+  help: "Bounded Binance microstructure gap, resync, and failure events.",
+  labelNames: ["action", "symbol"],
+  registers: [registry],
+});
+const cryptoForecastMicrostructureFreshness = new client.Gauge({
+  name: "athena_crypto_forecast_microstructure_freshness_seconds",
+  help: "Age of the latest Binance public microstructure event.",
+  labelNames: ["symbol"],
+  registers: [registry],
+});
+const cryptoForecastMicrostructureCoverage = new client.Gauge({
+  name: "athena_crypto_forecast_microstructure_sampling_coverage",
+  help: "Fraction of seconds sampled in the current minute.",
+  labelNames: ["symbol"],
+  registers: [registry],
+});
+const cryptoForecastAnomalyArchiveBytes = new client.Gauge({
+  name: "athena_crypto_forecast_anomaly_archive_bytes",
+  help: "Bytes retained in bounded raw anomaly windows.",
+  registers: [registry],
+});
+const goldAnalysisRuns = new client.Counter({
+  name: "athena_gold_analysis_runs_total",
+  help: "GQSS gold analysis executions grouped by bounded outcome.",
+  labelNames: ["outcome"],
+  registers: [registry],
+});
+const goldAnalysisDuration = new client.Histogram({
+  name: "athena_gold_analysis_duration_seconds",
+  help: "End-to-end GQSS gold analysis duration.",
+  labelNames: ["outcome"],
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 8, 15, 30],
+  registers: [registry],
+});
+const goldAnalysisSourceAvailable = new client.Gauge({
+  name: "athena_gold_analysis_source_available",
+  help: "Whether a bounded public gold-analysis source succeeded in the latest run.",
+  labelNames: ["source"],
+  registers: [registry],
+});
+const goldAnalysisStoreBytes = new client.Gauge({
+  name: "athena_gold_analysis_store_bytes",
+  help: "Bytes used by the isolated GQSS gold analysis store.",
+  registers: [registry],
+});
+const goldAnalysisShadowEvents = new client.Counter({
+  name: "athena_gold_analysis_shadow_events_total",
+  help: "Gold shadow-research lifecycle events.",
+  labelNames: ["action", "status"],
   registers: [registry],
 });
 const runtimeShutdowns = new client.Counter({
@@ -560,6 +666,12 @@ const chatClientLongTasks = new client.Histogram({
   buckets: [0.05, 0.08, 0.12, 0.25, 0.5, 1, 2, 5],
   registers: [registry],
 });
+const clientUiEvents = new client.Counter({
+  name: "athena_client_ui_events_total",
+  help: "Metadata-only client UI lifecycle and recovery events.",
+  labelNames: ["event", "surface", "platform", "visibility", "outcome"],
+  registers: [registry],
+});
 
 function routeLabel(request) {
   const route = request.route?.path;
@@ -664,12 +776,24 @@ module.exports = {
     chatClientLongTasks,
     chatClientReceiveToPaint,
     chatClientStreamEvents,
+    clientUiEvents,
     contentObjectBytes,
     contentObjectOperations,
     cryptoCertificateRemaining,
     cryptoAccountApprovals,
     cryptoAccountReadDuration,
     cryptoAccountReads,
+    cryptoForecastCollectorLag,
+    cryptoForecastContractStatus,
+    cryptoForecastEvents,
+    cryptoForecastInferenceDuration,
+    cryptoForecastAnomalyArchiveBytes,
+    cryptoForecastMicrostructureCoverage,
+    cryptoForecastMicrostructureEvents,
+    cryptoForecastMicrostructureFreshness,
+    cryptoForecastModelAvailable,
+    cryptoForecastPassportEvents,
+    cryptoForecastStoreBytes,
     cryptoDeviceEpochConflicts,
     cryptoRuntimePqCapability,
     cryptoRuntimePqCapabilityDrift,
@@ -692,7 +816,14 @@ module.exports = {
     goldenJourneyDuration,
     goldenJourneyMilestones,
     goldenJourneyOperations,
+    goldAnalysisDuration,
+    goldAnalysisRuns,
+    goldAnalysisShadowEvents,
+    goldAnalysisSourceAvailable,
+    goldAnalysisStoreBytes,
     decryptOnlyKeyReads,
+    keyCustodyLocalMaterialReads,
+    keyCustodyOperations,
     keyRotationOperations,
     modelDuration,
     modelOperations,

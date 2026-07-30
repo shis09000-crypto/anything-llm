@@ -101,4 +101,39 @@ describe("Operations State Graph", () => {
       }).affectedSubjects.services
     ).toEqual(expect.arrayContaining(["tool-runtime", "agent-runtime"]));
   });
+
+  test("prefers live module probes over stale semantic-event inference", () => {
+    const graph = buildStateGraph({
+      events: [
+        {
+          ...event,
+          eventId: "old-chat-failure",
+          eventType: "chat.failed",
+          category: "chat",
+          subject: { component: "chat-runtime" },
+        },
+      ],
+      moduleHealth: {
+        modules: [
+          {
+            moduleId: "chat-runtime",
+            status: "healthy",
+            ready: true,
+            checkedAt: "2026-07-31T00:00:00.000Z",
+            durationMs: 8,
+            expectedVersion: "1.0.0",
+            observedVersion: "1.0.0",
+            source: "probe",
+          },
+        ],
+      },
+    });
+    expect(
+      graph.nodes.find((node) => node.id === "chat-runtime").state
+    ).toMatchObject({
+      status: "healthy",
+      ready: true,
+      source: "probe",
+    });
+  });
 });

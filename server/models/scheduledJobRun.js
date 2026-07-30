@@ -1,7 +1,17 @@
 const {
   throwModelDataAccessError,
 } = require("../utils/dataAccess/modelErrors");
+const crypto = require("crypto");
 const prisma = require("../utils/prisma");
+
+function storedIdempotencyKey(jobId, idempotencyKey) {
+  const value = String(idempotencyKey || "").trim();
+  if (!value) return null;
+  return crypto
+    .createHash("sha256")
+    .update(`scheduler-run:v1:${Number(jobId)}:${value}`)
+    .digest("hex");
+}
 
 const ScheduledJobRun = {
   statuses: {
@@ -29,12 +39,20 @@ const ScheduledJobRun = {
    * `running` via markRunning() once it actually begins executing.
    *
    * @param {number} jobId
+   * @param {{idempotencyKey?: string}} options
    * @returns {Promise<object|null>} The created run row, or null if a run is
    *   already in progress for this job (or on failure).
    */
-  start: async function (jobId) {
+  start: async function (jobId, { idempotencyKey = null } = {}) {
+    const durableKey = storedIdempotencyKey(jobId, idempotencyKey);
     try {
       return await prisma.$transaction(async (tx) => {
+        if (durableKey) {
+          const previous = await tx.scheduled_job_runs.findUnique({
+            where: { idempotencyKey: durableKey },
+          });
+          if (previous) return { ...previous, idempotentReplay: true };
+        }
         const existing = await tx.scheduled_job_runs.findFirst({
           where: {
             jobId: Number(jobId),
@@ -47,11 +65,18 @@ const ScheduledJobRun = {
         return tx.scheduled_job_runs.create({
           data: {
             jobId: Number(jobId),
+            idempotencyKey: durableKey,
             status: this.statuses.queued,
           },
         });
       });
     } catch (error) {
+      if (durableKey && error?.code === "P2002") {
+        const previous = await prisma.scheduled_job_runs.findUnique({
+          where: { idempotencyKey: durableKey },
+        });
+        if (previous) return { ...previous, idempotentReplay: true };
+      }
       throwModelDataAccessError("scheduledJobRun.start", error);
     }
   },
@@ -339,4 +364,4 @@ const ScheduledJobRun = {
   },
 };
 
-module.exports = { ScheduledJobRun };
+module.exports = { ScheduledJobRun, storedIdempotencyKey };

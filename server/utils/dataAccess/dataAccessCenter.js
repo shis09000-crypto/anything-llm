@@ -59,6 +59,8 @@ const repositoryLoaders = {
   externalCommunication: () =>
     require("../../repositories/externalCommunicationRepository"),
   chatStreamRun: () => require("../../repositories/chatStreamRunRepository"),
+  agentRun: () => require("../../repositories/agentRunRepository"),
+  toolInvocation: () => require("../../repositories/toolInvocationRepository"),
   knowledgeGraph: () => require("../../repositories/knowledgeGraphRepository"),
   iosPushToken: () => require("../../repositories/iosPushTokenRepository"),
   mobile: () => require("../../repositories/mobileRepository"),
@@ -138,6 +140,8 @@ const repositoryExports = {
   eventLog: "EventLogRepository",
   externalCommunication: "ExternalCommunicationRepository",
   chatStreamRun: "ChatStreamRunRepository",
+  agentRun: "AgentRunRepository",
+  toolInvocation: "ToolInvocationRepository",
   knowledgeGraph: "KnowledgeGraphRepository",
   iosPushToken: "IOSPushTokenRepository",
   mobile: "MobileRepository",
@@ -1234,9 +1238,42 @@ const chatStreamRun = makeRepositoryFacade(
     claim: "write",
     getScoped: "read",
     checkpoint: "write",
+    appendEvents: "write",
+    eventsAfter: "read",
+    renewLease: "write",
+    reconcileExpired: "maintenance",
     settle: "write",
   },
   chatStreamRunScopeFromArgs
+);
+
+const agentRun = makeRepositoryFacade(
+  "agentRun",
+  {
+    claim: "write",
+    ensure: "write",
+    append: "write",
+    state: "read",
+    eventsAfter: "read",
+    updateState: "write",
+    renewLease: "write",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
+const toolInvocation = makeRepositoryFacade(
+  "toolInvocation",
+  {
+    requestApproval: "write",
+    resolveApproval: "write",
+    startExecution: "write",
+    completeExecution: "write",
+    failExecution: "write",
+    executionContext: "read",
+    consumeCapabilityNonce: "write",
+    pruneCapabilityNonces: "maintenance",
+  },
+  repositoryBoundaryScopeFromArgs
 );
 
 const contentObject = makeRepositoryFacade(
@@ -2159,6 +2196,7 @@ const DataAccessCenter = {
   agentSkillWhitelist,
   accountDeletion,
   authIdentity,
+  agentRun,
   clientIdentity,
   communityHub,
   chatStreamRun,
@@ -2196,6 +2234,7 @@ const DataAccessCenter = {
   syncEvent,
   syncV2,
   telemetry,
+  toolInvocation,
   user,
   userMemory,
   userState,

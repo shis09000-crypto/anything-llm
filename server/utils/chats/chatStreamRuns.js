@@ -1,4 +1,6 @@
 const { EventEmitter } = require("events");
+const crypto = require("crypto");
+const os = require("os");
 const { DataAccessCenter } = require("../dataAccess");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
@@ -6,7 +8,10 @@ const { emitSemanticEvent } = require("../observability/semanticEvents");
 const CHECKPOINT_INTERVAL_MS = 750;
 const CHECKPOINT_BYTES = 1_024;
 const PERSISTED_POLL_INTERVAL_MS = 750;
-const ORPHANED_RUN_GRACE_MS = 5_000;
+const EVENT_FLUSH_INTERVAL_MS = 100;
+const EVENT_FLUSH_MAX = 32;
+const LEASE_HEARTBEAT_INTERVAL_MS = 10_000;
+const LEASE_DURATION_MS = 30_000;
 
 function terminalStatus(status) {
   return ["completed", "failed", "cancelled", "interrupted"].includes(status);
@@ -89,8 +94,9 @@ class DetachedChatResponse extends EventEmitter {
 }
 
 class ChatStreamRuntime {
-  constructor(run) {
+  constructor(run, { ownerId = run.ownerId || null } = {}) {
     this.run = run;
+    this.ownerId = ownerId;
     this.revision = Number(run.revision || 0);
     this.partialResponse = String(run.partialResponse || "");
     this.lastCheckpointLength = this.partialResponse.length;
@@ -103,6 +109,10 @@ class ChatStreamRuntime {
     this.subscribers = new Map();
     this.checkpointTimer = null;
     this.checkpointChain = Promise.resolve();
+    this.eventBuffer = [];
+    this.eventTimer = null;
+    this.eventChain = Promise.resolve();
+    this.heartbeatTimer = null;
     this.sink = new DetachedChatResponse((payload) =>
       this.acceptPayload(payload)
     );
@@ -151,8 +161,74 @@ class ChatStreamRuntime {
       clientTurnId: payload.clientTurnId || this.run.clientTurnId,
       runRevision: this.revision,
     };
+    this.eventBuffer.push({
+      sequence: this.revision,
+      payload: event,
+    });
     this.broadcast(event);
+    this.scheduleEventFlush();
     this.scheduleCheckpoint();
+  }
+
+  scheduleEventFlush() {
+    if (this.eventBuffer.length >= EVENT_FLUSH_MAX) {
+      this.flushEvents();
+      return;
+    }
+    if (this.eventTimer) return;
+    this.eventTimer = setTimeout(() => {
+      this.eventTimer = null;
+      this.flushEvents();
+    }, EVENT_FLUSH_INTERVAL_MS);
+    this.eventTimer.unref?.();
+  }
+
+  flushEvents() {
+    if (this.eventTimer) {
+      clearTimeout(this.eventTimer);
+      this.eventTimer = null;
+    }
+    const events = this.eventBuffer.splice(0);
+    if (!events.length) return this.eventChain;
+    this.eventChain = this.eventChain
+      .then(() =>
+        DataAccessCenter.chatStreamRun.appendEvents({
+          ...this.scope(),
+          events,
+        })
+      )
+      .catch((error) =>
+        console.warn("[ChatStreamRun] event journal failed", {
+          clientTurnId: this.run.clientTurnId,
+          code: error?.code || error?.message,
+        })
+      );
+    return this.eventChain;
+  }
+
+  startHeartbeat() {
+    if (!this.ownerId || this.heartbeatTimer) return;
+    const heartbeat = () =>
+      DataAccessCenter.chatStreamRun
+        .renewLease({
+          ...this.scope(),
+          ownerId: this.ownerId,
+          leaseMs: LEASE_DURATION_MS,
+        })
+        .catch((error) =>
+          console.warn("[ChatStreamRun] lease heartbeat failed", {
+            clientTurnId: this.run.clientTurnId,
+            code: error?.code || error?.message,
+          })
+        );
+    this.heartbeatTimer = setInterval(heartbeat, LEASE_HEARTBEAT_INTERVAL_MS);
+    this.heartbeatTimer.unref?.();
+    void heartbeat();
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = null;
   }
 
   broadcast(payload) {
@@ -291,6 +367,9 @@ class ChatStreamRuntime {
     if (terminalStatus(this.status)) return;
     this.status = status;
     this.errorCode = errorCode;
+    this.stopHeartbeat();
+    await this.flushEvents();
+    await this.eventChain;
     await this.flushCheckpoint();
     await this.checkpointChain;
     await DataAccessCenter.chatStreamRun.settle({
@@ -337,6 +416,8 @@ class ChatStreamRuntime {
 class ChatStreamRunManager {
   constructor() {
     this.runtimes = new Map();
+    this.ownerId = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
+    this.accepting = true;
   }
 
   runtime(clientTurnId) {
@@ -344,11 +425,26 @@ class ChatStreamRunManager {
   }
 
   async claim(scope) {
-    return DataAccessCenter.chatStreamRun.claim(scope);
+    if (!this.accepting) {
+      const error = new Error("chat_runtime_draining");
+      error.code = "chat_runtime_draining";
+      error.httpStatus = 503;
+      throw error;
+    }
+    return DataAccessCenter.chatStreamRun.claim({
+      ...scope,
+      ownerId: this.ownerId,
+      leaseMs: LEASE_DURATION_MS,
+    });
   }
 
   async state(scope) {
-    const run = await DataAccessCenter.chatStreamRun.getScoped(scope);
+    let run = await DataAccessCenter.chatStreamRun.getScoped(scope);
+    if (
+      run?.status === "running" &&
+      (!run.leaseExpiresAt || Date.parse(run.leaseExpiresAt) <= Date.now())
+    )
+      run = await DataAccessCenter.chatStreamRun.reconcileExpired(scope);
     if (!run) return null;
     return {
       kind: "chat",
@@ -369,8 +465,9 @@ class ChatStreamRunManager {
   start(run, execute) {
     const existing = this.runtime(run.clientTurnId);
     if (existing) return existing;
-    const runtime = new ChatStreamRuntime(run);
+    const runtime = new ChatStreamRuntime(run, { ownerId: this.ownerId });
     this.runtimes.set(run.clientTurnId, runtime);
+    runtime.startHeartbeat();
     emitRunEvent(run, "chat.run.started", "started", { status: "running" });
     Promise.resolve()
       .then(() => execute(runtime.sink))
@@ -411,7 +508,6 @@ class ChatStreamRunManager {
 
   async attachPersisted(response, scope, afterRevision = 0) {
     let lastRevision = Math.max(Number(afterRevision) || 0, 0);
-    const attachedAt = Date.now();
     return new Promise((resolve) => {
       let closed = false;
       let timer = null;
@@ -433,7 +529,7 @@ class ChatStreamRunManager {
             resolve();
             return;
           }
-          const run = await DataAccessCenter.chatStreamRun.getScoped(scope);
+          let run = await DataAccessCenter.chatStreamRun.getScoped(scope);
           if (!run) {
             writeResponseChunk(response, {
               id: scope.clientTurnId,
@@ -448,20 +544,26 @@ class ChatStreamRunManager {
           }
           if (
             run.status === "running" &&
-            Date.now() - attachedAt >= ORPHANED_RUN_GRACE_MS
-          ) {
-            await DataAccessCenter.chatStreamRun.settle({
-              ...scope,
-              id: run.id,
-              status: "interrupted",
-              revision: run.revision,
-              partialResponse: run.partialResponse,
-              errorCode: "chat_stream_owner_lost",
-            });
-            run.status = "interrupted";
-            run.errorCode = "chat_stream_owner_lost";
+            (!run.leaseExpiresAt ||
+              Date.parse(run.leaseExpiresAt) <= Date.now())
+          )
+            run = await DataAccessCenter.chatStreamRun.reconcileExpired(scope);
+
+          const events = await DataAccessCenter.chatStreamRun.eventsAfter({
+            ...scope,
+            id: run.id,
+            afterSequence: lastRevision,
+          });
+          for (const event of events) {
+            if (closed || responseClosed(response)) break;
+            writeResponseChunk(response, event.payload);
+            lastRevision = Math.max(lastRevision, Number(event.sequence));
           }
-          if (run.partialResponse && Number(run.revision) > lastRevision) {
+          if (
+            events.length === 0 &&
+            run.partialResponse &&
+            Number(run.revision) > lastRevision
+          ) {
             lastRevision = Number(run.revision);
             writeResponseChunk(response, {
               id: run.id,
@@ -514,6 +616,30 @@ class ChatStreamRunManager {
     });
     return true;
   }
+
+  snapshot() {
+    const active = [...this.runtimes.values()].filter(
+      (runtime) => !terminalStatus(runtime.status)
+    );
+    return {
+      accepting: this.accepting,
+      activeRuns: active.length,
+      totalResidentRuns: this.runtimes.size,
+    };
+  }
+
+  async drain({ timeoutMs = 30_000 } = {}) {
+    this.accepting = false;
+    const deadline = Date.now() + Math.max(1_000, Number(timeoutMs) || 0);
+    while (
+      [...this.runtimes.values()].some(
+        (runtime) => !terminalStatus(runtime.status)
+      ) &&
+      Date.now() < deadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    return this.snapshot().activeRuns === 0;
+  }
 }
 
 const chatStreamRunManager = new ChatStreamRunManager();
@@ -521,6 +647,10 @@ const chatStreamRunManager = new ChatStreamRunManager();
 module.exports = {
   CHECKPOINT_BYTES,
   CHECKPOINT_INTERVAL_MS,
+  EVENT_FLUSH_INTERVAL_MS,
+  EVENT_FLUSH_MAX,
+  LEASE_DURATION_MS,
+  LEASE_HEARTBEAT_INTERVAL_MS,
   ChatStreamRunManager,
   ChatStreamRuntime,
   DetachedChatResponse,

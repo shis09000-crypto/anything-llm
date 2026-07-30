@@ -269,6 +269,7 @@ async function storeToolRun({
       ...summary,
       ...(privateSummaryOnly ? { resultPolicy } : {}),
       runId,
+      resultSha256,
       stored: true,
       storageError: null,
     };
@@ -277,15 +278,29 @@ async function storeToolRun({
     return {
       ...summary,
       runId,
+      resultSha256,
       stored: false,
       storageError: "write_failed",
     };
   }
 }
 
-function prepareToolResultForModel(result, storedRun = null) {
+function prepareToolResultForModel(
+  result,
+  storedRun = null,
+  maxChars = MAX_MODEL_TOOL_RESULT_CHARS
+) {
+  const effectiveMaxChars = Math.min(
+    100_000,
+    Math.max(
+      MAX_MODEL_TOOL_RESULT_CHARS,
+      Number.isFinite(Number(maxChars))
+        ? Math.floor(Number(maxChars))
+        : MAX_MODEL_TOOL_RESULT_CHARS
+    )
+  );
   const text = safeStringify(result);
-  if (text.length <= MAX_MODEL_TOOL_RESULT_CHARS) return text;
+  if (text.length <= effectiveMaxChars) return text;
 
   const privateSummaryOnly =
     storedRun?.resultPolicy === "account-private/summary-only";
@@ -294,7 +309,7 @@ function prepareToolResultForModel(result, storedRun = null) {
     : storedRun?.stored
       ? `\n\n[Tool result truncated: full result stored as runId=${storedRun.runId}]`
       : "\n\n[Tool result truncated: full result omitted because local tool-run storage failed]";
-  return `${text.slice(0, MAX_MODEL_TOOL_RESULT_CHARS)}${suffix}`;
+  return `${text.slice(0, effectiveMaxChars)}${suffix}`;
 }
 
 function sanitizeAgentEvent(event = {}) {

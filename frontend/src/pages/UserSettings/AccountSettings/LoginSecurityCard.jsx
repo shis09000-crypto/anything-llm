@@ -19,6 +19,11 @@ import AccountSettingRow from "./AccountSettingRow";
 import AccountSettingsApi from "./accountSettingsApi";
 import { CardHeader } from "./ContactMethodsCard";
 import { useAccountSettingsData } from "./AccountSettingsDataProvider";
+import {
+  browserUserRootStatus,
+  initializeBrowserUserRoot,
+  migrateBrowserUserDomainWraps,
+} from "@/utils/security/browserUserRoot";
 
 export default function LoginSecurityCard({
   user,
@@ -48,6 +53,11 @@ export default function LoginSecurityCard({
   const [trustedDevicePassword, setTrustedDevicePassword] = useState("");
   const [trustedDeviceSaving, setTrustedDeviceSaving] = useState(false);
   const [passkeyReauthLoading, setPasskeyReauthLoading] = useState(false);
+  const [userRootStatus, setUserRootStatus] = useState(null);
+  const [userRootPassword, setUserRootPassword] = useState("");
+  const [userRootBusy, setUserRootBusy] = useState(false);
+  const [showUserRootAction, setShowUserRootAction] = useState(false);
+  const [userRootMigration, setUserRootMigration] = useState(null);
   const passkeyCapabilityAvailable =
     authCapability?.showPasskey ?? AccountSettingsApi.passkeysSupported();
   const zkLoginAvailable =
@@ -57,6 +67,7 @@ export default function LoginSecurityCard({
 
   useEffect(() => {
     refreshTrustedDevices();
+    refreshUserRoot();
   }, []);
 
   useEffect(() => {
@@ -77,6 +88,91 @@ export default function LoginSecurityCard({
         });
     setTrustedDevicesLoading(false);
     if (result?.success) setTrustedDevices(result.devices || []);
+  }
+
+  async function refreshUserRoot() {
+    setUserRootBusy(true);
+    try {
+      const result = await browserUserRootStatus();
+      setUserRootStatus(result);
+    } catch (error) {
+      setUserRootStatus({
+        success: false,
+        error: error?.raw?.error || error?.message || "状态检查失败",
+      });
+    } finally {
+      setUserRootBusy(false);
+    }
+  }
+
+  async function submitUserRootAction(event) {
+    event.preventDefault();
+    if (!userRootPassword) {
+      showToast("请输入当前密码完成安全验证。", "error");
+      return;
+    }
+    await runUserRootAction({ currentPassword: userRootPassword });
+  }
+
+  async function runUserRootAction(reauth) {
+    setUserRootBusy(true);
+    try {
+      if (userRootStatus?.initialized) {
+        const result = await migrateBrowserUserDomainWraps(reauth);
+        setUserRootMigration(result);
+        showToast(
+          result.failed
+            ? `完成 ${result.completed} 项，失败 ${result.failed} 项。`
+            : `已完成 ${result.completed} 项用户域包装。`,
+          result.failed ? "warning" : "success"
+        );
+      } else {
+        const result = await initializeBrowserUserRoot(reauth);
+        setUserRootMigration(null);
+        showToast(
+          result.localReady
+            ? "用户根密钥已初始化并绑定当前浏览器。"
+            : "服务器 Root 已存在，但当前浏览器尚未获得本地材料。",
+          result.localReady ? "success" : "warning"
+        );
+      }
+      setUserRootPassword("");
+      setShowUserRootAction(false);
+      await refreshUserRoot();
+    } catch (error) {
+      showToast(
+        error?.raw?.error ||
+          error?.message ||
+          (userRootStatus?.initialized ? "密钥迁移失败" : "Root 初始化失败"),
+        "error"
+      );
+    } finally {
+      setUserRootBusy(false);
+    }
+  }
+
+  async function authorizeUserRootWithPasskey() {
+    setUserRootBusy(true);
+    try {
+      const reauth = await AccountSettingsApi.reauthZkWithPasskey({
+        purpose: "vault_access",
+      });
+      if (!reauth?.success || !reauth?.reauthToken) {
+        showToast(reauth?.error || "通行密钥验证失败。", "error");
+        return;
+      }
+      await runUserRootAction({ reauthToken: reauth.reauthToken });
+    } catch (error) {
+      showToast(error?.message || "通行密钥验证失败。", "error");
+    } finally {
+      setUserRootBusy(false);
+    }
+  }
+
+  function closeUserRootAction() {
+    if (userRootBusy) return;
+    setUserRootPassword("");
+    setShowUserRootAction(false);
   }
 
   async function startTrustedDeviceSetup() {
@@ -256,6 +352,43 @@ export default function LoginSecurityCard({
     showToast("密码已更新。", "success");
   }
 
+  async function changePasswordWithPasskey() {
+    if (!passwordForm.password || !passwordForm.confirmPassword) {
+      showToast("请输入新密码和确认密码。", "error");
+      return;
+    }
+    if (passwordForm.password !== passwordForm.confirmPassword) {
+      showToast("两次输入的新密码不一致。", "error");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const reauth = await AccountSettingsApi.reauthZkWithPasskey({
+        purpose: "password_change",
+      });
+      if (!reauth?.success || !reauth?.reauthToken) {
+        showToast(reauth?.error || "通行密钥验证失败。", "error");
+        return;
+      }
+      const result = await AccountSettingsApi.updatePassword({
+        password: passwordForm.password,
+        reauthToken: reauth.reauthToken,
+      });
+      if (!result.success) {
+        showToast(`修改密码失败：${result.error}`, "error");
+        return;
+      }
+      setSaving(false);
+      closePasswordModal();
+      showToast("密码已通过通行密钥验证并更新。", "success");
+    } catch (error) {
+      showToast(error?.message || "通行密钥验证失败。", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <section id="security" className="account-card">
       <CardHeader
@@ -426,6 +559,109 @@ export default function LoginSecurityCard({
           )}
         </AccountSettingRow>
         <AccountSettingRow
+          icon={<Key className="h-5 w-5" />}
+          title="用户根密钥"
+          subtitle="在当前浏览器生成并保存 User Root；服务器只保存 X-Wing + ML-DSA-65 设备信封。"
+          status={
+            <span
+              className={
+                userRootStatus?.error
+                  ? "font-semibold text-amber-600"
+                  : userRootStatus?.initialized
+                    ? "font-semibold text-emerald-600"
+                    : "font-semibold text-slate-500"
+              }
+            >
+              {userRootBusy && !userRootStatus
+                ? "正在检查"
+                : userRootStatus?.initialized
+                  ? `已初始化 · Epoch ${userRootStatus.rootEpoch}`
+                  : userRootStatus?.error
+                    ? "检查失败"
+                    : "尚未初始化"}
+            </span>
+          }
+          action={
+            <AppButton
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={userRootBusy}
+              loading={userRootBusy && Boolean(userRootStatus)}
+              onClick={() => setShowUserRootAction(true)}
+            >
+              {userRootStatus?.initialized ? "迁移密钥" : "初始化"}
+            </AppButton>
+          }
+        >
+          <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 px-4 py-3 text-xs font-medium leading-5 text-sky-700">
+            Root 原文不会上传服务器。格密码私钥经不可导出的 WebCrypto
+            密钥包装后保存在此浏览器的 IndexedDB 中。
+            {userRootStatus?.error ? ` 当前状态：${userRootStatus.error}` : ""}
+          </div>
+
+          {showUserRootAction && (
+            <form
+              onSubmit={submitUserRootAction}
+              className="mt-4 rounded-3xl border border-slate-200 bg-slate-50/80 p-4"
+            >
+              <p className="text-sm font-medium leading-6 text-slate-600">
+                {userRootStatus?.initialized
+                  ? "使用当前密码或通行密钥验证，迁移等待当前设备授权的数据密钥。"
+                  : "使用当前密码或通行密钥验证，在此浏览器初始化并安全保存用户根密钥。"}
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
+                <input
+                  type="password"
+                  value={userRootPassword}
+                  onChange={(event) => setUserRootPassword(event.target.value)}
+                  placeholder="当前密码"
+                  autoComplete="current-password"
+                  className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none focus:border-sky-400"
+                />
+                <AppButton
+                  type="submit"
+                  size="md"
+                  variant="primary"
+                  disabled={userRootBusy || !userRootPassword}
+                  loading={userRootBusy}
+                >
+                  {userRootStatus?.initialized ? "验证并迁移" : "验证并初始化"}
+                </AppButton>
+                {passkeyReauthAvailable && (
+                  <AppButton
+                    type="button"
+                    size="md"
+                    variant="secondary"
+                    disabled={userRootBusy}
+                    onClick={authorizeUserRootWithPasskey}
+                  >
+                    <Fingerprint className="mr-1 h-4 w-4" />
+                    使用通行密钥
+                  </AppButton>
+                )}
+                <AppButton
+                  type="button"
+                  size="md"
+                  variant="secondary"
+                  disabled={userRootBusy}
+                  onClick={closeUserRootAction}
+                >
+                  取消
+                </AppButton>
+              </div>
+            </form>
+          )}
+
+          {userRootMigration && (
+            <p className="mt-3 text-xs font-medium text-slate-500">
+              发现 {userRootMigration.discovered} 项，完成{" "}
+              {userRootMigration.completed} 项，失败 {userRootMigration.failed}{" "}
+              项。
+            </p>
+          )}
+        </AccountSettingRow>
+        <AccountSettingRow
           icon={<Timer className="h-5 w-5" />}
           title="最近一次登录"
           subtitle="Chrome on macOS · 127.0.0.1"
@@ -449,6 +685,8 @@ export default function LoginSecurityCard({
           onToggleVisibility={togglePasswordVisibility}
           onCancel={closePasswordModal}
           onSubmit={changePassword}
+          onPasskeySubmit={changePasswordWithPasskey}
+          passkeyAvailable={passkeyReauthAvailable}
         />
       )}
     </section>
@@ -463,6 +701,8 @@ function PasswordChangeModal({
   onToggleVisibility,
   onCancel,
   onSubmit,
+  onPasskeySubmit,
+  passkeyAvailable,
 }) {
   return (
     <div
@@ -482,7 +722,7 @@ function PasswordChangeModal({
           修改密码
         </h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          请输入当前密码，并设置一个新的账号密码。
+          可使用当前密码或通行密钥完成安全验证，并设置新的账号密码。
         </p>
         <div className="mt-5 space-y-4">
           <PasswordModalInput
@@ -520,15 +760,29 @@ function PasswordChangeModal({
           >
             取消
           </AppButton>
-          <AppButton
-            type="submit"
-            size="md"
-            variant="primary"
-            loading={saving}
-            disabled={saving}
-          >
-            确认修改
-          </AppButton>
+          <div className="flex items-center gap-3">
+            {passkeyAvailable && (
+              <AppButton
+                type="button"
+                size="md"
+                variant="secondary"
+                disabled={saving}
+                onClick={onPasskeySubmit}
+              >
+                <Fingerprint className="mr-1 h-4 w-4" />
+                使用通行密钥
+              </AppButton>
+            )}
+            <AppButton
+              type="submit"
+              size="md"
+              variant="primary"
+              loading={saving}
+              disabled={saving}
+            >
+              确认修改
+            </AppButton>
+          </div>
         </div>
       </form>
     </div>

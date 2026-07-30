@@ -158,7 +158,7 @@ export default function ActiveWorkspaces() {
           label: "navigation:workspaces",
           scope: { route: "workspace-sidebar", surface: "workspaces" },
           policy: "foreground",
-          emergency: true,
+          emergency: false,
           intentRank: 0,
           dedupeKey: "navigation:workspaces",
         }

@@ -18,7 +18,11 @@ describe("RealtimeGatewayRuntime", () => {
       },
       lastError: "shared_broadcast_transport_required",
       boundary: {
-        owns: ["sync.events.sse", "realtime.broadcast.websocket"],
+        owns: [
+          "sync.events.sse",
+          "sync.outbox.dispatch",
+          "realtime.broadcast.websocket",
+        ],
         doesNotOwn: ["chat.sse", "agent.websocket", "crypto.websocket"],
       },
     });

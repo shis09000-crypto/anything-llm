@@ -13,7 +13,16 @@ function otelEnabled(env = process.env) {
 }
 
 function startOpenTelemetry() {
-  if (started || !otelEnabled()) return { enabled: otelEnabled(), started };
+  const {
+    operationsEventForwarder,
+  } = require("../operations/remoteEventForwarder");
+  const forwarding = operationsEventForwarder.start();
+  if (started || !otelEnabled())
+    return {
+      enabled: otelEnabled(),
+      started,
+      operationsForwarding: forwarding,
+    };
   const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
   const { BatchSpanProcessor } = require("@opentelemetry/sdk-trace-base");
   const {
@@ -36,11 +45,19 @@ function startOpenTelemetry() {
   );
   provider.register();
   started = true;
-  return { enabled: true, started: true };
+  return {
+    enabled: true,
+    started: true,
+    operationsForwarding: forwarding,
+  };
 }
 
 async function shutdownOpenTelemetry() {
   const { flushSemanticEvents } = require("./semanticEvents");
+  const {
+    operationsEventForwarder,
+  } = require("../operations/remoteEventForwarder");
+  await operationsEventForwarder.stop();
   await flushSemanticEvents();
   if (!provider) return { stopped: true, skipped: true };
   await provider.shutdown();

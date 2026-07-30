@@ -12,6 +12,14 @@ const {
 
 const DEFAULT_DEEPSEEK_MAX_TOKENS = 65_536;
 const DEFAULT_DEEPSEEK_REASONING_EFFORT = "high";
+const DEFAULT_STRUCTURED_COMPLETION_MAX_TOKENS = 2_048;
+const DEFAULT_STRUCTURED_COMPLETION_TIMEOUT_MS = 25_000;
+
+function boundedInteger(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
 
 class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   model;
@@ -104,6 +112,67 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     };
   }
 
+  #completionOptionsFor(overrides = null) {
+    if (
+      !overrides ||
+      typeof overrides !== "object" ||
+      Array.isArray(overrides) ||
+      Object.keys(overrides).length === 0
+    )
+      return this.#completionOptions;
+
+    const thinking = overrides.thinking === "enabled" ? "enabled" : "disabled";
+    const maxTokens = boundedInteger(
+      overrides.maxTokens,
+      DEFAULT_STRUCTURED_COMPLETION_MAX_TOKENS,
+      256,
+      4_096
+    );
+    const options = {
+      max_tokens: maxTokens,
+      // The JavaScript OpenAI client forwards extension fields directly.
+      // `extra_body` is the Python SDK escape hatch and would be sent as a
+      // literal wrapper here, causing DeepSeek to keep its default thinking
+      // mode and spend the whole bounded output on reasoning.
+      thinking: { type: thinking },
+      ...(thinking === "enabled"
+        ? {
+            reasoning_effort:
+              overrides.reasoningEffort ||
+              process.env.DEEPSEEK_REASONING_EFFORT ||
+              DEFAULT_DEEPSEEK_REASONING_EFFORT,
+          }
+        : {}),
+    };
+
+    if (thinking === "disabled")
+      options.temperature = Number.isFinite(Number(overrides.temperature))
+        ? Number(overrides.temperature)
+        : 0;
+    if (overrides.responseFormat?.type === "json_object")
+      options.response_format = { type: "json_object" };
+    return options;
+  }
+
+  #requestOptionsFor(overrides = null) {
+    if (
+      !overrides ||
+      typeof overrides !== "object" ||
+      Array.isArray(overrides) ||
+      Object.keys(overrides).length === 0
+    )
+      return null;
+    return {
+      timeout: boundedInteger(
+        overrides.timeoutMs,
+        DEFAULT_STRUCTURED_COMPLETION_TIMEOUT_MS,
+        1_000,
+        60_000
+      ),
+      maxRetries: boundedInteger(overrides.maxRetries, 0, 0, 2),
+    };
+  }
+
   #historyWindow() {
     return this.handlerProps?.promptCacheDiagnostics?.historyWindow || null;
   }
@@ -157,13 +226,17 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     })();
   }
 
-  async #handleFunctionCallChat({ messages = [] }) {
-    return await this.client.chat.completions
-      .create({
-        model: this.model,
-        messages,
-        ...this.#completionOptions,
-      })
+  async #handleFunctionCallChat({ messages = [], completionOptions = null }) {
+    const body = {
+      model: this.model,
+      messages,
+      ...this.#completionOptionsFor(completionOptions),
+    };
+    const requestOptions = this.#requestOptionsFor(completionOptions);
+    const request = requestOptions
+      ? this.client.chat.completions.create(body, requestOptions)
+      : this.client.chat.completions.create(body);
+    return await request
       .then((result) => {
         if (result?.usage) this.recordUsage(result.usage);
         if (!result.hasOwnProperty("choices"))
@@ -172,7 +245,8 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
           throw new Error("DeepSeek chat: No results length!");
         return result.choices[0].message.content;
       })
-      .catch((_) => {
+      .catch((error) => {
+        if (completionOptions) throw error;
         return null;
       });
   }
@@ -257,7 +331,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     }
   }
 
-  async complete(messages, functions = []) {
+  async complete(messages, functions = [], completionOptions = null) {
     const useNative = functions.length > 0 && this.supportsNativeToolCalling();
     const cleanedMessages = this.#stripAttachments(messages);
 
@@ -267,7 +341,11 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
         this,
         cleanedMessages,
         functions,
-        this.#handleFunctionCallChat.bind(this)
+        ({ messages: callbackMessages }) =>
+          this.#handleFunctionCallChat({
+            messages: callbackMessages,
+            completionOptions,
+          })
       );
       this.#recordPromptCacheDiagnostics(cleanedMessages, functions);
       return result;

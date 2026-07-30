@@ -14,8 +14,26 @@ function eventComponent(event = {}) {
   if (event.category === "database") return "main-database";
   if (event.category === "model") return "model-provider";
   if (event.category === "knowledge") return "rag";
+  if (event.category === "chat" || event.category === "chat_client")
+    return "chat-runtime";
   if (event.category === "agent_tool") return "tool-runtime";
   if (event.category === "agent") return "agent-runtime";
+  if (event.category === "crypto-account-access")
+    return "crypto-account-access";
+  if (event.category === "crypto_forecasting") return "crypto-forecast";
+  if (event.category === "module_health")
+    return known.has(event.subject?.id) ? event.subject.id : direct;
+  if (
+    String(event.eventType || "").startsWith("scheduler.") ||
+    String(event.eventType || "").startsWith("scheduled.")
+  )
+    return "scheduler";
+  if (String(event.eventType || "").startsWith("crypto.market."))
+    return "crypto-market";
+  if (String(event.eventType || "").startsWith("crypto.account."))
+    return "crypto-account-access";
+  if (String(event.eventType || "").startsWith("model."))
+    return "model-gateway";
   if (event.category === "golden_journey") {
     if (String(event.eventType).startsWith("login.")) return "authentication";
     if (String(event.eventType).startsWith("chat.")) return "chat-runtime";
@@ -85,8 +103,16 @@ function affectedServices(component, services) {
   return [...visited];
 }
 
-function buildStateGraph({ events = [], agents = [], syncState = null } = {}) {
+function buildStateGraph({
+  events = [],
+  agents = [],
+  syncState = null,
+  moduleHealth = null,
+} = {}) {
   const services = serviceCatalog();
+  const runtimeStates = new Map(
+    (moduleHealth?.modules || []).map((state) => [state.moduleId, state])
+  );
   const nodes = services.map((service) => ({
     id: service.id,
     type: service.kind,
@@ -94,17 +120,41 @@ function buildStateGraph({ events = [], agents = [], syncState = null } = {}) {
     owner: service.owner,
     criticality: service.criticality,
     capabilities: service.capabilities,
-    state:
-      service.id === "sync-v2" && syncState
-        ? {
-            status:
-              syncState.ready && Number(syncState.deadLetterOutbox || 0) === 0
-                ? "healthy"
-                : "degraded",
-            pendingOutbox: syncState.pendingOutbox || 0,
-            maxCursorLag: syncState.maxCursorLag || 0,
-          }
-        : stateFromEvents(service.id, events),
+    state: (() => {
+      const runtime = runtimeStates.get(service.id);
+      if (runtime && runtime.status !== "unmonitored")
+        return {
+          status: runtime.status,
+          ready: runtime.ready,
+          reasonCode: runtime.reasonCode,
+          checkedAt: runtime.checkedAt,
+          durationMs: runtime.durationMs,
+          expectedVersion: runtime.expectedVersion,
+          observedVersion: runtime.observedVersion,
+          source: runtime.source,
+        };
+      if (service.id === "sync-v2" && syncState)
+        return {
+          status:
+            syncState.ready && Number(syncState.deadLetterOutbox || 0) === 0
+              ? "healthy"
+              : "degraded",
+          pendingOutbox: syncState.pendingOutbox || 0,
+          maxCursorLag: syncState.maxCursorLag || 0,
+          source: "sync-runtime",
+        };
+      const eventState = stateFromEvents(service.id, events);
+      if (eventState.status !== "unknown") return eventState;
+      if (runtime)
+        return {
+          status: runtime.status,
+          ready: runtime.ready,
+          reasonCode: runtime.reasonCode,
+          checkedAt: runtime.checkedAt,
+          source: runtime.source,
+        };
+      return eventState;
+    })(),
   }));
   for (const agent of agents) {
     nodes.push({
@@ -129,6 +179,12 @@ function buildStateGraph({ events = [], agents = [], syncState = null } = {}) {
       to: "agent-runtime",
       relation: "runs_on",
     });
+  const statuses = nodes.map((node) => node.state?.status || "unknown");
+  const unknown = statuses.filter((status) => status === "unknown").length;
+  const unmonitored = statuses.filter(
+    (status) => status === "unmonitored"
+  ).length;
+  const monitored = nodes.length - unknown - unmonitored;
   return {
     generatedAt: new Date().toISOString(),
     nodes,
@@ -138,6 +194,12 @@ function buildStateGraph({ events = [], agents = [], syncState = null } = {}) {
       edges: edges.length,
       degraded: nodes.filter((node) => node.state?.status === "degraded")
         .length,
+      healthy: nodes.filter((node) => node.state?.status === "healthy").length,
+      unknown,
+      unmonitored,
+      monitored,
+      coverageRatio: nodes.length ? monitored / nodes.length : 0,
+      complete: nodes.length > 0 && unknown === 0 && unmonitored === 0,
     },
   };
 }

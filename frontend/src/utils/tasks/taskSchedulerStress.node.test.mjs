@@ -173,3 +173,71 @@ test("stress: reader open can become the newest intent while chat first page is 
   releaseChat();
   assert.equal(await chatFirstPage.promise, "chat");
 });
+
+test("stress: protected workspace overview survives sequential navigation emergencies", async () => {
+  const scheduler = new TaskScheduler({
+    maxConcurrent: 2,
+    backgroundMaxConcurrent: 1,
+    prefetchMaxConcurrent: 1,
+  });
+  const events = [];
+  let releaseWorkspaces = null;
+  let releaseOverview = null;
+
+  const workspaces = scheduler.scheduleEmergency(
+    () =>
+      new Promise((resolve) => {
+        releaseWorkspaces = resolve;
+        events.push("workspaces:start");
+      }),
+    {
+      kind: "navigation",
+      label: "navigation:workspaces",
+    }
+  );
+  await wait();
+
+  const overview = scheduler.schedule(
+    ({ signal }) =>
+      new Promise((resolve) => {
+        releaseOverview = resolve;
+        events.push("overview:start");
+        signal.addEventListener(
+          "abort",
+          () => {
+            events.push("overview:abort");
+            resolve(null);
+          },
+          { once: true }
+        );
+      }),
+    {
+      kind: "workspace-overview",
+      label: "workspace-overview:get",
+      priority: "P1",
+      policy: "visible",
+      protected: true,
+      abortable: false,
+      scope: { route: "workspace-chat", surface: "workspace-overview" },
+    }
+  );
+  await wait();
+
+  releaseWorkspaces("workspaces");
+  await workspaces.promise;
+  const threads = scheduler.scheduleEmergency(async () => "threads", {
+    kind: "navigation",
+    label: "navigation:threads",
+  });
+  await threads.promise;
+
+  releaseOverview("overview");
+  assert.equal(await overview.promise, "overview");
+  assert.equal(events.includes("overview:abort"), false);
+  assert.equal(
+    scheduler
+      .snapshot()
+      .aborted.some((task) => task.label === "workspace-overview:get"),
+    false
+  );
+});

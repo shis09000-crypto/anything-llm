@@ -10,6 +10,10 @@ const {
   startCryptoHubBackgroundRuntime,
 } = require("../../utils/cryptoHub/backgroundRuntime");
 const { sanitizeValue } = require("../../utils/dataAccess/dataAccessPolicy");
+const {
+  cryptoForecastingRuntime,
+  enabled: cryptoForecastingEnabled,
+} = require("../../utils/cryptoForecasting");
 
 function safeCall(fn, fallback) {
   try {
@@ -92,6 +96,37 @@ const CryptoRuntime = {
   streams: {
     hub: cryptoHub,
     gate: cryptoGate,
+  },
+
+  forecasting: {
+    enabled: cryptoForecastingEnabled,
+    start() {
+      return cryptoForecastingRuntime.start();
+    },
+    stop() {
+      return cryptoForecastingRuntime.stop();
+    },
+    latest(symbol) {
+      return cryptoForecastingRuntime.latest(symbol);
+    },
+    latestForecasting(symbol) {
+      return cryptoForecastingRuntime.latestForecasting(symbol);
+    },
+    microstructureEvidence(symbol) {
+      return cryptoForecastingRuntime.microstructureEvidence(symbol);
+    },
+    predictions(query) {
+      return cryptoForecastingRuntime.predictions(query);
+    },
+    predictionDetails(predictionId) {
+      return cryptoForecastingRuntime.predictionDetails(predictionId);
+    },
+    governance() {
+      return cryptoForecastingRuntime.governance();
+    },
+    snapshot() {
+      return cryptoForecastingRuntime.snapshot();
+    },
   },
 
   diagnostics: {

@@ -1,0 +1,216 @@
+{
+  "schema": "athena.crypto.feature-registry",
+  "schemaVersion": "4.0",
+  "registryVersion": "crypto-forecast-features-v4",
+  "inheritsRegistryVersion": "crypto-forecast-features-v3",
+  "barInterval": "5m",
+  "availabilityContract": "availableAtMs<=decisionAtMs",
+  "selectionContract": {
+    "maximumModelInputsPerHead": 20,
+    "minimumFoldSelectionRatio": 0.7,
+    "nearDuplicateSpearmanLimit": 0.995,
+    "methods": [
+      "redundancy_filter",
+      "fold_local_mutual_information",
+      "mrmr",
+      "feature_family_ablation",
+      "blocked_permutation",
+      "shap_direction_stability"
+    ]
+  },
+  "runtimeContract": {
+    "missingValue": 0,
+    "missingness": "explicit_availability_mask_for_optional_families",
+    "maximumMissingRatio": 0.1,
+    "formingCandles": "excluded",
+    "timeZone": "UTC"
+  },
+  "horizons": {
+    "4h": {
+      "role": "model_input_candidate",
+      "minimumCoverage": 0.9,
+      "headRequiredFeatures": {
+        "futureVolatility": [
+          "realized_vol_1h",
+          "realized_vol_4h",
+          "realized_vol_24h",
+          "normalized_atr_1h",
+          "normalized_atr_4h"
+        ],
+        "tailRisk": [
+          "realized_vol_4h",
+          "realized_vol_24h",
+          "normalized_atr_4h"
+        ]
+      },
+      "candidateFeatures": [
+        "asset_eth",
+        "asset_sol",
+        "return_15m",
+        "return_1h",
+        "return_4h",
+        "return_12h",
+        "return_24h",
+        "realized_vol_1h",
+        "realized_vol_4h",
+        "realized_vol_24h",
+        "normalized_atr_1h",
+        "normalized_atr_4h",
+        "adx_1h",
+        "adx_slope_1h",
+        "adx_4h",
+        "adx_slope_4h",
+        "donchian_position_4h",
+        "bollinger_z_4h",
+        "vwap_distance_1h",
+        "vwap_distance_4h",
+        "market_structure_4h",
+        "volume_ratio_15m_4h",
+        "volume_ratio_1h_24h",
+        "volume_ratio_4h_24h",
+        "volume_acceleration_1h",
+        "robust_volume_surprise_1h",
+        "trade_count_ratio_1h_24h",
+        "taker_flow_proxy_15m",
+        "taker_flow_proxy_1h",
+        "taker_flow_proxy_4h",
+        "taker_flow_persistence_1h",
+        "taker_flow_persistence_4h",
+        "taker_flow_acceleration_1h",
+        "cmf20_1h",
+        "mfi14_1h",
+        "adl_slope_1h",
+        "relative_market_return_4h",
+        "relative_market_return_24h",
+        "market_correlation_30d",
+        "market_beta_30d",
+        "breakout_volume_interaction_4h",
+        "trend_adx_interaction_4h"
+      ]
+    },
+    "24h": {
+      "role": "model_input_candidate",
+      "minimumCoverage": 0.9,
+      "headRequiredFeatures": {
+        "futureVolatility": [
+          "realized_vol_4h",
+          "realized_vol_24h",
+          "realized_vol_4d",
+          "normalized_atr_4h",
+          "normalized_atr_24h"
+        ],
+        "tailRisk": [
+          "realized_vol_24h",
+          "realized_vol_4d",
+          "normalized_atr_24h"
+        ]
+      },
+      "candidateFeatures": [
+        "asset_eth",
+        "asset_sol",
+        "return_1h",
+        "return_4h",
+        "return_12h",
+        "return_24h",
+        "return_4d",
+        "return_12d",
+        "realized_vol_4h",
+        "realized_vol_24h",
+        "realized_vol_4d",
+        "normalized_atr_4h",
+        "normalized_atr_24h",
+        "adx_4h",
+        "adx_slope_4h",
+        "adx_24h",
+        "adx_slope_24h",
+        "donchian_position_24h",
+        "donchian_position_4d",
+        "bollinger_z_24h",
+        "bollinger_z_4d",
+        "vwap_distance_4h",
+        "vwap_distance_24h",
+        "market_structure_24h",
+        "volume_ratio_1h_24h",
+        "volume_ratio_4h_24h",
+        "volume_ratio_24h_4d",
+        "volume_acceleration_4h",
+        "robust_volume_surprise_4h",
+        "trade_count_ratio_4h_24h",
+        "taker_flow_proxy_1h",
+        "taker_flow_proxy_4h",
+        "taker_flow_proxy_12h",
+        "taker_flow_proxy_24h",
+        "taker_flow_persistence_4h",
+        "taker_flow_persistence_12h",
+        "taker_flow_acceleration_4h",
+        "cmf20_1h",
+        "mfi14_1h",
+        "adl_slope_1h",
+        "relative_market_return_24h",
+        "relative_market_return_4d",
+        "market_correlation_30d",
+        "market_beta_30d",
+        "breakout_volume_interaction_24h",
+        "trend_adx_interaction_24h"
+      ]
+    }
+  },
+  "supportingFeatures": {
+    "funding_rate_z_30d": {
+      "family": "derivatives",
+      "sources": ["binance_public_data"],
+      "availability": "exact",
+      "minimumObservedDays": 180
+    },
+    "basis_4h": {
+      "family": "derivatives",
+      "sources": ["binance_public_data"],
+      "availability": "exact",
+      "minimumObservedDays": 180
+    },
+    "oi_change_4h": {
+      "family": "derivatives",
+      "sources": ["binance_public_data"],
+      "availability": "exact",
+      "minimumObservedDays": 180
+    },
+    "oi_change_24h": {
+      "family": "derivatives",
+      "sources": ["binance_public_data"],
+      "availability": "exact",
+      "minimumObservedDays": 180
+    },
+    "dvol_level": {
+      "family": "options_volatility",
+      "sources": ["deribit_dvol"],
+      "availability": "organic_only",
+      "minimumObservedDays": 180
+    },
+    "mvrv": {
+      "family": "on_chain",
+      "sources": ["coinmetrics_community"],
+      "availability": "organic_only",
+      "symbols": ["BTC", "ETH"],
+      "minimumObservedDays": 180
+    },
+    "exchange_netflow_native": {
+      "family": "on_chain",
+      "sources": ["coinmetrics_community"],
+      "availability": "organic_only",
+      "symbols": ["BTC", "ETH"],
+      "minimumObservedDays": 180
+    },
+    "dxy": {
+      "family": "macro",
+      "sources": ["fred_dxy"],
+      "availability": "estimated",
+      "horizons": ["24h"]
+    },
+    "vix": {
+      "family": "macro",
+      "sources": ["fred_vix"],
+      "availability": "estimated",
+      "horizons": ["24h"]
+    }
+  }
+}

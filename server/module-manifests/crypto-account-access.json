@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "crypto-account-access",
+  "name": "Crypto Account Access",
+  "version": "1.0.0",
+  "kind": "security-service",
+  "owner": "security",
+  "criticality": "high",
+  "runtimeRole": "crypto-account",
+  "sourcePaths": ["server/utils/cryptoAccount/", "server/utils/agents/aibitat/plugins/crypto-account/"],
+  "capabilities": ["gate-read-only", "account-scoped-resolution", "approval-required-tools"],
+  "routes": { "public": [], "internal": ["/internal/v1/crypto/account/read"] },
+  "rpc": { "provides": ["crypto.account"], "consumes": ["identity.assert", "key-custody.unwrap", "crypto.market"] },
+  "events": { "publishes": ["crypto.account.read.*"], "subscribes": ["crypto.connection.*", "key-custody.rotation.*"] },
+  "data": { "schemas": ["crypto_account"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/crypto-account",
+    "keyDomains": ["agent"],
+    "allowedCallers": ["tool-runtime", "scheduler"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 10000
+  },
+  "deployment": {
+    "image": "athena/crypto-account",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "key-custody", "crypto-market", "infra:postgresql", "infra:nats"]
+}

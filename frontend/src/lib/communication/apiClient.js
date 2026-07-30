@@ -207,6 +207,7 @@ async function requestJsonCore(path, options = {}) {
     communicationScene = null,
     acceptNotModified = false,
     task: requestTask,
+    onRequestMetadata,
     schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
@@ -220,6 +221,16 @@ async function requestJsonCore(path, options = {}) {
     : body === undefined
       ? ""
       : JSON.stringify(body);
+  try {
+    onRequestMetadata?.({
+      requestId,
+      method: normalizedMethod,
+      path,
+      retryAttempt,
+    });
+  } catch {
+    // Request correlation callbacks are diagnostic-only.
+  }
 
   if (retryAttempt > 0) {
     devLog("retry", {
@@ -304,6 +315,7 @@ async function requestJsonCore(path, options = {}) {
             communicationScene,
             acceptNotModified,
             task: requestTask,
+            onRequestMetadata,
             ...rest,
           });
         }
@@ -374,6 +386,7 @@ async function requestJsonCore(path, options = {}) {
           communicationScene,
           acceptNotModified,
           task: requestTask,
+          onRequestMetadata,
           ...rest,
         });
       }

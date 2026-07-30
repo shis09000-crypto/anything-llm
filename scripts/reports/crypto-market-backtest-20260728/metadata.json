@@ -1,0 +1,71 @@
+{
+  "generatedAt": "2026-07-28T14:59:36.909Z",
+  "startedAt": "2026-07-28T14:59:33.439Z",
+  "source": {
+    "provider": "Gate",
+    "endpoint": "https://api.gateio.ws/api/v4/spot/candlesticks",
+    "market": "spot",
+    "quote": "USDT",
+    "snapshotOrigin": "reused_sha_pinned_raw_candles"
+  },
+  "assets": [
+    "BTC",
+    "ETH",
+    "SOL"
+  ],
+  "timeframes": [
+    "1h",
+    "4h",
+    "1d",
+    "1w"
+  ],
+  "evaluationStart": "2025-07-01T00:00:00.000Z",
+  "dataEnd": "2026-07-28T00:00:00.000Z",
+  "maximumOutcomeHorizonBars": 24,
+  "horizonsBars": [
+    4,
+    12,
+    24
+  ],
+  "outcomeBar": "natural UTC daily candle",
+  "formulaVersion": "crypto-quant-v2",
+  "supportingEvidenceScope": "K-line price-trend, price-volume, and relative-to-BTC families only; historical order-flow and derivatives snapshots unavailable.",
+  "historicalClosedCandleLimitPerTimeframe": 499,
+  "requestCounts": {
+    "BTC": {
+      "1h": 10,
+      "4h": 5,
+      "1d": 2,
+      "1w": 2
+    },
+    "ETH": {
+      "1h": 10,
+      "4h": 5,
+      "1d": 2,
+      "1w": 2
+    },
+    "SOL": {
+      "1h": 10,
+      "4h": 5,
+      "1d": 2,
+      "1w": 2
+    }
+  },
+  "rowCount": 9963,
+  "signalDateCount": 1107,
+  "rawDataBytes": 5484363,
+  "rawDataGzipBytes": 1272021,
+  "rawDataSha256": "a306e910e49a71cb3239c955147ae19dee59a9caed0ba68a12f2ec7f0c883902",
+  "recordsSha256": "aa794816f8b5bd54a7bab092c34ca165c9cf0d5a592144b114d85899cc39d381",
+  "codeSha256": {
+    "quantAnalysis": "45dcd1f1a0564b7f921897c390eeb3ed48f834d5ba877eee81533a80cb49111b",
+    "supportingEvidence": "ef9524cedaf37353f9588ee980a26ccabe07281b5089e4862761d119c5252059"
+  },
+  "limitations": [
+    "Overlapping daily signals are correlated; notebook reports cooldown sensitivity.",
+    "Accuracy is descriptive, not a calibrated probability.",
+    "No survivorship-free universe: only BTC, ETH, and SOL are tested.",
+    "No historical order-book, trade-flow, derivatives, or latency replay.",
+    "A 10 bps round-trip threshold is a sensitivity check, not a trading cost guarantee."
+  ]
+}

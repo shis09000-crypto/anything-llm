@@ -1,7 +1,10 @@
 const crypto = require("crypto");
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const CryptoData = lazyDataAccessFacade("crypto");
-const { decryptSecret, encryptSecret } = require("../security/encryption");
+const {
+  unwrapMaterial,
+  wrapMaterial,
+} = require("../security/keyCustody/remoteClient");
 const { queueUserDomainWrap } = require("../security/userDomainWrapService");
 const {
   USER_DOMAIN_KEY_VERSION,
@@ -327,7 +330,7 @@ async function createOrRotateConnection({
       environment: env,
       credentialVersion,
     });
-    const platformWrappedDek = encryptSecret(dek.toString("base64url"), {
+    const platformWrappedDek = await wrapMaterial(dek.toString("base64url"), {
       purpose: "crypto-account-dek",
       domain: "crypto-account",
       resource: connectionId,
@@ -452,7 +455,7 @@ async function platformDekMaterial(connectionId, userId) {
   if (!row?.platformWrappedDek)
     throw cryptoAccountError("user_domain_resource_not_found");
   const material = Buffer.from(
-    decryptSecret(row.platformWrappedDek, {
+    await unwrapMaterial(row.platformWrappedDek, {
       purpose: "crypto-account-dek",
       domain: "crypto-account",
       resource: String(connectionId),
@@ -499,7 +502,7 @@ async function resolveApprovedConnection({
     throw cryptoAccountError("crypto_account_domain_key_changed");
   }
   const dek = Buffer.from(
-    decryptSecret(connection.platformWrappedDek, {
+    await unwrapMaterial(connection.platformWrappedDek, {
       purpose: "crypto-account-dek",
       domain: "crypto-account",
       resource: connection.id,

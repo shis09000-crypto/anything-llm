@@ -32,7 +32,10 @@ describe("SQLite/PostgreSQL runtime dialect boundary", () => {
       const source = fs.readFileSync(file, "utf8");
       if (!/(AUTOINCREMENT|PRAGMA\s+table_info)/i.test(source)) continue;
       if (file.endsWith("schemaIntrospection.js")) continue;
-      if (!source.includes("ensureMigrationOwnedTables")) {
+      if (
+        !source.includes("ensureMigrationOwnedTables") &&
+        !source.includes("assertEmbeddedSqliteStoreAllowed")
+      ) {
         unguarded.push(path.relative(serverRoot, file));
       }
     }

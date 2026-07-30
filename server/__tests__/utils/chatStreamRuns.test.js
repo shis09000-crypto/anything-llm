@@ -13,6 +13,10 @@ const mockClaim = jest.fn(async (scope) => ({
     partialResponse: "",
   },
 }));
+const mockAppendEvents = jest.fn(async () => 1);
+const mockRenewLease = jest.fn(async () => true);
+const mockEventsAfter = jest.fn(async () => []);
+const mockReconcileExpired = jest.fn(async () => null);
 
 jest.mock("../../utils/dataAccess", () => ({
   DataAccessCenter: {
@@ -21,6 +25,10 @@ jest.mock("../../utils/dataAccess", () => ({
       settle: (...args) => mockSettle(...args),
       getScoped: (...args) => mockGetScoped(...args),
       claim: (...args) => mockClaim(...args),
+      appendEvents: (...args) => mockAppendEvents(...args),
+      renewLease: (...args) => mockRenewLease(...args),
+      eventsAfter: (...args) => mockEventsAfter(...args),
+      reconcileExpired: (...args) => mockReconcileExpired(...args),
     },
   },
 }));
@@ -77,6 +85,10 @@ describe("durable chat stream runs", () => {
     mockSettle.mockClear();
     mockGetScoped.mockClear();
     mockClaim.mockClear();
+    mockAppendEvents.mockClear();
+    mockRenewLease.mockClear();
+    mockEventsAfter.mockClear();
+    mockReconcileExpired.mockClear();
   });
 
   test("keeps accumulating after a subscriber disconnects and replays a complete snapshot", async () => {
@@ -159,8 +171,14 @@ describe("durable chat stream runs", () => {
     await manager.claim(scope);
     await manager.claim(scope);
     expect(mockClaim).toHaveBeenCalledTimes(2);
-    expect(mockClaim).toHaveBeenNthCalledWith(1, scope);
-    expect(mockClaim).toHaveBeenNthCalledWith(2, scope);
+    expect(mockClaim).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining(scope)
+    );
+    expect(mockClaim).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining(scope)
+    );
   });
 
   test("state exposes resumable metadata without partial response content", async () => {

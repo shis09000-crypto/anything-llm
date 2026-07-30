@@ -23,14 +23,32 @@ verify_crypto_runtime() {
   fi
 }
 
+prepare_prisma_client() {
+  if [ "${ATHENA_DATABASE_PROVIDER:-sqlite}" = "postgresql" ]; then
+    test -f /app/server/generated/postgresql-main/index.js &&
+      test -f /app/server/generated/postgresql-auth/index.js
+    return
+  fi
+  node scripts/prisma-runtime.js generate
+}
+
+migrate_authoritative_databases() {
+  if [ "${ATHENA_DATABASE_PROVIDER:-sqlite}" = "postgresql" ]; then
+    node scripts/postgresql-prisma-runtime.js --execute --database main migrate deploy &&
+      node scripts/postgresql-prisma-runtime.js --execute --database auth migrate deploy
+    return
+  fi
+  node scripts/prisma-runtime.js --execute migrate deploy &&
+    node scripts/auth-prisma-runtime.js --execute migrate deploy
+}
+
 run_server() {
   cd /app/server/ &&
     verify_crypto_runtime &&
     # Disable Prisma CLI telemetry (https://www.prisma.io/docs/orm/tools/prisma-cli#how-to-opt-out-of-data-collection)
     export CHECKPOINT_DISABLE=1 &&
-    node scripts/prisma-runtime.js generate &&
-    node scripts/prisma-runtime.js --execute migrate deploy &&
-    node scripts/auth-prisma-runtime.js --execute migrate deploy &&
+    prepare_prisma_client &&
+    migrate_authoritative_databases &&
     node scripts/verify-runtime-prisma-contract.js &&
     exec node /app/server/index.js
 }
@@ -43,7 +61,7 @@ run_reader_worker() {
   cd /app/server/ &&
     verify_crypto_runtime &&
     export CHECKPOINT_DISABLE=1 &&
-    node scripts/prisma-runtime.js generate &&
+    prepare_prisma_client &&
     exec node /app/server/reader-worker.js
 }
 
@@ -51,7 +69,7 @@ run_background_worker() {
   cd /app/server/ &&
     verify_crypto_runtime &&
     export CHECKPOINT_DISABLE=1 &&
-    node scripts/prisma-runtime.js generate &&
+    prepare_prisma_client &&
     exec node /app/server/background-worker.js
 }
 
@@ -59,8 +77,93 @@ run_realtime_gateway() {
   cd /app/server/ &&
     verify_crypto_runtime &&
     export CHECKPOINT_DISABLE=1 &&
-    node scripts/prisma-runtime.js generate &&
+    prepare_prisma_client &&
     exec node /app/server/realtime-gateway.js
+}
+
+run_scheduler() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/scheduler.js
+}
+
+run_operations_plane() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/operations-plane.js
+}
+
+run_chat_runtime() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/chat-runtime.js
+}
+
+run_agent_runtime() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/agent-runtime.js
+}
+
+run_model_gateway() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/model-gateway.js
+}
+
+run_tool_broker() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/tool-broker.js
+}
+
+run_crypto_market() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    exec node /app/server/crypto-market.js
+}
+
+run_crypto_account() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/crypto-account.js
+}
+
+run_crypto_forecast() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/crypto-forecast.js
+}
+
+run_key_custody() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/key-custody.js
+}
+
+run_edge_probe() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    exec node /app/server/edge-probe.js
 }
 
 child_pids=()
@@ -87,6 +190,39 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   realtime-gateway)
     run_realtime_gateway
+    ;;
+  scheduler)
+    run_scheduler
+    ;;
+  operations-plane)
+    run_operations_plane
+    ;;
+  chat-runtime)
+    run_chat_runtime
+    ;;
+  agent-runtime)
+    run_agent_runtime
+    ;;
+  model-gateway)
+    run_model_gateway
+    ;;
+  tool-broker)
+    run_tool_broker
+    ;;
+  crypto-market)
+    run_crypto_market
+    ;;
+  crypto-account)
+    run_crypto_account
+    ;;
+  crypto-forecast)
+    run_crypto_forecast
+    ;;
+  key-custody)
+    run_key_custody
+    ;;
+  edge-web)
+    run_edge_probe
     ;;
   reader-worker)
     run_reader_worker

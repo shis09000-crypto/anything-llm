@@ -74,7 +74,16 @@ function contentStoreProvider(env = process.env) {
   const provider = String(env.ATHENA_CONTENT_STORE || "local")
     .trim()
     .toLowerCase();
-  return provider === "s3" ? "s3" : "local";
+  const selected = provider === "s3" ? "s3" : "local";
+  const topology = String(env.ATHENA_RUNTIME_TOPOLOGY || "")
+    .trim()
+    .toLowerCase();
+  if (["cloud", "distributed"].includes(topology) && selected !== "s3") {
+    const error = new Error("distributed_runtime_requires_object_storage");
+    error.code = "DISTRIBUTED_RUNTIME_REQUIRES_OBJECT_STORAGE";
+    throw error;
+  }
+  return selected;
 }
 
 function contentObjectError(code, details = {}) {

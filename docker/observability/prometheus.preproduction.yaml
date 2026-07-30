@@ -1,0 +1,192 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alert-rules.yaml
+  - /etc/prometheus/slo-recording-rules.yaml
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: [otel-collector:9464]
+        labels: { module_id: observability-infra }
+
+  - job_name: athena-api
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config: &athena_api_tls
+      ca_file: /run/secrets/athena-mtls/ca.pem
+      cert_file: /run/secrets/athena-mtls/prometheus.pem
+      key_file: /run/secrets/athena-mtls/prometheus.key
+      server_name: anything-llm-api
+      min_version: TLS13
+    static_configs:
+      - targets: [anything-llm-api:3024]
+        labels: { module_id: athena-api }
+
+  - job_name: athena-edge-web
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-edge-probe
+    static_configs:
+      - targets: [anything-llm-edge-probe:3025]
+        labels: { module_id: edge-web }
+
+  - job_name: athena-background-worker
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-background-worker
+    static_configs:
+      - targets: [anything-llm-background-worker:3012]
+        labels: { module_id: background-worker }
+
+  - job_name: athena-realtime-gateway
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-realtime-gateway
+    static_configs:
+      - targets: [anything-llm-realtime-gateway:3013]
+        labels: { module_id: sync-v2 }
+
+  - job_name: athena-reader-worker
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-reader-worker
+    static_configs:
+      - targets: [anything-llm-reader-worker:3011]
+        labels: { module_id: reader-worker }
+
+  - job_name: athena-scheduler
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-scheduler
+    static_configs:
+      - targets: [anything-llm-scheduler:3014]
+        labels: { module_id: scheduler }
+
+  - job_name: athena-operations-plane
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-operations-plane
+    static_configs:
+      - targets: [anything-llm-operations-plane:3015]
+        labels: { module_id: operations-plane }
+
+  - job_name: athena-chat-runtime
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-chat-runtime
+    static_configs:
+      - targets: [anything-llm-chat-runtime:3016]
+        labels: { module_id: chat-runtime }
+
+  - job_name: athena-agent-runtime
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-agent-runtime
+    static_configs:
+      - targets: [anything-llm-agent-runtime:3017]
+        labels: { module_id: agent-runtime }
+
+  - job_name: athena-model-gateway
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-model-gateway
+    static_configs:
+      - targets: [anything-llm-model-gateway:3018]
+        labels: { module_id: model-gateway }
+
+  - job_name: athena-tool-runtime
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-tool-broker
+    static_configs:
+      - targets: [anything-llm-tool-broker:3019]
+        labels: { module_id: tool-runtime }
+
+  - job_name: athena-crypto-market
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-crypto-market
+    static_configs:
+      - targets: [anything-llm-crypto-market:3020]
+        labels: { module_id: crypto-market }
+
+  - job_name: athena-crypto-account
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-crypto-account
+    static_configs:
+      - targets: [anything-llm-crypto-account:3021]
+        labels: { module_id: crypto-account-access }
+
+  - job_name: athena-crypto-forecast
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-crypto-forecast
+    static_configs:
+      - targets: [anything-llm-crypto-forecast:3022]
+        labels: { module_id: crypto-forecast }
+
+  - job_name: athena-key-custody
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-key-custody
+    static_configs:
+      - targets: [anything-llm-key-custody:3023]
+        labels: { module_id: key-custody }
+
+  - job_name: athena-collector
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-collector
+    static_configs:
+      - targets: [anything-llm-collector:8888]
+        labels: { module_id: collector }

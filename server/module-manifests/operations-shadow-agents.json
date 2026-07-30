@@ -1,0 +1,33 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "operations-shadow-agents",
+  "name": "Operations Shadow Agents",
+  "version": "1.0.0",
+  "kind": "diagnostic",
+  "owner": "sre",
+  "criticality": "medium",
+  "runtimeRole": "operations-shadow-agents",
+  "sourcePaths": ["server/utils/operations/shadowAgents/"],
+  "capabilities": ["advisory-diagnosis", "incident-evaluation", "evidence-linking"],
+  "routes": { "public": [], "internal": ["/internal/v1/operations/shadow"] },
+  "rpc": { "provides": ["operations.shadow.evaluate"], "consumes": ["operations.catalog"] },
+  "events": { "publishes": ["operations.shadow.*"], "subscribes": ["operations.semantic.*"] },
+  "data": { "schemas": [], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/operations-shadow-agents",
+    "keyDomains": ["audit"],
+    "allowedCallers": ["operations-plane"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/operations-shadow-agents",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.99,
+    "reconnectP95Ms": 0
+  },
+  "dependsOn": ["operations-plane", "model-gateway", "infra:nats", "infra:clickhouse"]
+}

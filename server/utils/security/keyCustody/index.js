@@ -4,6 +4,35 @@ const crypto = require("crypto");
 let provider = null;
 let runtimeActiveKey = null;
 
+function observeLocalMaterialRead(outcome) {
+  try {
+    const { metrics } = require("../../observability/metrics");
+    metrics.keyCustodyLocalMaterialReads.inc({
+      outcome,
+      runtime_role: String(process.env.ATHENA_RUNTIME_ROLE || "api").slice(
+        0,
+        64
+      ),
+    });
+  } catch {
+    // Metrics must not alter key availability decisions.
+  }
+}
+
+function assertLocalMaterialAccessAllowed() {
+  const role = String(process.env.ATHENA_RUNTIME_ROLE || "api");
+  if (
+    process.env.ATHENA_KEY_CUSTODY_CUTOVER === "true" &&
+    role !== "key-custody"
+  ) {
+    observeLocalMaterialRead("denied_after_cutover");
+    const error = new Error("remote_key_custody_required");
+    error.code = "REMOTE_KEY_CUSTODY_REQUIRED";
+    throw error;
+  }
+  if (role !== "key-custody") observeLocalMaterialRead("legacy_local_read");
+}
+
 function keyProvider() {
   if (!provider) provider = createKeyProvider();
   return provider;
@@ -15,6 +44,7 @@ function resetKeyProviderForTests(next = null) {
 }
 
 function resolveActiveKey(purpose = SERVER_DATA_PURPOSE) {
+  assertLocalMaterialAccessAllowed();
   if (purpose !== SERVER_DATA_PURPOSE) {
     throw new Error(`Unsupported key purpose: ${purpose}`);
   }
@@ -22,6 +52,7 @@ function resolveActiveKey(purpose = SERVER_DATA_PURPOSE) {
 }
 
 function resolveKey(keyId, purpose = SERVER_DATA_PURPOSE) {
+  assertLocalMaterialAccessAllowed();
   if (purpose !== SERVER_DATA_PURPOSE) {
     throw new Error(`Unsupported key purpose: ${purpose}`);
   }
@@ -150,6 +181,7 @@ function verifyKeyCustodyRoundTrip(keyId = null) {
 
 module.exports = {
   activateKey,
+  assertLocalMaterialAccessAllowed,
   clearRuntimeActiveKey,
   generatePendingKey,
   health,

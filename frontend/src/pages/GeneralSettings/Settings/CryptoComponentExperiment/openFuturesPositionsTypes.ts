@@ -1,13 +1,14 @@
 export type FuturesPositionSide = "long" | "short";
 
-export type FuturesRiskLevel = "safe" | "watch" | "danger";
+export type FuturesRiskLevel = "safe" | "watch" | "danger" | "unavailable";
 
 export type LiquidationRiskLevel =
   | "safe"
   | "watch"
   | "danger"
   | "critical"
-  | "extreme";
+  | "extreme"
+  | "unavailable";
 
 export type FuturesMarginMode = "cross" | "isolated";
 
@@ -24,30 +25,50 @@ export interface OpenFuturesPositionItem {
   contractType: "perpetual" | "delivery";
   side: FuturesPositionSide;
   leverage: number;
+  configuredLeverage?: number;
+  effectiveLeverage?: number | null;
+  leverageScope?: string;
   marginMode: FuturesMarginMode;
+  contractSize?: string;
+  contractSizeUnit?: "contracts";
   quantity: string;
   quantityAmount?: string;
+  baseEquivalentAmount?: string;
+  quantitySemantics?: string;
   notionalUsd: string;
   positionValueUsd: string;
   entryPrice: string;
   markPrice: string;
   liquidationPrice: string | null;
+  liquidationPriceReferenceOnly?: boolean;
   liquidationRiskLevel?: LiquidationRiskLevel;
   liquidationDistancePct?: string | null;
   marginUsd: string;
+  initialMarginUsd?: string | null;
+  maintenanceMarginUsd?: string | null;
+  marginSemantics?: string;
   fundingFeeUsd: string | null;
   unrealizedPnlUsd: string;
-  pnlPct: string;
+  pnlPct: string | null;
+  pnlPctUnavailableReason?: string | null;
   riskLevel: FuturesRiskLevel;
   iconUrl?: string;
 }
 
 export interface OpenFuturesPositionsSummary {
   totalUnrealizedPnlUsd: string;
-  weightedPnlPct: string;
+  weightedPnlPct: string | null;
+  totalNotionalUsd?: string;
+  accountInitialMarginUsd?: string;
+  accountMaintenanceMarginUsd?: string;
+  accountOrderMarginUsd?: string;
+  crossAvailableUsd?: string;
+  initialMarginToCrossAvailablePct?: string | null;
   totalMarginUsd: string;
   accountEquityUsd: string;
-  marginRatioPct: string;
+  accountEquitySemantics?: string;
+  marginRatioPct: string | null;
+  marginRatioSemantics?: string;
 }
 
 export interface OpenFuturesPositionsCardProps {

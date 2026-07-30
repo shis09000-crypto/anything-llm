@@ -55,6 +55,17 @@ describe("AI Operations Plane", () => {
     expect(transport.publish).toHaveBeenCalledWith(event);
     await transport.handler(event);
     expect(store.insert).toHaveBeenCalledWith(event);
+    expect(plane.health().producerCoverage).toMatchObject({
+      observed: 1,
+      stale: 0,
+      producers: [
+        expect.objectContaining({
+          runtimeRole: event.producer.runtimeRole,
+          service: event.producer.service,
+          stale: false,
+        }),
+      ],
+    });
     await plane.stop();
   });
 
@@ -108,13 +119,13 @@ describe("AI Operations Plane", () => {
       .fn()
       .mockResolvedValue("2026-07-25T12:00:00.000Z");
 
-    await expect(plane.timelineWithMetadata({ limit: 5 })).resolves.toMatchObject(
-      {
-        source: "clickhouse",
-        redelivered: 7,
-        redeliveries: 7,
-      }
-    );
+    await expect(
+      plane.timelineWithMetadata({ limit: 5 })
+    ).resolves.toMatchObject({
+      source: "clickhouse",
+      redelivered: 7,
+      redeliveries: 7,
+    });
   });
 
   test("rejects unknown schemas before transport or storage", async () => {

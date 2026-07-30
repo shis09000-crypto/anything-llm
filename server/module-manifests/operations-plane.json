@@ -1,0 +1,52 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "operations-plane",
+  "name": "AI Operations Plane",
+  "version": "1.1.0",
+  "kind": "control-plane",
+  "owner": "sre",
+  "criticality": "high",
+  "runtimeRole": "operations-plane",
+  "sourcePaths": ["server/operations-plane.js", "server/endpoints/operations.js", "server/utils/operations/", "server/utils/observability/"],
+  "capabilities": ["semantic-events", "timeline", "state-graph", "deployment-guard", "module-health-probes", "cross-module-correlation"],
+  "routes": { "public": ["/api/operations/"], "internal": ["/internal/v1/operations/"] },
+  "rpc": { "provides": ["operations.catalog", "operations.guard"], "consumes": [] },
+  "events": { "publishes": ["operations.action.*"], "subscribes": ["*"] },
+  "data": { "schemas": [], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/operations-plane",
+    "keyDomains": ["audit"],
+    "allowedCallers": [
+      "athena-api",
+      "authentication",
+      "background-worker",
+      "chat-runtime",
+      "collector",
+      "crypto-account-access",
+      "crypto-forecast",
+      "crypto-market",
+      "agent-runtime",
+      "key-custody",
+      "knowledge-ingest",
+      "model-gateway",
+      "operations-shadow-agents",
+      "rag",
+      "reader-worker",
+      "scheduler",
+      "sync-v2",
+      "tool-runtime"
+    ],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/operations-plane",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["infra:nats", "infra:clickhouse", "infra:otel"]
+}
