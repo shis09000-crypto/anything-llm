@@ -173,7 +173,9 @@ FROM build AS backend-build
 COPY --chown=anythingllm:anythingllm ./server /app/server/
 WORKDIR /app/server
 RUN yarn install --production --network-timeout 100000 --ignore-engines && yarn cache clean
-RUN yarn prisma:postgresql:generate
+RUN yarn prisma:postgresql:schema \
+    && DATABASE_URL=postgresql://schema:validation@127.0.0.1:5432/athena \
+      ./node_modules/.bin/prisma generate --schema=./prisma/postgresql/schema.prisma
 WORKDIR /app
 
 # Install collector dependencies
