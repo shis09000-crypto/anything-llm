@@ -68,6 +68,11 @@ private_copy "${legacy_secret_dir}/password/athena_password_pepper" "${runtime_s
 public_copy "${legacy_secret_dir}/ai-operations/ca.pem" "${mtls_dir}/ca.pem"
 private_copy "${legacy_secret_dir}/ai-operations/ca.key" "${private_dir}/service-ca.key"
 private_copy "${legacy_secret_dir}/ai-operations/metrics-token" "${runtime_secret_dir}/metrics-token"
+if [[ -d "${runtime_secret_dir}/clickhouse-password" ]]; then
+  rmdir "${runtime_secret_dir}/clickhouse-password"
+fi
+private_copy "${legacy_secret_dir}/ai-operations/clickhouse-password.server" \
+  "${runtime_secret_dir}/clickhouse-password"
 
 if [[ ! -s "${runtime_secret_dir}/nats-subject-key" ]]; then
   umask 077

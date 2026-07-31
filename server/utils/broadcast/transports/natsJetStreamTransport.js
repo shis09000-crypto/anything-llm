@@ -319,14 +319,22 @@ class NatsJetStreamTransport {
   async ensureStream() {
     const config = settings(this.env);
     const manager = await this.connection.jetstreamManager();
+    const subject = `athena.${appEnvironment()}.>`;
     try {
-      await manager.streams.info(config.stream);
+      const info = await manager.streams.info(config.stream);
+      if (!info.config.subjects?.includes(subject)) {
+        await manager.streams.update(config.stream, {
+          ...info.config,
+          subjects: [...new Set([...(info.config.subjects || []), subject])],
+          max_age: config.maxAgeNs,
+        });
+      }
     } catch (error) {
       if (String(error?.code || error?.api_error?.err_code) !== "404")
         throw error;
       await manager.streams.add({
         name: config.stream,
-        subjects: [`athena.${appEnvironment()}.>`],
+        subjects: [subject],
         retention: RetentionPolicy.Limits,
         storage: StorageType.File,
         duplicate_window: 2 * 60 * 1_000_000_000,
