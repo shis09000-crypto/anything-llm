@@ -250,7 +250,8 @@ class BrowserWorkerRuntime {
         this.accepting &&
         Boolean(executable) &&
         playwrightReady &&
-        this.sandboxVerified,
+        this.sandboxVerified &&
+        admission.allowed,
       driver: "playwright-chromium",
       contract: "athena.browser.driver.v1",
       executableAvailable: Boolean(executable),
