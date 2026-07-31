@@ -60,7 +60,13 @@
       "athena-api",
       "chat-runtime",
       "agent-runtime",
+      "model-gateway",
+      "tool-runtime",
       "crypto-account-access",
+      "crypto-forecast",
+      "knowledge-ingest",
+      "rag",
+      "browser-plane",
       "browser-worker"
     ],
     "failureMode": "fail-closed",
