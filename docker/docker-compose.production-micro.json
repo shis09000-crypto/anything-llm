@@ -589,6 +589,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3012/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-realtime-gateway": {
@@ -947,6 +957,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3014/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-operations-plane": {
@@ -1065,6 +1085,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3015/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-chat-runtime": {
@@ -1179,6 +1209,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3016/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "448m"
     },
     "anything-llm-agent-runtime": {
@@ -1296,6 +1336,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3017/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "448m"
     },
     "anything-llm-model-gateway": {
@@ -1407,6 +1457,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3018/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-tool-broker": {
@@ -1523,6 +1583,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3019/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-crypto-market": {
@@ -1629,6 +1699,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3020/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-crypto-account": {
@@ -1745,6 +1825,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3021/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-crypto-forecast": {
@@ -1856,6 +1946,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3022/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-key-custody": {
@@ -1967,6 +2067,16 @@
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3023/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
       "mem_limit": "256m"
     },
     "anything-llm-identity": {

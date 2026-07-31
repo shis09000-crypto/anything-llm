@@ -127,8 +127,8 @@ def healthcheck(port: int, path: str = "/ready") -> dict:
     }
 
 
-def service_port(name: str, environment: dict) -> int | None:
-    names = (
+def service_port(service_name: str, environment: dict) -> int | None:
+    port_names = (
         "BACKGROUND_WORKER_PORT",
         "REALTIME_GATEWAY_PORT",
         "READER_WORKER_PORT",
@@ -148,10 +148,10 @@ def service_port(name: str, environment: dict) -> int | None:
         "RAG_PORT",
         "OPERATIONS_SHADOW_AGENTS_PORT",
     )
-    for name in names:
-        if name in environment:
-            return int(environment[name])
-    return DEFAULT_SERVICE_PORTS.get(name)
+    for port_name in port_names:
+        if port_name in environment:
+            return int(environment[port_name])
+    return DEFAULT_SERVICE_PORTS.get(service_name)
 
 
 def render(source: Path) -> dict:
