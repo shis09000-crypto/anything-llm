@@ -21,7 +21,9 @@ const {
 assertProductionSecurityConfig();
 
 const {
+  auditKeyDescriptor,
   custodyStatus,
+  signAuditCheckpoint,
   unwrapMaterial,
   wrapMaterial,
 } = require("./utils/security/keyCustody/serviceRuntime");
@@ -36,6 +38,8 @@ const state = {
   active: 0,
   wrapped: 0,
   unwrapped: 0,
+  auditDescribed: 0,
+  auditSigned: 0,
   denied: 0,
   failed: 0,
 };
@@ -54,7 +58,9 @@ function execute(operation, request, response) {
       env: process.env,
     });
     if (operation === wrapMaterial) state.wrapped += 1;
-    else state.unwrapped += 1;
+    else if (operation === unwrapMaterial) state.unwrapped += 1;
+    else if (operation === auditKeyDescriptor) state.auditDescribed += 1;
+    else if (operation === signAuditCheckpoint) state.auditSigned += 1;
     return response.json({ success: true, ...result });
   } catch (error) {
     if (error?.httpStatus === 403) state.denied += 1;
@@ -88,6 +94,12 @@ const host = new MicroModuleServiceHost({
     );
     app.post("/internal/v1/keys/unwrap", (request, response) =>
       execute(unwrapMaterial, request, response)
+    );
+    app.post("/internal/v1/keys/audit-descriptor", (request, response) =>
+      execute(auditKeyDescriptor, request, response)
+    );
+    app.post("/internal/v1/keys/audit-sign", (request, response) =>
+      execute(signAuditCheckpoint, request, response)
     );
     app.get("/internal/v1/keys/status", (_request, response) =>
       response.json({ success: true, ...custodyStatus() })

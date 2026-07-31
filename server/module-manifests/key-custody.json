@@ -3,7 +3,7 @@
   "schemaVersion": "1.0",
   "id": "key-custody",
   "name": "Key Custody",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "kind": "security-service",
   "owner": "security",
   "criticality": "critical",
@@ -16,6 +16,7 @@
   "capabilities": [
     "remote-wrap",
     "remote-unwrap",
+    "remote-audit-signing",
     "rotation",
     "quarantine",
     "crypto-suite-registry"
@@ -25,11 +26,18 @@
     "internal": [
       "/internal/v1/keys/wrap",
       "/internal/v1/keys/unwrap",
+      "/internal/v1/keys/audit-descriptor",
+      "/internal/v1/keys/audit-sign",
       "/internal/v1/keys/status"
     ]
   },
   "rpc": {
-    "provides": ["key-custody.wrap", "key-custody.unwrap"],
+    "provides": [
+      "key-custody.wrap",
+      "key-custody.unwrap",
+      "key-custody.audit-descriptor",
+      "key-custody.audit-sign"
+    ],
     "consumes": []
   },
   "events": {

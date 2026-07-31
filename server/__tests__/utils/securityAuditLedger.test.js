@@ -10,6 +10,9 @@ const mockKeyDescriptor = {
 const mockKeyDescriptors = new Map([
   [mockKeyDescriptor.keyId, mockKeyDescriptor],
 ]);
+const mockRemoteKeyCustodyEnabled = jest.fn(() => false);
+const mockRemoteAuditKeyDescriptor = jest.fn();
+const mockRemoteSignAuditCheckpoint = jest.fn();
 
 const mockLedgerApi = {
   findUnique: jest.fn(async ({ where }) =>
@@ -88,6 +91,12 @@ jest.mock("../../utils/security/keyCustody", () => ({
   resolveKey: jest.fn((keyId) => mockKeyDescriptors.get(keyId) || null),
 }));
 
+jest.mock("../../utils/security/keyCustody/remoteClient", () => ({
+  remoteKeyCustodyEnabled: mockRemoteKeyCustodyEnabled,
+  remoteAuditKeyDescriptor: mockRemoteAuditKeyDescriptor,
+  remoteSignAuditCheckpoint: mockRemoteSignAuditCheckpoint,
+}));
+
 jest.mock("../../utils/environment", () => ({
   storagePath: (...parts) => `/tmp/athena-audit-test/${parts.join("/")}`,
 }));
@@ -109,6 +118,7 @@ describe("security audit ledger", () => {
     mockKeyDescriptors.clear();
     mockKeyDescriptors.set(mockKeyDescriptor.keyId, mockKeyDescriptor);
     jest.clearAllMocks();
+    mockRemoteKeyCustodyEnabled.mockReturnValue(false);
     process.env.ATHENA_SECURITY_AUDIT_CHECKPOINT_INTERVAL = "1";
   });
 
@@ -162,6 +172,43 @@ describe("security audit ledger", () => {
         }),
       ],
     });
+  });
+
+  test("uses remote custody for checkpoint signing and verification after cutover", async () => {
+    const trusted = _internals.signingKey();
+    mockRemoteKeyCustodyEnabled.mockReturnValue(true);
+    mockRemoteAuditKeyDescriptor.mockResolvedValue({
+      keyId: trusted.keyId,
+      parameterSet: trusted.parameterSet,
+      keyOrigin: trusted.keyOrigin,
+      hardwareProtection: trusted.hardwareProtection,
+      publicKey: trusted.publicKey,
+    });
+    mockRemoteSignAuditCheckpoint.mockImplementation(
+      async ({ keyId, payload }) =>
+        _internals.classicalCheckpointSignature({
+          key: _internals.signingKey(keyId),
+          payload,
+          signedAt: new Date("2026-07-19T00:00:00.000Z"),
+        })
+    );
+
+    await appendSecurityAudit({
+      eventId: "remote-audit-1",
+      event: "session_revoked",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    await expect(verifySecurityAudit()).resolves.toMatchObject({
+      valid: true,
+      entries: 1,
+      checkpoints: 1,
+    });
+    expect(mockRemoteSignAuditCheckpoint).toHaveBeenCalledTimes(1);
+    expect(mockRemoteAuditKeyDescriptor).toHaveBeenCalledWith(
+      trusted.keyId,
+      expect.objectContaining({ throughSequence: 1 }),
+      process.env
+    );
   });
 
   test("detects ledger content tampering", async () => {

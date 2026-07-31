@@ -13,6 +13,10 @@ const {
   unwrapMaterial,
   wrapMaterial,
 } = require("../security/keyCustody/remoteClient");
+const {
+  decryptFileAes256Gcm,
+  encryptFileAes256Gcm,
+} = require("../security/keyCustody/streamAead");
 
 const PROFILE_FORMAT = "athena-browser-profile:v1";
 const DEFAULT_PROFILE_LIMIT_BYTES = 512 * 1024 * 1024;
@@ -231,18 +235,14 @@ async function restoreProfile(
       ),
       "base64url"
     );
-    const decipher = crypto.createDecipheriv(
-      "aes-256-gcm",
-      dek,
-      Buffer.from(parsedManifest.iv, "base64url")
-    );
-    decipher.setAAD(Buffer.from(`${PROFILE_FORMAT}:${target.id}`, "utf8"));
-    decipher.setAuthTag(Buffer.from(parsedManifest.authTag, "base64url"));
-    await pipeline(
-      fs.createReadStream(encryptedPath),
-      decipher,
-      fs.createWriteStream(zipPath, { flags: "wx", mode: 0o600 })
-    );
+    await decryptFileAes256Gcm({
+      inputPath: encryptedPath,
+      outputPath: zipPath,
+      key: dek,
+      iv: Buffer.from(parsedManifest.iv, "base64url"),
+      authTag: Buffer.from(parsedManifest.authTag, "base64url"),
+      aad: `${PROFILE_FORMAT}:${target.id}`,
+    });
     if ((await hashFile(zipPath)) !== parsedManifest.plaintextSha256)
       throw new Error("browser_profile_plaintext_hash_mismatch");
     await extractArchive(
@@ -289,15 +289,13 @@ async function checkpointProfile(
       throw error;
     }
     const dek = crypto.randomBytes(32);
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv("aes-256-gcm", dek, iv);
-    cipher.setAAD(Buffer.from(`${PROFILE_FORMAT}:${target.id}`, "utf8"));
     const plaintextSha256 = await hashFile(zipPath);
-    await pipeline(
-      fs.createReadStream(zipPath),
-      cipher,
-      fs.createWriteStream(encryptedPath, { flags: "wx", mode: 0o600 })
-    );
+    const { iv, authTag } = await encryptFileAes256Gcm({
+      inputPath: zipPath,
+      outputPath: encryptedPath,
+      key: dek,
+      aad: `${PROFILE_FORMAT}:${target.id}`,
+    });
     const wrappedDek = await wrapMaterial(
       dek.toString("base64url"),
       profileContext(target.id)
@@ -309,7 +307,7 @@ async function checkpointProfile(
       profileId: target.id,
       algorithm: "aes-256-gcm",
       iv: iv.toString("base64url"),
-      authTag: cipher.getAuthTag().toString("base64url"),
+      authTag: authTag.toString("base64url"),
       wrappedDek,
       plaintextBytes: size,
       plaintextSha256,

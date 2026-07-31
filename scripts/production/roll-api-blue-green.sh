@@ -45,16 +45,27 @@ old_image="${current_line#ATHENA_PROD_BACKEND_IMAGE=}"
 backup="${env_file}.api-roll-backup"
 cp -p "$env_file" "$backup"
 rollout_complete=false
+proxy_switched=false
 
 rollback() {
   local exit_code=$?
   if [[ "$rollout_complete" != "true" ]]; then
     cp -p "$backup" "$env_file"
-    for slot in anything-llm-api-green anything-llm-api; do
-      "${compose[@]}" up -d --no-build --no-deps --force-recreate "$slot" >/dev/null 2>&1 || true
-      wait_healthy "$slot" >/dev/null 2>&1 || true
-    done
-    "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api-tls >/dev/null 2>&1 || true
+    if [[ "$proxy_switched" != "true" ]]; then
+      # The public proxy still points at the untouched blue slot. Removing the
+      # failed candidate is sufficient; recreating blue here would turn an
+      # isolated candidate failure into a public outage.
+      "${compose[@]}" rm -sf anything-llm-api-green >/dev/null 2>&1 || true
+    else
+      # Green is still serving candidate traffic. Restore blue first while
+      # green remains available, then restore green while blue serves.
+      "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api >/dev/null 2>&1 || true
+      wait_healthy anything-llm-api >/dev/null 2>&1 || true
+      "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api-tls >/dev/null 2>&1 || true
+      "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api-green >/dev/null 2>&1 || true
+      wait_healthy anything-llm-api-green >/dev/null 2>&1 || true
+      "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api-tls >/dev/null 2>&1 || true
+    fi
     curl --silent --show-error --fail --max-time 10 "$public_probe" >/dev/null 2>&1 || true
     echo "api_blue_green_rollout=rolled_back image=$old_image" >&2
   fi
@@ -82,6 +93,7 @@ wait_healthy anything-llm-api-green
 "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api-tls
 curl --silent --show-error --fail --retry 12 --retry-delay 1 \
   --retry-all-errors --max-time 10 "$public_probe" >/dev/null
+proxy_switched=true
 
 "${compose[@]}" up -d --no-build --no-deps --force-recreate anything-llm-api
 wait_healthy anything-llm-api

@@ -9,7 +9,7 @@ const RPC_VERSION = "athena-key-custody-rpc:v1";
 const MAX_MATERIAL_BYTES = 64 * 1024;
 const CALLER_PURPOSES = Object.freeze({
   "crypto-account": new Set(["crypto-account-dek"]),
-  "athena-api": new Set(["crypto-account-dek"]),
+  "athena-api": new Set(["crypto-account-dek", "security-audit-checkpoint"]),
   "browser-worker": new Set(["browser-profile-dek"]),
 });
 
@@ -36,7 +36,8 @@ function callerRole(caller = "") {
   if (caller === "local") return "local";
   const value = bounded(caller, 512);
   const match = value.match(/^spiffe:\/\/athena\/[^/]+\/([^/]+)$/);
-  return match ? match[1] : "";
+  const role = match ? match[1] : "";
+  return role === "api" ? "athena-api" : role;
 }
 
 function normalizedContext(context = {}) {
@@ -77,6 +78,89 @@ function material(value, label) {
     throw error;
   }
   return String(value);
+}
+
+function auditPayload(value) {
+  const encoded = material(value, "key_custody_audit_payload");
+  let payload;
+  try {
+    payload = Buffer.from(encoded, "base64");
+  } catch {
+    payload = Buffer.alloc(0);
+  }
+  if (!payload.length || payload.length > 8 * 1024) {
+    const error = new Error("key_custody_audit_payload_invalid");
+    error.code = "key_custody_audit_payload_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  const text = payload.toString("utf8");
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+  const { ledgerCanonical } = require("../auditLedger")._internals;
+  if (
+    !parsed ||
+    parsed.format !== "athena-audit-checkpoint-payload:v2" ||
+    parsed.chainId !== "security-v1" ||
+    !Number.isSafeInteger(Number(parsed.throughSequence)) ||
+    Number(parsed.throughSequence) < 1 ||
+    !/^[a-f0-9]{64}$/.test(String(parsed.throughHash || "")) ||
+    ledgerCanonical(parsed) !== text
+  ) {
+    const error = new Error("key_custody_audit_payload_invalid");
+    error.code = "key_custody_audit_payload_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  return payload;
+}
+
+function auditKeyDescriptor(
+  { keyId = null, context } = {},
+  { caller, env } = {}
+) {
+  const normalized = normalizedContext(context);
+  authorizePurpose(caller, normalized, env);
+  const { signingKey } = require("../auditLedger")._internals;
+  const key = signingKey(keyId || null);
+  observe("audit_descriptor", "success");
+  return {
+    version: RPC_VERSION,
+    key: {
+      keyId: key.keyId,
+      parameterSet: key.parameterSet,
+      keyOrigin: key.keyOrigin,
+      hardwareProtection: key.hardwareProtection,
+      publicKey: key.publicKey,
+    },
+  };
+}
+
+function signAuditCheckpoint(
+  { keyId = null, payloadBase64, context } = {},
+  { caller, env } = {}
+) {
+  try {
+    const normalized = normalizedContext(context);
+    authorizePurpose(caller, normalized, env);
+    const payload = auditPayload(payloadBase64);
+    const { classicalCheckpointSignature, signingKey } =
+      require("../auditLedger")._internals;
+    const signature = classicalCheckpointSignature({
+      key: signingKey(keyId || null),
+      payload,
+      signedAt: new Date(),
+    });
+    observe("audit_sign", "success");
+    return { version: RPC_VERSION, signature };
+  } catch (error) {
+    observe("audit_sign", error?.httpStatus === 403 ? "denied" : "failed");
+    throw error;
+  }
 }
 
 function wrapMaterial({ plaintext, context } = {}, { caller, env } = {}) {
@@ -138,10 +222,12 @@ function custodyStatus() {
 module.exports = {
   CALLER_PURPOSES,
   RPC_VERSION,
+  auditKeyDescriptor,
   authorizePurpose,
   callerRole,
   custodyStatus,
   normalizedContext,
+  signAuditCheckpoint,
   unwrapMaterial,
   wrapMaterial,
 };

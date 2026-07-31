@@ -126,6 +126,10 @@ function main() {
   );
   const entrypoint = read("docker/docker-entrypoint.sh");
   const apiMtlsProxy = read("docker/preproduction/api-mtls-proxy.conf");
+  const apiRollout = read("scripts/production/roll-api-blue-green.sh");
+  const backendRuntimeSourceBuild = read(
+    "scripts/production/build-backend-runtime-source.sh"
+  );
   const findings = [];
   const warnings = [];
 
@@ -291,6 +295,22 @@ function main() {
       findings.push(`api_zero_downtime_slot_missing:${apiSlot}`);
   if (!apiMtlsProxy.includes("proxy_next_upstream_tries 2"))
     findings.push("api_zero_downtime_failover_missing");
+  if (
+    !apiRollout.includes('proxy_switched=false') ||
+    !apiRollout.includes('if [[ "$proxy_switched" != "true" ]]') ||
+    !apiRollout.includes("rm -sf anything-llm-api-green")
+  )
+    findings.push("api_pre_switch_rollback_can_restart_active_blue_slot");
+  for (const immutableInput of [
+    "server/package.json",
+    "server/yarn.lock",
+    "server/prisma/schema.prisma",
+    "server/prisma/postgresql/schema.prisma",
+  ])
+    if (!backendRuntimeSourceBuild.includes(immutableInput))
+      findings.push(`runtime_source_dependency_guard_missing:${immutableInput}`);
+  if (!backendRuntimeSourceBuild.includes("full_rebuild_required"))
+    findings.push("runtime_source_dependency_change_not_fail_closed");
   if (!dockerfile.includes(".bin/playwright-core install --with-deps chromium"))
     findings.push("browser_worker_standard_build_uses_invalid_playwright_cli");
   if (

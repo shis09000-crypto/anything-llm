@@ -7,6 +7,8 @@ jest.mock("../../utils/microModules/internalClient", () => ({
 }));
 
 const {
+  remoteAuditKeyDescriptor,
+  remoteSignAuditCheckpoint,
   unwrapMaterial,
   wrapMaterial,
 } = require("../../utils/security/keyCustody/remoteClient");
@@ -61,5 +63,63 @@ describe("remote Key Custody client", () => {
     ).rejects.toMatchObject({
       code: "key_custody_unwrap_response_invalid",
     });
+  });
+
+  test("requests audit descriptors and signatures without key material", async () => {
+    const apiEnv = { ...env, ATHENA_RUNTIME_ROLE: "api" };
+    mockRequestInternalService
+      .mockResolvedValueOnce({
+        success: true,
+        key: {
+          keyId: "key-1",
+          parameterSet: "Ed25519",
+          keyOrigin: "hkdf-derived-from-secret-file",
+          hardwareProtection: "software-runtime-derived",
+          publicKey: "public-key",
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        signature: {
+          suiteId: "audit-ed25519-v1",
+          keyId: "key-1",
+          publicKey: "public-key",
+          signature: "signature",
+          postQuantum: false,
+        },
+      });
+
+    await expect(
+      remoteAuditKeyDescriptor(
+        "key-1",
+        { throughSequence: 1 },
+        apiEnv
+      )
+    ).resolves.toMatchObject({ keyId: "key-1" });
+    await expect(
+      remoteSignAuditCheckpoint(
+        {
+          keyId: "key-1",
+          payload: Buffer.from("canonical-payload"),
+          throughSequence: 1,
+        },
+        apiEnv
+      )
+    ).resolves.toMatchObject({ keyId: "key-1", postQuantum: false });
+    expect(mockRequestInternalService).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        callerRole: "athena-api",
+        url: "http://key-custody.test/internal/v1/keys/audit-descriptor",
+      })
+    );
+    expect(mockRequestInternalService).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        callerRole: "athena-api",
+        url: "http://key-custody.test/internal/v1/keys/audit-sign",
+        idempotencyKey: expect.stringMatching(/^[a-f0-9]{64}$/),
+      })
+    );
   });
 });

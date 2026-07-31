@@ -3,7 +3,7 @@
   "schemaVersion": "1.0",
   "id": "athena-api",
   "name": "Workspace Control API",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "compatibility-service",
   "owner": "platform",
   "criticality": "critical",
@@ -11,7 +11,16 @@
   "sourcePaths": ["server/index.js", "server/endpoints/", "server/models/workspace.js"],
   "capabilities": ["http", "workspace", "account", "compatibility-api"],
   "routes": { "public": ["/api/system/", "/api/workspace/", "/api/admin/"], "internal": ["/live", "/ready", "/metrics"] },
-  "rpc": { "provides": ["control.dispatch"], "consumes": ["identity.assert", "chat.submit", "agent.submit"] },
+  "rpc": {
+    "provides": ["control.dispatch"],
+    "consumes": [
+      "identity.assert",
+      "chat.submit",
+      "agent.submit",
+      "key-custody.audit-descriptor",
+      "key-custody.audit-sign"
+    ]
+  },
   "events": { "publishes": ["workspace.*", "account.*"], "subscribes": ["chat.run.*", "agent.run.*"] },
   "data": { "schemas": ["workspace"], "objectPrefixes": [] },
   "security": {

@@ -132,11 +132,98 @@ async function remoteCustodyStatus(env = process.env) {
   return response;
 }
 
+function auditContext({
+  chainId = "security-v1",
+  throughSequence = null,
+} = {}) {
+  return {
+    purpose: "security-audit-checkpoint",
+    domain: "security-audit",
+    resource:
+      throughSequence === null
+        ? chainId
+        : `${bounded(chainId, 64)}:${Number(throughSequence)}`,
+    operation: "checkpoint-signature",
+  };
+}
+
+async function remoteAuditKeyDescriptor(
+  keyId,
+  { chainId = "security-v1", throughSequence = null } = {},
+  env = process.env
+) {
+  const context = auditContext({ chainId, throughSequence });
+  const response = await requestInternalService({
+    callerRole: callerRole(env),
+    url: `${keyCustodyUrl(env)}/internal/v1/keys/audit-descriptor`,
+    body: { keyId: bounded(keyId, 160) || null, context },
+    env,
+    timeoutMs: Number(env.ATHENA_KEY_CUSTODY_TIMEOUT_MS || 10_000),
+  });
+  const key = response?.key;
+  if (
+    !key?.keyId ||
+    !key?.parameterSet ||
+    !key?.keyOrigin ||
+    !key?.hardwareProtection ||
+    !key?.publicKey
+  ) {
+    const error = new Error("key_custody_audit_descriptor_invalid");
+    error.code = "key_custody_audit_descriptor_invalid";
+    throw error;
+  }
+  return key;
+}
+
+async function remoteSignAuditCheckpoint(
+  { keyId = null, payload, chainId = "security-v1", throughSequence = null },
+  env = process.env
+) {
+  if (
+    !Buffer.isBuffer(payload) ||
+    !payload.length ||
+    payload.length > 8 * 1024
+  ) {
+    const error = new Error("key_custody_audit_payload_invalid");
+    error.code = "key_custody_audit_payload_invalid";
+    throw error;
+  }
+  const context = auditContext({ chainId, throughSequence });
+  const payloadBase64 = payload.toString("base64");
+  const response = await requestInternalService({
+    callerRole: callerRole(env),
+    url: `${keyCustodyUrl(env)}/internal/v1/keys/audit-sign`,
+    body: {
+      keyId: bounded(keyId, 160) || null,
+      payloadBase64,
+      context,
+    },
+    idempotencyKey: idempotencyKey("audit-sign", payloadBase64, context),
+    env,
+    timeoutMs: Number(env.ATHENA_KEY_CUSTODY_TIMEOUT_MS || 10_000),
+  });
+  const signature = response?.signature;
+  if (
+    !signature?.suiteId ||
+    !signature?.keyId ||
+    !signature?.publicKey ||
+    !signature?.signature ||
+    signature?.postQuantum !== false
+  ) {
+    const error = new Error("key_custody_audit_signature_invalid");
+    error.code = "key_custody_audit_signature_invalid";
+    throw error;
+  }
+  return signature;
+}
+
 module.exports = {
   callerRole,
   keyCustodyUrl,
+  remoteAuditKeyDescriptor,
   remoteCustodyStatus,
   remoteKeyCustodyEnabled,
+  remoteSignAuditCheckpoint,
   safeContext,
   unwrapMaterial,
   wrapMaterial,

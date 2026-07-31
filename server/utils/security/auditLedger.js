@@ -10,6 +10,11 @@ const { resolveActiveKey, resolveKey } = require("./keyCustody");
 const { recordDecryptOnlyKeyRead } = require("./legacyKeyReadObservation");
 const { metrics } = require("../observability/metrics");
 const {
+  remoteAuditKeyDescriptor,
+  remoteKeyCustodyEnabled,
+  remoteSignAuditCheckpoint,
+} = require("./keyCustody/remoteClient");
+const {
   PURPOSES,
   SUITE_IDS,
   cryptoSuite,
@@ -260,6 +265,41 @@ function pqSigningKey(keyId = null, { privateKeyRequired = true } = {}) {
   };
 }
 
+function remoteAuditCustodyEnabled(env = process.env) {
+  return remoteKeyCustodyEnabled(env, {
+    purpose: "security-audit-checkpoint",
+  });
+}
+
+async function trustedClassicalCheckpointKey(
+  keyId = null,
+  { chainId = CHAIN_ID, throughSequence = null, env = process.env } = {}
+) {
+  if (remoteAuditCustodyEnabled(env))
+    return remoteAuditKeyDescriptor(keyId, { chainId, throughSequence }, env);
+  return signingKey(keyId);
+}
+
+async function signClassicalCheckpoint({
+  keyId = null,
+  payload,
+  signedAt,
+  chainId = CHAIN_ID,
+  throughSequence = null,
+  env = process.env,
+}) {
+  if (remoteAuditCustodyEnabled(env))
+    return remoteSignAuditCheckpoint(
+      { keyId, payload, chainId, throughSequence },
+      env
+    );
+  return classicalCheckpointSignature({
+    key: signingKey(keyId),
+    payload,
+    signedAt,
+  });
+}
+
 function checkpointEnvelope({
   chainId,
   throughSequence,
@@ -353,7 +393,6 @@ async function maybeCreateCheckpoint(tx, row, now = new Date()) {
     !latest ||
     now.getTime() - latest.createdAt.getTime() >= maxAgeMs;
   if (!due) return null;
-  const key = signingKey();
   const policy = auditSignaturePolicy();
   const payload = checkpointSigningPayload({
     chainId: row.chainId,
@@ -362,10 +401,11 @@ async function maybeCreateCheckpoint(tx, row, now = new Date()) {
     policy,
   });
   const signingPayload = Buffer.from(ledgerCanonical(payload), "utf8");
-  const signatureRecord = classicalCheckpointSignature({
-    key,
+  const signatureRecord = await signClassicalCheckpoint({
     payload: signingPayload,
     signedAt: now,
+    chainId: row.chainId,
+    throughSequence: row.sequence,
   });
   const signature = signatureRecord.signature;
   const signatures = [signatureRecord];
@@ -391,12 +431,12 @@ async function maybeCreateCheckpoint(tx, row, now = new Date()) {
       chainId: row.chainId,
       throughSequence: row.sequence,
       throughHash: row.entryHash,
-      algorithm: AUDIT_SIGNATURE_SUITE.suiteId,
-      parameterSet: key.parameterSet,
-      keyOrigin: key.keyOrigin,
-      hardwareProtection: key.hardwareProtection,
-      keyId: key.keyId,
-      publicKey: key.publicKey,
+      algorithm: signatureRecord.suiteId,
+      parameterSet: signatureRecord.parameterSet,
+      keyOrigin: signatureRecord.keyOrigin,
+      hardwareProtection: signatureRecord.hardwareProtection,
+      keyId: signatureRecord.keyId,
+      publicKey: signatureRecord.publicKey,
       signature,
       signatureEnvelopeJson: JSON.stringify(signatureEnvelope),
       createdAt: now,
@@ -624,6 +664,16 @@ async function verifySecurityAudit({
     checkpoints.map((checkpoint) => Number(checkpoint.throughSequence))
   );
   const checkpointEntryHashes = new Map();
+  const classicalKeyCache = new Map();
+  const trustedClassicalKey = async (keyId, throughSequence) => {
+    const cacheKey = String(keyId || "active");
+    if (!classicalKeyCache.has(cacheKey))
+      classicalKeyCache.set(
+        cacheKey,
+        trustedClassicalCheckpointKey(keyId, { chainId, throughSequence })
+      );
+    return classicalKeyCache.get(cacheKey);
+  };
   const failures = [];
   let failureOverflow = 0;
   const addFailure = (failure) => {
@@ -638,9 +688,7 @@ async function verifySecurityAudit({
     const rows = await client.security_audit_ledger.findMany({
       where: {
         chainId,
-        ...(afterSequence === null
-          ? {}
-          : { sequence: { gt: afterSequence } }),
+        ...(afterSequence === null ? {} : { sequence: { gt: afterSequence } }),
       },
       orderBy: { sequence: "asc" },
       take,
@@ -800,7 +848,10 @@ async function verifySecurityAudit({
           }
           const trusted = suite.pqAlgorithm
             ? pqSigningKey(signature.keyId, { privateKeyRequired: false })
-            : signingKey(signature.keyId);
+            : await trustedClassicalKey(
+                signature.keyId,
+                checkpoint.throughSequence
+              );
           if (
             signature.parameterSet !== suite.parameterSet ||
             !isTrustedCheckpointKeyMetadata(signature, trusted)
@@ -903,7 +954,10 @@ async function verifySecurityAudit({
             code: "checkpoint_algorithm_implementation_unavailable",
           });
         } else {
-          const trusted = signingKey(checkpoint.keyId);
+          const trusted = await trustedClassicalKey(
+            checkpoint.keyId,
+            checkpoint.throughSequence
+          );
           const trustedPublicKey = trusted.publicKey;
           if (checkpoint.publicKey !== trustedPublicKey)
             addFailure({
@@ -1014,13 +1068,20 @@ async function rebindSecurityAuditCheckpointMetadata({
   }
 
   const targetOrigins = new Set();
-  const reboundViews = checkpoints.map((checkpoint) => {
-    if (checkpoint.keyOrigin !== sourceOrigin) return checkpoint;
+  const reboundViews = [];
+  for (const checkpoint of checkpoints) {
+    if (checkpoint.keyOrigin !== sourceOrigin) {
+      reboundViews.push(checkpoint);
+      continue;
+    }
     const envelope = JSON.parse(checkpoint.signatureEnvelopeJson || "null");
     const parsed = parseCheckpointSignatureEnvelope(checkpoint);
     if (!envelope || !parsed)
       throw new Error("security_audit_metadata_rebind_envelope_required");
-    const trusted = signingKey(checkpoint.keyId);
+    const trusted = await trustedClassicalCheckpointKey(checkpoint.keyId, {
+      chainId,
+      throughSequence: checkpoint.throughSequence,
+    });
     if (
       trusted.keyOrigin === sourceOrigin ||
       checkpoint.parameterSet !== trusted.parameterSet ||
@@ -1061,12 +1122,12 @@ async function rebindSecurityAuditCheckpointMetadata({
     if (reboundClassical !== 1)
       throw new Error("security_audit_metadata_rebind_signature_ambiguous");
     targetOrigins.add(trusted.keyOrigin);
-    return {
+    reboundViews.push({
       ...checkpoint,
       keyOrigin: trusted.keyOrigin,
       signatureEnvelopeJson: JSON.stringify({ ...envelope, signatures }),
-    };
-  });
+    });
+  }
 
   // Validate the full chain and every classical/PQ signature through a
   // migration-only in-memory view. No runtime environment flag or alternate
@@ -1098,12 +1159,16 @@ async function rebindSecurityAuditCheckpointMetadata({
   const reboundById = new Map(
     reboundViews.map((checkpoint) => [checkpoint.id, checkpoint])
   );
-  const migrations = candidates.map((checkpoint) => {
+  const migrations = [];
+  for (const checkpoint of candidates) {
     const rebound = reboundById.get(checkpoint.id);
     const originalEnvelope = JSON.parse(checkpoint.signatureEnvelopeJson);
     const reboundEnvelope = JSON.parse(rebound.signatureEnvelopeJson);
     const parsed = parseCheckpointSignatureEnvelope(rebound);
-    const trusted = signingKey(checkpoint.keyId);
+    const trusted = await trustedClassicalCheckpointKey(checkpoint.keyId, {
+      chainId,
+      throughSequence: checkpoint.throughSequence,
+    });
     const payload = Buffer.from(
       ledgerCanonical(
         checkpointSigningPayload({
@@ -1116,19 +1181,19 @@ async function rebindSecurityAuditCheckpointMetadata({
       ),
       "utf8"
     );
-    const targetSignature = classicalCheckpointSignature({
-      key: trusted,
+    const targetSignature = await signClassicalCheckpoint({
+      keyId: trusted.keyId,
       payload,
       signedAt: now,
+      chainId,
+      throughSequence: checkpoint.throughSequence,
     });
     const retainedSignatures = reboundEnvelope.signatures.filter(
       (signature) =>
         signature?.keyId !== checkpoint.keyId || signature?.postQuantum === true
     );
     const signatures = [targetSignature, ...retainedSignatures];
-    const priorHistory = Array.isArray(
-      originalEnvelope.metadataRebindHistory
-    )
+    const priorHistory = Array.isArray(originalEnvelope.metadataRebindHistory)
       ? originalEnvelope.metadataRebindHistory.slice(-31)
       : [];
     const previousEnvelope = Object.fromEntries(
@@ -1158,7 +1223,7 @@ async function rebindSecurityAuditCheckpointMetadata({
         },
       ],
     };
-    return {
+    migrations.push({
       id: checkpoint.id,
       keyId: checkpoint.keyId,
       data: {
@@ -1166,8 +1231,8 @@ async function rebindSecurityAuditCheckpointMetadata({
         signature: targetSignature.signature,
         signatureEnvelopeJson: JSON.stringify(nextEnvelope),
       },
-    };
-  });
+    });
+  }
 
   await prisma.$transaction(async (tx) => {
     for (const migration of migrations) {
@@ -1216,8 +1281,8 @@ async function resignSecurityAuditCheckpoints({
   if (!before.valid)
     throw new Error("security_audit_signature_migration_source_invalid");
 
-  const sourceKey = signingKey(sourceId);
-  const targetKey = signingKey(targetId);
+  const sourceKey = await trustedClassicalCheckpointKey(sourceId);
+  const targetKey = await trustedClassicalCheckpointKey(targetId);
   const checkpoints = await prisma.security_audit_checkpoints.findMany({
     where: { keyId: sourceId },
     orderBy: { throughSequence: "asc" },
@@ -1231,7 +1296,8 @@ async function resignSecurityAuditCheckpoints({
     };
   }
 
-  const migrations = checkpoints.map((checkpoint) => {
+  const migrations = [];
+  for (const checkpoint of checkpoints) {
     const parsedEnvelope = parseCheckpointSignatureEnvelope(checkpoint);
     const originalEnvelope = checkpoint.signatureEnvelopeJson
       ? JSON.parse(checkpoint.signatureEnvelopeJson)
@@ -1256,10 +1322,12 @@ async function resignSecurityAuditCheckpoints({
       ),
       "utf8"
     );
-    const targetSignature = classicalCheckpointSignature({
-      key: targetKey,
+    const targetSignature = await signClassicalCheckpoint({
+      keyId: targetKey.keyId,
       payload,
       signedAt: now,
+      chainId: checkpoint.chainId,
+      throughSequence: checkpoint.throughSequence,
     });
     const retainedSignatures = (parsedEnvelope?.signatures || []).filter(
       (signature) =>
@@ -1320,7 +1388,7 @@ async function resignSecurityAuditCheckpoints({
         },
       ],
     };
-    return {
+    migrations.push({
       id: checkpoint.id,
       previousKeyId: checkpoint.keyId,
       data: {
@@ -1333,8 +1401,8 @@ async function resignSecurityAuditCheckpoints({
         signature: targetSignature.signature,
         signatureEnvelopeJson: JSON.stringify(signatureEnvelope),
       },
-    };
-  });
+    });
+  }
 
   await prisma.$transaction(async (tx) => {
     for (const migration of migrations) {
@@ -1380,12 +1448,15 @@ module.exports = {
     CHECKPOINT_METADATA_REBIND_FORMAT,
     checkpointEnvelope,
     checkpointSigningPayload,
+    classicalCheckpointSignature,
     parseCheckpointSignatureEnvelope,
     boundAuditValue,
     entryEnvelope,
     isTrustedCheckpointKeyMetadata,
     ledgerCanonical,
     signingKey,
+    signClassicalCheckpoint,
+    trustedClassicalCheckpointKey,
     pqSigningKey,
     auditHybridMode,
     auditSignaturePolicy,

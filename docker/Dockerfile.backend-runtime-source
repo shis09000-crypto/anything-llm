@@ -1,0 +1,9 @@
+# Code-only release lane for Athena backend modules. The companion build
+# script proves that dependency and Prisma generation inputs are identical to
+# the verified base image before this source layer can be produced.
+ARG ATHENA_BACKEND_BASE_IMAGE=anythingllm-v2-anythingllm:latest
+FROM ${ATHENA_BACKEND_BASE_IMAGE}
+
+USER root
+COPY --chown=anythingllm:anythingllm ./server/ /app/server/
+USER anythingllm
