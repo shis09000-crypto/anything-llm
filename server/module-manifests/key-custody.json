@@ -67,7 +67,11 @@
       "knowledge-ingest",
       "rag",
       "browser-plane",
-      "browser-worker"
+      "browser-worker",
+      "background-worker",
+      "reader-worker",
+      "scheduler",
+      "sync-v2"
     ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 10000
