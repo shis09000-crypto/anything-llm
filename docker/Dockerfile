@@ -497,7 +497,7 @@ WORKDIR /app
 USER root
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
 RUN mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" && \
-    ./server/node_modules/.bin/playwright install --with-deps chromium && \
+    ./server/node_modules/.bin/playwright-core install --with-deps chromium && \
     chown -R anythingllm:anythingllm "${PLAYWRIGHT_BROWSERS_PATH}"
 USER anythingllm
 ENV NODE_ENV=production

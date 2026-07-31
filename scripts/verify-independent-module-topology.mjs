@@ -121,6 +121,9 @@ function main() {
     "docker/observability/prometheus.preproduction.yaml"
   );
   const dockerfile = read("docker/Dockerfile");
+  const browserWorkerRuntimeDockerfile = read(
+    "docker/Dockerfile.browser-worker-runtime"
+  );
   const entrypoint = read("docker/docker-entrypoint.sh");
   const apiMtlsProxy = read("docker/preproduction/api-mtls-proxy.conf");
   const findings = [];
@@ -288,6 +291,15 @@ function main() {
       findings.push(`api_zero_downtime_slot_missing:${apiSlot}`);
   if (!apiMtlsProxy.includes("proxy_next_upstream_tries 2"))
     findings.push("api_zero_downtime_failover_missing");
+  if (!dockerfile.includes(".bin/playwright-core install --with-deps chromium"))
+    findings.push("browser_worker_standard_build_uses_invalid_playwright_cli");
+  if (
+    !browserWorkerRuntimeDockerfile.includes(
+      ".bin/playwright-core install --with-deps chromium"
+    ) ||
+    !browserWorkerRuntimeDockerfile.includes("ATHENA_BACKEND_BASE_IMAGE")
+  )
+    findings.push("browser_worker_independent_runtime_build_invalid");
   for (const apiSlot of ["anything-llm-api", "anything-llm-api-green"])
     if (!production.services?.[apiSlot])
       findings.push(`production_api_zero_downtime_slot_missing:${apiSlot}`);
