@@ -447,6 +447,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -592,7 +593,7 @@
       "healthcheck": {
         "test": [
           "CMD-SHELL",
-          "curl --silent --fail --insecure \"https://127.0.0.1:3012/ready\" >/dev/null"
+          "curl --silent --fail --insecure \"https://127.0.0.1:3012/health\" >/dev/null"
         ],
         "interval": "15s",
         "timeout": "5s",
@@ -698,6 +699,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -714,7 +716,7 @@
       "healthcheck": {
         "test": [
           "CMD-SHELL",
-          "curl --silent --fail --insecure \"https://127.0.0.1:3013/ready\" >/dev/null"
+          "curl --silent --fail --insecure \"https://127.0.0.1:3013/health\" >/dev/null"
         ],
         "interval": "15s",
         "timeout": "5s",
@@ -823,6 +825,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -839,7 +842,7 @@
       "healthcheck": {
         "test": [
           "CMD-SHELL",
-          "curl --silent --fail --insecure \"https://127.0.0.1:3011/ready\" >/dev/null"
+          "curl --silent --fail --insecure \"https://127.0.0.1:3011/health\" >/dev/null"
         ],
         "interval": "15s",
         "timeout": "5s",
@@ -944,6 +947,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -1072,6 +1076,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -1196,6 +1201,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -1324,6 +1330,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_KEY_PROVIDER": "secret-file",
@@ -1444,6 +1451,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "false",
@@ -1570,6 +1578,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -1686,6 +1695,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -1812,6 +1822,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -1933,6 +1944,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -2056,6 +2068,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
@@ -2179,6 +2192,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -2447,6 +2461,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
@@ -2569,6 +2584,7 @@
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
         "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",

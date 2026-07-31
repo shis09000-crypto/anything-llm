@@ -127,6 +127,18 @@ def healthcheck(port: int, path: str = "/ready") -> dict:
     }
 
 
+def readiness_path(service_name: str) -> str:
+    # These runtimes pre-date MicroModuleServiceHost and intentionally expose
+    # their existing /health contract. All hosted modules use /ready.
+    if service_name in {
+        "anything-llm-background-worker",
+        "anything-llm-reader-worker",
+        "anything-llm-realtime-gateway",
+    }:
+        return "/health"
+    return "/ready"
+
+
 def service_port(service_name: str, environment: dict) -> int | None:
     port_names = (
         "BACKGROUND_WORKER_PORT",
@@ -196,6 +208,13 @@ def render(source: Path) -> dict:
                 "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro"
             )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
+            if name != "anything-llm-collector":
+                # CollectorApi is imported by several split runtimes. A
+                # single HTTPS endpoint keeps startup fail-closed while each
+                # caller presents its own module certificate.
+                environment["COLLECTOR_ENDPOINT"] = (
+                    "https://anything-llm-collector:8888"
+                )
         if name not in {"anything-llm-web", "anything-llm-api-tls", "postgresql", "minio", "minio-init"}:
             environment["APP_ENV"] = "production"
             environment["NODE_ENV"] = "production"
@@ -232,7 +251,9 @@ def render(source: Path) -> dict:
 
         port = service_port(name, environment)
         if port:
-            service["healthcheck"] = healthcheck(port)
+            service["healthcheck"] = healthcheck(
+                port, readiness_path(name)
+            )
         if name == "anything-llm-api":
             service["healthcheck"] = {
                 "test": ["CMD-SHELL", "curl --silent --fail http://127.0.0.1:3001/api/ready >/dev/null"],

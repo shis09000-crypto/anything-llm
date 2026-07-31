@@ -43,10 +43,14 @@ class CollectorApi {
       }:${process.env.COLLECTOR_PORT || 8888}`;
     this.serviceIdentityAgent = null;
     if (this.endpoint.startsWith("https://")) {
+      // Every micro-module has its own SPIFFE identity. Reusing the API
+      // identity here both breaks startup for independently deployed roles
+      // and destroys the caller boundary at Collector. The monolith keeps the
+      // historical API default, while split runtimes present their own role.
       const serviceRole =
-        process.env.ATHENA_RUNTIME_ROLE === "background-worker"
-          ? "background-worker"
-          : "api";
+        String(process.env.ATHENA_RUNTIME_ROLE || "")
+          .trim()
+          .toLowerCase() || "api";
       const identity = loadServiceIdentity(serviceRole, { required: true });
       const connect = {
         ca: identity.ca,
