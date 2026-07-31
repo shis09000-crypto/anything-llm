@@ -1,8 +1,24 @@
 const {
+  backgroundWorkerMode,
   BackgroundWorkerRuntime,
 } = require("../../utils/backgroundWorker/runtime");
 
 describe("BackgroundWorkerRuntime", () => {
+  test.each(["distributed", "micro-modules"])(
+    "keeps scheduler ownership out of %s background workers",
+    (topology) => {
+      expect(backgroundWorkerMode({ ATHENA_RUNTIME_TOPOLOGY: topology })).toBe(
+        "maintenance"
+      );
+    }
+  );
+
+  test("retains combined ownership for local desktop mode", () => {
+    expect(backgroundWorkerMode({ ATHENA_RUNTIME_TOPOLOGY: "desktop" })).toBe(
+      "combined"
+    );
+  });
+
   test("starts BackgroundService and exposes a snapshot", async () => {
     const boot = jest.fn(async () => {});
     const jobs = jest.fn(() => [{ name: "system-patrol" }]);

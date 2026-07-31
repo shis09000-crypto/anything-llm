@@ -12,15 +12,16 @@ const {
 const { distributedTopology } = require("../microModules/serviceHost");
 const { moduleReadinessEnvelope } = require("../modulePlatform/readiness");
 
+function backgroundWorkerMode(env = process.env) {
+  return distributedTopology(env) ? "maintenance" : "combined";
+}
+
 class BackgroundWorkerRuntime {
   constructor({
     now = () => new Date(),
     backgroundServiceFactory = () =>
       new BackgroundService({
-        mode:
-          process.env.ATHENA_RUNTIME_TOPOLOGY === "distributed"
-            ? "maintenance"
-            : "combined",
+        mode: backgroundWorkerMode(process.env),
       }),
   } = {}) {
     this.startedAt = now().toISOString();
@@ -155,4 +156,4 @@ class BackgroundWorkerRuntime {
   }
 }
 
-module.exports = { BackgroundWorkerRuntime };
+module.exports = { backgroundWorkerMode, BackgroundWorkerRuntime };
