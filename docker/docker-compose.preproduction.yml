@@ -159,7 +159,15 @@ services:
       - "127.0.0.1:59000:9000"
       - "127.0.0.1:59001:9001"
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test:
+        [
+          "CMD",
+          "curl",
+          "--silent",
+          "--fail",
+          "--insecure",
+          "https://127.0.0.1:9000/minio/health/ready",
+        ]
       interval: 5s
       timeout: 3s
       retries: 30

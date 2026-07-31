@@ -75,9 +75,11 @@
       "healthcheck": {
         "test": [
           "CMD",
-          "mc",
-          "ready",
-          "local"
+          "curl",
+          "--silent",
+          "--fail",
+          "--insecure",
+          "https://127.0.0.1:9000/minio/health/ready"
         ],
         "interval": "5s",
         "timeout": "3s",
