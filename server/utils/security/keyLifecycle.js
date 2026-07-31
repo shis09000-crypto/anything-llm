@@ -567,6 +567,57 @@ async function bootstrapSecurityContext(options = {}) {
   const mode = String(
     process.env.ATHENA_KEY_PREFLIGHT_MODE || "enforce"
   ).toLowerCase();
+  const {
+    remoteCustodyStatus,
+    remoteKeyCustodyEnabled,
+  } = require("./keyCustody/remoteClient");
+  if (remoteKeyCustodyEnabled(process.env)) {
+    setSecurityState({
+      status: "checking",
+      runtimeRole: options.runtimeRole || null,
+      quarantined: false,
+      reason: null,
+      provider: { remote: true },
+      activeKey: null,
+      domains: [],
+    });
+    try {
+      const remote = await remoteCustodyStatus(process.env);
+      return setSecurityState({
+        status: "ready",
+        quarantined: false,
+        reason: null,
+        runtimeRole: options.runtimeRole || null,
+        provider: {
+          remote: true,
+          providerType: remote.providerType || null,
+          mutable: remote.mutable === true,
+          attested: remote.attested === true,
+          leaseExpiresAt: remote.leaseExpiresAt || null,
+          decryptOnlyKeyCount: Number(remote.decryptOnlyKeyCount || 0),
+        },
+        activeKey: null,
+        domains: [
+          {
+            domain: "key-custody-service",
+            state: "remote-authoritative",
+            sample: false,
+          },
+        ],
+      });
+    } catch (error) {
+      return setSecurityState({
+        status: mode === "shadow" ? "degraded" : "quarantined",
+        quarantined: mode !== "shadow",
+        reason:
+          error?.code || error?.message || "remote_key_custody_unavailable",
+        runtimeRole: options.runtimeRole || null,
+        provider: { remote: true },
+        activeKey: null,
+        domains: [],
+      });
+    }
+  }
   try {
     return await runSecurityPreflight(options);
   } catch (error) {
