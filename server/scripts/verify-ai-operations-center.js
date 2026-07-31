@@ -346,9 +346,14 @@ async function main() {
   };
   const liveInfrastructure =
     process.env.ATHENA_OPERATIONS_VERIFY_LIVE === "true";
+  const runtimeAppEnvironment = String(
+    process.env.APP_ENV || process.env.NODE_ENV || "production"
+  ).trim();
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "athena-aiops-"));
   process.env.NODE_ENV = "test";
-  process.env.APP_ENV = "development";
+  process.env.APP_ENV = liveInfrastructure
+    ? runtimeAppEnvironment
+    : "development";
   process.env.ANYTHINGLLM_STORAGE_BASE_DIR = temporaryRoot;
   process.env.ATHENA_OPERATIONS_ENABLED = "true";
   process.env.ATHENA_OPERATIONS_ACTIONS_ENABLED = "true";
@@ -369,6 +374,7 @@ async function main() {
     assert(process.env.ATHENA_NATS_SERVERS, "live_nats_servers_not_configured");
     assert(process.env.ATHENA_CLICKHOUSE_URL, "live_clickhouse_not_configured");
   } else {
+    delete process.env.ATHENA_CLICKHOUSE_PASSWORD_FILE;
     const clickhouseUser = "athena_ops_acceptance";
     const clickhousePassword = crypto.randomBytes(24).toString("hex");
     clickhouse = await startClickHouseContractServer({
