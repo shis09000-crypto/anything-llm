@@ -3,6 +3,7 @@ const path = require("path");
 
 const MAIN_SCHEMA_ROLES = Object.freeze({
   identity: "athena_identity",
+  key_custody: "athena_key_custody",
   workspace: "athena_workspace",
   chat: "athena_chat",
   agent: "athena_agent",
@@ -29,7 +30,8 @@ const AUTH_SCHEMA_ROLES = Object.freeze({
 // Workspace Control API remain owned by `workspace`; this prevents an
 // incomplete split from silently granting a specialized runtime write access.
 const MAIN_OWNERSHIP_RULES = Object.freeze([
-  ["identity", /^(users|memory_candidates|user_memory_|user_profile_overviews|user_state_preferences|vault_|user_domain_|athena_clients|athena_device_attestation_challenges|athena_request_nonces|security_key_)/i],
+  ["key_custody", /^security_key_/i],
+  ["identity", /^(users|memory_candidates|user_memory_|user_profile_overviews|user_state_preferences|vault_|user_domain_|athena_clients|athena_device_attestation_challenges|athena_request_nonces)/i],
   ["chat", /^(workspace_chats|chat_stream_runs|chat_run_events|chat_attachment_|workspace_chat_)/i],
   ["agent", /^(agent_runs|agent_run_events|workspace_agent_invocations)$/i],
   ["tools", /^(tool_invocations|plugin_capability_nonces)$/i],
@@ -53,6 +55,7 @@ const MAIN_RUNTIME_SCHEMAS = Object.freeze({
   api: "workspace",
   auth: "identity",
   identity: "identity",
+  "key-custody": "key_custody",
   background: "maintenance",
   "background-worker": "maintenance",
   reader: "knowledge_reader",
@@ -79,6 +82,7 @@ const AUTH_RUNTIME_SCHEMAS = Object.freeze({
   api: "identity",
   auth: "identity",
   identity: "identity",
+  "key-custody": "key_custody",
 });
 
 function modelTables(schemaFile) {
@@ -144,14 +148,18 @@ async function verifyClientOwnership(client, { database = "main", role } = {}) {
       violations.push(`unowned:${row.tablename}`);
       continue;
     }
-    if (!row.can_select) violations.push(`select_denied:${row.tablename}`);
-    const canWrite = Boolean(
-      row.can_insert || row.can_update || row.can_delete
+    const canWrite = Boolean(row.can_insert || row.can_update || row.can_delete);
+    const hasCompleteWrite = Boolean(
+      row.can_insert && row.can_update && row.can_delete
     );
     const shouldWrite = owner === expectedSchema;
-    if (canWrite !== shouldWrite)
+    if (shouldWrite && !row.can_select)
+      violations.push(`owner_read_denied:${row.tablename}:${owner}`);
+    if (shouldWrite && !hasCompleteWrite)
+      violations.push(`owner_write_denied:${row.tablename}:${owner}`);
+    if (!shouldWrite && canWrite)
       violations.push(
-        `${canWrite ? "cross_schema_write" : "owner_write_denied"}:${row.tablename}:${owner}`
+        `cross_schema_write:${row.tablename}:${owner}`
       );
   }
   if (violations.length) {
