@@ -9,6 +9,8 @@ const {
 } = require("../../../utils/cryptoForecasting/authoritativeStore");
 const {
   CryptoForecastStore,
+  REMOTE_CACHE_MAX_BYTES,
+  REMOTE_CACHE_MIN_FREE_BYTES,
 } = require("../../../utils/cryptoForecasting/store");
 
 describe("authoritative crypto forecast store", () => {
@@ -29,7 +31,9 @@ describe("authoritative crypto forecast store", () => {
 
   test("remote cache checkpoints to immutable S3 and PostgreSQL metadata", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "forecast-remote-"));
-    const provider = { putImmutableFile: jest.fn().mockResolvedValue({ created: true }) };
+    const provider = {
+      putImmutableFile: jest.fn().mockResolvedValue({ created: true }),
+    };
     const pool = {
       query: jest.fn().mockResolvedValue({ rows: [] }),
       end: jest.fn().mockResolvedValue(undefined),
@@ -66,6 +70,10 @@ describe("authoritative crypto forecast store", () => {
     expect(store.authoritativeStatus()).toMatchObject({
       mode: "postgres-s3",
       cacheDurable: false,
+    });
+    expect(store.capacity()).toMatchObject({
+      maxStoreBytes: REMOTE_CACHE_MAX_BYTES,
+      minFreeBytes: REMOTE_CACHE_MIN_FREE_BYTES,
     });
 
     await store.closeAuthoritative();

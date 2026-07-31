@@ -3,15 +3,21 @@ const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const Database = require("better-sqlite3");
-const {
-  isPostgresql,
-} = require("../database/databaseProvider");
+const { isPostgresql } = require("../database/databaseProvider");
 const {
   MAX_STORE_BYTES,
   MIN_FREE_BYTES,
   ONE_MINUTE_RETENTION_MS,
   forecastingRoot,
 } = require("./constants");
+
+const REMOTE_CACHE_MAX_BYTES = 256 * 1024 * 1024;
+const REMOTE_CACHE_MIN_FREE_BYTES = 256 * 1024 * 1024;
+
+function nonNegativeInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
 
 function assertEmbeddedSqliteStoreAllowed(
   env = process.env,
@@ -118,6 +124,7 @@ class CryptoForecastStore {
     assertEmbeddedSqliteStoreAllowed(env, { persistenceMode, root });
     this.root = path.resolve(root);
     this.now = now;
+    this.env = env;
     this.persistenceMode = persistenceMode;
     fs.mkdirSync(this.root, { recursive: true });
     fs.mkdirSync(path.join(this.root, "archives"), { recursive: true });
@@ -1539,10 +1546,28 @@ class CryptoForecastStore {
     return { deleted, cutoff };
   }
 
-  capacity({
-    maxStoreBytes = MAX_STORE_BYTES,
-    minFreeBytes = MIN_FREE_BYTES,
-  } = {}) {
+  capacity(options = {}) {
+    const remoteCache = this.persistenceMode === "remote-cache";
+    const defaultMaxStoreBytes = remoteCache
+      ? nonNegativeInteger(
+          this.env.ATHENA_CRYPTO_FORECAST_CACHE_MAX_BYTES,
+          REMOTE_CACHE_MAX_BYTES
+        )
+      : MAX_STORE_BYTES;
+    const defaultMinFreeBytes = remoteCache
+      ? nonNegativeInteger(
+          this.env.ATHENA_CRYPTO_FORECAST_CACHE_MIN_FREE_BYTES,
+          REMOTE_CACHE_MIN_FREE_BYTES
+        )
+      : MIN_FREE_BYTES;
+    const maxStoreBytes = nonNegativeInteger(
+      options.maxStoreBytes,
+      defaultMaxStoreBytes
+    );
+    const minFreeBytes = nonNegativeInteger(
+      options.minFreeBytes,
+      defaultMinFreeBytes
+    );
     const storageBytes = directorySize(this.root);
     const freeBytes = diskFreeBytes(this.root);
     const allowed = storageBytes < maxStoreBytes && freeBytes >= minFreeBytes;
@@ -1573,5 +1598,7 @@ module.exports = {
   CryptoForecastStore,
   directorySize,
   diskFreeBytes,
+  REMOTE_CACHE_MAX_BYTES,
+  REMOTE_CACHE_MIN_FREE_BYTES,
   rowToBar,
 };
