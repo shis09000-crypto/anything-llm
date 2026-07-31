@@ -109,14 +109,14 @@ describe("remote Key Custody client", () => {
     expect(mockRequestInternalService).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
-        callerRole: "athena-api",
+        callerRole: "api",
         url: "http://key-custody.test/internal/v1/keys/audit-descriptor",
       })
     );
     expect(mockRequestInternalService).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
-        callerRole: "athena-api",
+        callerRole: "api",
         url: "http://key-custody.test/internal/v1/keys/audit-sign",
         idempotencyKey: expect.stringMatching(/^[a-f0-9]{64}$/),
       })

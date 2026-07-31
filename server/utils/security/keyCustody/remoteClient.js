@@ -8,8 +8,12 @@ function bounded(value, max = 160) {
 }
 
 function callerRole(env = process.env) {
-  const role = bounded(env.ATHENA_RUNTIME_ROLE || "athena-api", 80);
-  if (role === "api") return "athena-api";
+  const role = bounded(env.ATHENA_RUNTIME_ROLE || "api", 80);
+  // The client identity loader validates the certificate's actual SPIFFE SAN
+  // (`.../api`). Key Custody maps that authenticated peer to the policy alias
+  // `athena-api` after TLS verification; using the alias here would request a
+  // certificate identity that does not and must not exist.
+  if (role === "athena-api") return "api";
   if (role === "worker") return "background-worker";
   return role;
 }
