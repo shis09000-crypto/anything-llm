@@ -9,6 +9,7 @@ const {
   parameterExpression,
   parseArgs,
   sourceTables,
+  syncTargetSequences,
   tableMetadata,
   upsertStatement,
 } = require("../../scripts/migrate-sqlite-to-postgresql");
@@ -110,6 +111,29 @@ describe("SQLite to PostgreSQL migration controls", () => {
         ])
       )
     ).toEqual(["value"]);
+  });
+
+  it("advances PostgreSQL sequences to the migrated maximum primary key", async () => {
+    const client = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            table_name: "items",
+            column_name: "id",
+            sequence_name: "public.items_id_seq",
+          },
+        ])
+        .mockResolvedValueOnce([{ maximum: 42n }])
+        .mockResolvedValueOnce([{ setval: 42n }]),
+    };
+    await expect(syncTargetSequences(client)).resolves.toBe(1);
+    expect(client.$queryRawUnsafe).toHaveBeenLastCalledWith(
+      "SELECT setval($1::text::regclass, $2::text::bigint, $3::boolean)",
+      "public.items_id_seq",
+      "42",
+      true
+    );
   });
 
   it("discovers composite primary keys in declared order", () => {

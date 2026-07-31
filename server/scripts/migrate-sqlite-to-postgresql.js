@@ -204,6 +204,38 @@ async function targetParentDependencies(client) {
   return dependencies;
 }
 
+async function syncTargetSequences(client) {
+  const rows = await client.$queryRawUnsafe(`
+    SELECT table_name, column_name,
+           pg_get_serial_sequence(
+             format('%I.%I', current_schema(), table_name),
+             column_name
+           ) AS sequence_name
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND column_default LIKE 'nextval(%'
+    ORDER BY table_name, ordinal_position
+  `);
+  let synchronized = 0;
+  for (const row of rows) {
+    if (!row.sequence_name) continue;
+    const table = String(row.table_name);
+    const column = String(row.column_name);
+    const maximumRows = await client.$queryRawUnsafe(
+      `SELECT COALESCE(MAX(${quoteIdentifier(column)}), 0)::bigint AS maximum FROM ${quoteIdentifier(table)}`
+    );
+    const maximum = BigInt(maximumRows[0]?.maximum || 0);
+    await client.$queryRawUnsafe(
+      "SELECT setval($1::text::regclass, $2::text::bigint, $3::boolean)",
+      String(row.sequence_name),
+      maximum > 0n ? maximum.toString() : "1",
+      maximum > 0n
+    );
+    synchronized += 1;
+  }
+  return synchronized;
+}
+
 function convertValue(value, dataType) {
   if (value === null || value === undefined) return null;
   if (dataType === "boolean") return Boolean(Number(value));
@@ -387,6 +419,7 @@ async function snapshot({ db, client, batchSize, allowNonempty }) {
   } finally {
     db.exec("ROLLBACK");
   }
+  summary.sequences = await syncTargetSequences(client);
   return summary;
 }
 
@@ -450,12 +483,14 @@ async function catchUp({ db, client, afterSeq, batchSize }) {
       )
       .get()?.seq || 0
   );
+  const sequences = await syncTargetSequences(client);
   return {
     afterSeq,
     appliedSeq: cursor,
     checkpoint,
     applied,
     caughtUp: cursor >= checkpoint,
+    sequences,
   };
 }
 
@@ -659,5 +694,6 @@ module.exports = {
   sourceTables,
   tableMetadata,
   targetParentDependencies,
+  syncTargetSequences,
   upsertStatement,
 };
