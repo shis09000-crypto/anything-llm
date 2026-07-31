@@ -9,6 +9,7 @@ const {
   StorageType,
   connect,
   consumerOpts,
+  createInbox,
   credsAuthenticator,
   headers,
   nkeyAuthenticator,
@@ -396,6 +397,7 @@ class NatsJetStreamTransport {
     const config = settings(this.env);
     const options = consumerOpts();
     options.durable(config.consumer);
+    options.deliverTo(createInbox());
     options.manualAck();
     options.ackExplicit();
     options.deliverNew();
