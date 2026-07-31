@@ -295,6 +295,7 @@ function subjectFor(event = {}) {
   return [
     "athena",
     appEnvironment(),
+    "broadcast",
     namespace(event.namespace),
     irreversibleScope(event),
   ].join(".");
@@ -319,7 +320,7 @@ class NatsJetStreamTransport {
   async ensureStream() {
     const config = settings(this.env);
     const manager = await this.connection.jetstreamManager();
-    const subject = `athena.${appEnvironment()}.>`;
+    const subject = `athena.${appEnvironment()}.broadcast.>`;
     try {
       const info = await manager.streams.info(config.stream);
       if (!info.config.subjects?.includes(subject)) {
@@ -398,9 +399,9 @@ class NatsJetStreamTransport {
     options.manualAck();
     options.ackExplicit();
     options.deliverNew();
-    options.filterSubject(`athena.${appEnvironment()}.>`);
+    options.filterSubject(`athena.${appEnvironment()}.broadcast.>`);
     this.subscription = await this.jetstream.subscribe(
-      `athena.${appEnvironment()}.>`,
+      `athena.${appEnvironment()}.broadcast.>`,
       options
     );
     this.consumeTask = (async () => {

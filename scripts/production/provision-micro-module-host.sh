@@ -69,6 +69,14 @@ public_copy "${legacy_secret_dir}/ai-operations/ca.pem" "${mtls_dir}/ca.pem"
 private_copy "${legacy_secret_dir}/ai-operations/ca.key" "${private_dir}/service-ca.key"
 private_copy "${legacy_secret_dir}/ai-operations/metrics-token" "${runtime_secret_dir}/metrics-token"
 if [[ -d "${runtime_secret_dir}/clickhouse-password" ]]; then
+  nested_password="${runtime_secret_dir}/clickhouse-password/clickhouse-password.server"
+  if [[ ! -f "${nested_password}" ]] || \
+     ! cmp -s "${legacy_secret_dir}/ai-operations/clickhouse-password.server" \
+       "${nested_password}"; then
+    echo "Unexpected content in ClickHouse password mount path." >&2
+    exit 1
+  fi
+  rm -f "${nested_password}"
   rmdir "${runtime_secret_dir}/clickhouse-password"
 fi
 private_copy "${legacy_secret_dir}/ai-operations/clickhouse-password.server" \

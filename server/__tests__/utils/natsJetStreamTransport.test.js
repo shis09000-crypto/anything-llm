@@ -41,7 +41,9 @@ describe("NATS JetStream transport metadata", () => {
       scope: { userId: 123, workspaceId: 456, threadId: 789 },
     };
     const subject = subjectFor(event);
-    expect(subject).toMatch(/^athena\.development\.workspace\.[a-f0-9]{32}$/);
+    expect(subject).toMatch(
+      /^athena\.development\.broadcast\.workspace\.[a-f0-9]{32}$/
+    );
     expect(subject).not.toContain("123");
     expect(subject).not.toContain("456");
     expect(subject).not.toContain("789");
