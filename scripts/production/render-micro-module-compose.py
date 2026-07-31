@@ -165,6 +165,16 @@ def render(source: Path) -> dict:
             service["init"] = True
             service["stop_grace_period"] = "120s"
             service["restart"] = "unless-stopped"
+            environment["STORAGE_DIR"] = "/app/server/storage"
+            environment["TRUST_PROXY"] = "true"
+            environment["FORCE_HTTPS"] = "true"
+            environment["ATHENA_PASSWORD_PEPPER_FILE"] = (
+                "/run/secrets/athena_password_pepper"
+            )
+            service.setdefault("volumes", []).append(
+                "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro"
+            )
+            service["volumes"] = list(dict.fromkeys(service["volumes"]))
         if name not in {"anything-llm-web", "anything-llm-api-tls", "postgresql", "minio", "minio-init"}:
             environment["APP_ENV"] = "production"
             environment["NODE_ENV"] = "production"
