@@ -10,6 +10,10 @@ const RuntimeLifecycleRepository = {
       prisma.$prismaReady || Promise.resolve(true),
       authPrisma.$authPrismaReady || Promise.resolve(true),
     ]);
+    await Promise.all([
+      prisma.$queryRawUnsafe("SELECT 1 AS healthy"),
+      authPrisma.$queryRawUnsafe("SELECT 1 AS healthy"),
+    ]);
     return {
       ready: true,
       mainProvider: prisma.$databaseProvider || "sqlite",

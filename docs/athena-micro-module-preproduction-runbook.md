@@ -15,23 +15,23 @@
 
 ## 监控拓扑
 
-Operations 以 20 个 `ModuleManifest v1` 为逻辑监控单位。Prometheus
-以实际进程为抓取单位，包含 16 个 Athena 模块 target 和 1 个 OTel
-基础设施 target。
+Operations 以 20 个 `ModuleManifest v1` 为逻辑监控单位，同时监测
+9 个基础设施节点。Prometheus 以实际进程为抓取单位，包含 20 个 Athena
+模块 target 和 1 个 OTel 基础设施 target。
 
 | 逻辑模块                 | readiness 来源                                       | Prometheus 进程       |
 | ------------------------ | ---------------------------------------------------- | --------------------- |
 | athena-api               | API `/ready`                                         | athena-api            |
-| authentication           | API `/internal/v1/module-readiness/authentication`   | athena-api            |
-| knowledge-ingest         | API `/internal/v1/module-readiness/knowledge-ingest` | athena-api            |
-| rag                      | API `/internal/v1/module-readiness/rag`              | athena-api            |
+| authentication           | Identity `/ready`                                    | authentication        |
+| knowledge-ingest         | Knowledge Ingest `/ready`                            | knowledge-ingest      |
+| rag                      | RAG `/ready`                                         | rag                   |
 | edge-web                 | Edge Probe `/ready`                                  | edge-web              |
 | background-worker        | Worker `/snapshot`                                   | background-worker     |
 | sync-v2                  | Realtime `/snapshot`                                 | sync-v2               |
 | reader-worker            | Reader `/snapshot`                                   | reader-worker         |
 | scheduler                | Scheduler `/ready`                                   | scheduler             |
 | operations-plane         | Operations `/ready`                                  | operations-plane      |
-| operations-shadow-agents | Operations 本地独立 provider                         | operations-plane      |
+| operations-shadow-agents | Shadow Agents `/ready`                               | operations-shadow     |
 | chat-runtime             | Chat `/ready`                                        | chat-runtime          |
 | agent-runtime            | Agent `/ready`                                       | agent-runtime         |
 | model-gateway            | Model `/ready`                                       | model-gateway         |
@@ -45,6 +45,8 @@ Operations 以 20 个 `ModuleManifest v1` 为逻辑监控单位。Prometheus
 每个 readiness 响应必须同时返回模块 ID、版本和 Manifest 指纹。
 Operations 每 15 秒通过 mTLS 探测一次，并为健康模块写入
 `module.telemetry.heartbeat`。20 个模块的 heartbeat 必须全部新鲜。
+基础设施通过权威只读探针产生
+`infrastructure.telemetry.heartbeat`，不得使用历史业务事件推断当前健康。
 
 ## 部署前条件
 
@@ -76,7 +78,8 @@ yarn preproduction:micro-modules:deploy
 3. 启动 PostgreSQL、NATS、MinIO、Operations 与全部运行模块。
 4. 执行 PostgreSQL migration。
 5. 等待容器健康。
-6. 验证 Operations 20/20、heartbeat 20/20、Prometheus 16/16 和权威路径。
+6. 验证 Operations 模块 20/20、基础设施 9/9、heartbeat 20/20、
+   Prometheus 20/20 和权威路径。
 
 检查状态：
 
@@ -87,9 +90,11 @@ yarn preproduction:micro-modules:status
 
 合格状态必须满足：
 
-- Operations：`healthy=20`、`unknown=0`、`unmonitored=0`、`degraded=0`。
+- Operations 模块：`healthy=20`、`unknown=0`、`unmonitored=0`、`degraded=0`。
+- Operations 基础设施：`healthy=9`、`unknown=0`、`unmonitored=0`、
+  `degraded=0`。
 - heartbeat：`fresh=20`、`stale=0`、`missing=[]`。
-- Prometheus：16 个 Athena target 全部 `up`。
+- Prometheus：20 个 Athena target 全部 `up`。
 - Database provider 为 `postgresql`。
 - Broadcast provider 为 `nats`，无 memory fallback。
 - Content store 为 `s3`，写入/删除探针通过。
@@ -168,7 +173,7 @@ yarn preproduction:micro-modules:drill
 6. 执行双账户 Registry 预检；随后校验外部提供的真实双账户 Tool Broker →
    Crypto Account → Resolver evidence，验证私有客户端、缓存、WebSocket、
    轮换和撤销不串账户，并扫描日志和 evidence 中的敏感值。
-7. 重新确认 20/20 与 Prometheus 16/16。
+7. 重新确认 20/20 与 Prometheus 20/20。
 
 ## 正式 cutover evidence
 
@@ -189,8 +194,13 @@ yarn preproduction:micro-modules:drill
 ## 回滚与安全边界
 
 - 单模块发布使用非活动槽启动、健康验证、切流、旧槽 drain。
-- 数据库仅允许 expand/contract 迁移；本轮保持
-  `ATHENA_MODULE_SCHEMA_CUTOVER=false`，避免提前进行破坏性 Schema 收口。
+- 数据库仅允许 expand/contract 迁移；首次启动保持
+  `ATHENA_MODULE_SCHEMA_CUTOVER=false` 和
+  `ATHENA_SHARED_STORAGE_CUTOVER=false`，避免提前进行破坏性 Schema
+  收口，或在 Collector/内容对象迁移完成前移除兼容共享卷。
+- 只有 expand/contract 覆盖率 100%、跨 Schema 写入为零、内容对象迁移
+  完成且共享目录命中为零后，才允许将两项切换同时置为 `true`。正式
+  cutover evidence 会拒绝任一项仍为 `false` 的环境。
 - 任何基础设施演练失败时，脚本会恢复被停止的 Realtime 或 Crypto
   服务并保留失败 evidence。
 - 不得把独立预生产脚本用于 `APP_ENV=production`；脚本会主动拒绝。

@@ -1,58 +1,19 @@
 const { MicroModuleServiceHost } = require("../microModules");
-const {
-  detailedReadinessSnapshot,
-  publicReadinessSnapshot,
-} = require("../runtimeReadiness");
+const { publicReadinessSnapshot } = require("../runtimeReadiness");
 const { moduleReadinessEnvelope } = require("./readiness");
 
-const COLOCATED_MODULES = new Set([
-  "athena-api",
-  "authentication",
-  "knowledge-ingest",
-  "rag",
-]);
+const COLOCATED_MODULES = new Set(["athena-api"]);
 
 function componentSnapshot(moduleId) {
   const publicState = publicReadinessSnapshot();
   if (moduleId === "athena-api") return publicState;
-  const detail = detailedReadinessSnapshot();
-  if (moduleId === "authentication")
-    return {
-      ready: publicState.ready,
-      status: publicState.status,
-      reasonCode: publicState.reasonCode,
-      keyCustody: {
-        status: detail.controlPlane?.keyCustody?.status || "unknown",
-        quarantined: Boolean(detail.controlPlane?.keyCustody?.quarantined),
-        writeBarrier: Boolean(detail.controlPlane?.keyCustody?.writeBarrier),
-      },
-      authSessions: {
-        running: Boolean(detail.controlPlane?.authSessions?.running),
-        healthy: Boolean(detail.controlPlane?.authSessions?.healthy),
-      },
-    };
-  if (moduleId === "knowledge-ingest")
-    return {
-      ready: publicState.ready,
-      status: publicState.status,
-      reasonCode: publicState.reasonCode,
-      deploymentMode: "co-located-control",
-      downstreamOwnership: ["collector", "reader-worker", "rag"],
-    };
-  if (moduleId === "rag")
-    return {
-      ready: publicState.ready,
-      status: publicState.status,
-      reasonCode: publicState.reasonCode,
-      deploymentMode: "co-located-control",
-    };
   return { ready: false, status: "not-ready", reasonCode: "module_unknown" };
 }
 
 function colocatedModuleReadiness(moduleId) {
   if (!COLOCATED_MODULES.has(moduleId)) return null;
   return moduleReadinessEnvelope(moduleId, componentSnapshot(moduleId), {
-    source: moduleId === "athena-api" ? "api-control" : "co-located-probe",
+    source: "api-control",
   });
 }
 

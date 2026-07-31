@@ -1,6 +1,7 @@
 const {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -270,7 +271,17 @@ const ContentObjectS3Provider = {
   async health() {
     const settings = config();
     if (!settings.bucket) return { ready: false, provider: "s3" };
-    return { ready: true, provider: "s3", bucketConfigured: true };
+    await s3Client().send(
+      new HeadBucketCommand({
+        Bucket: settings.bucket,
+      })
+    );
+    return {
+      ready: true,
+      provider: "s3",
+      bucketConfigured: true,
+      reachable: true,
+    };
   },
 
   resetForTests() {

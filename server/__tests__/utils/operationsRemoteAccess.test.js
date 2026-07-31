@@ -3,6 +3,7 @@
 const {
   RemoteOperationsAccess,
   operationsRemoteMode,
+  operationsShadowSnapshot,
 } = require("../../utils/operations/access");
 
 describe("Remote Operations access", () => {
@@ -56,5 +57,32 @@ describe("Remote Operations access", () => {
         "https://operations-plane:3015/internal/v1/operations/actions/runs/run-1/decide",
       ])
     );
+  });
+
+  test("keeps Operations available when the isolated shadow runtime is down", async () => {
+    const request = jest
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" })
+      );
+    await expect(
+      operationsShadowSnapshot(
+        {
+          ...env,
+          ATHENA_RUNTIME_ROLE: "operations-plane",
+          ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false",
+          ATHENA_OPERATIONS_SHADOW_AGENTS_URL:
+            "https://operations-shadow-agents:3029",
+        },
+        request
+      )
+    ).resolves.toEqual({
+      success: false,
+      ready: false,
+      status: "degraded",
+      reasonCode: "operations_shadow_agents_unavailable",
+      retryable: true,
+      lastError: "ECONNREFUSED",
+    });
   });
 });

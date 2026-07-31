@@ -11,11 +11,11 @@ Athena 已完成微模块架构的代码级底座和本地自动化验收。当�
 ## 当前模块基线
 
 - 20 个 `ModuleManifest v1`
-- 30 个唯一 RPC 契约
+- 32 个唯一 RPC 契约
 - 18 个唯一公共路由所有者
 - 16 个唯一数据库 Schema 所有者
 - 20 个唯一服务身份
-- 16 个 Compose 服务
+- 20 个业务微模块均有独立 Compose 服务、Docker build target 和运行角色
 - 25 项密码资产纳入盘点
 
 模块契约审计会拒绝：
@@ -74,6 +74,19 @@ Athena 已完成微模块架构的代码级底座和本地自动化验收。当�
 
 云端分布式配置会拒绝 Reader 进程内回退、memory transport、SQLite 权威和本地对象存储。
 
+### 独立物理运行时收口
+
+状态：代码级完成，真实容器拓扑待独立预生产主机验收。
+
+本轮补齐此前仍由 API 进程代报 readiness 的四个逻辑模块：
+
+- `authentication`：独立 Identity 运行时，提供受 mTLS 保护的会话 introspection；只返回最小主体断言，不返回 JWT、设备密钥或 Root。
+- `knowledge-ingest`：独立摄取控制运行时，复用现有 Collector/Reader 队列，不复制解析状态机。
+- `rag`：独立 RAG 运行时；API、Chat 和 Agent 通过远程 provider 访问，分布式 cutover 后禁止回退到进程内向量实现。
+- `operations-shadow-agents`：独立只读分析运行时；Operations Plane 通过受限内部接口读取评估结果，故障时只降级运维建议，不影响业务 readiness。
+
+API 不再为 Authentication、Knowledge Ingest 或 RAG 伪造本地探针。Edge、Collector、Reader、Realtime 及上述运行时均拥有独立 `/ready`、`/metrics`、服务身份和 Prometheus mTLS target。
+
 ### 统一 AI 运维中心兼容性
 
 状态：微模块运行观测链路已完成代码级收口，真实分布式基础设施验收待预生产执行。
@@ -82,6 +95,8 @@ Athena 已完成微模块架构的代码级底座和本地自动化验收。当�
 - Chat、Agent、Tool、Crypto、Scheduler、Reader、Background、Realtime 和 API 进程会将脱敏语义事件批量转发至独立 Operations Plane；失败时使用有界队列和指数退避，不阻塞业务请求。
 - 各独立 Node 运行角色定期发送 `module.telemetry.heartbeat`；Operations health 会展示已观测 producer、最后事件时间和 stale 状态，用于识别“模块存活但事件链路断开”。
 - Operations Plane 每 15 秒主动探测已配置模块的 Manifest readiness endpoint，并校验 `moduleId`、版本和 Manifest fingerprint。
+- Operations Plane 同时以权威只读探针监测 9 个基础设施节点：PostgreSQL Main/Auth、NATS JetStream、S3/MinIO、ClickHouse、OTel Collector、向量数据库、模型 Provider、Embedding Provider 和后量子安全控制。基础设施状态不再依赖“最近出现过事件”的推断。
+- S3 健康探针执行真实 `HeadBucket`；数据库执行 Main/Auth `SELECT 1`；RAG 运行时执行向量 heartbeat 并验证 Embedding 合约；模型网关只验证 Provider 合约，不产生付费推理请求。
 - 状态图优先采用实时探针结果；事件时间线只作为未配置探针模块的观测证据，不再把“最近有成功事件”误当作当前健康。
 - `/api/operations/services` 返回每个模块的部署契约和实时状态。
 - `/api/operations/state-graph` 返回模块、基础设施、Agent 和依赖爆炸半径。
@@ -132,12 +147,14 @@ Athena 已完成微模块架构的代码级底座和本地自动化验收。当�
 
 ### 自动化
 
-- 综合 Jest：19 个通过套件，77 个通过断言；Node 22 下 1 个真实 PQ 用例按设计跳过。
-- 新增 Operations 微模块回归：9 个套件、33 个断言通过，覆盖远程代理、事件批量转发与失败重试、producer 心跳、模块身份/版本/fingerprint 漂移、实时状态优先级和跨模块流程聚合。
+- 独立运行时与 Identity introspection：5 个套件、17 个断言通过。
+- Operations 专项回归：15 个套件、62 个断言通过，覆盖远程代理、事件批量转发与失败重试、producer 心跳、模块身份/版本/fingerprint 漂移、实时状态优先级、跨模块流程聚合及 Shadow 远程降级。
+- Crypto、User Root/Envelope、远程 Key Custody 与账户隔离：13 个套件、43 个断言通过；Node 22 下 1 个真实 PQ 插件用例按设计跳过。
 - Node 24.18.0：真实 Ed25519 + ML-DSA-65 capability round-trip 通过。
 - Agent/Model Gateway 回归：3 个套件，21 个断言通过。
 - 启动安全与远程 Agent 隔离：2 个套件，19 个断言通过。
-- `yarn operations:verify` 隔离契约验收通过：20/20 模块健康、5/5 Golden Journey 相关性覆盖、36 个语义事件写入 ClickHouse 协议实现并输出 OTel、状态图 35 个节点/89 条依赖边、Shadow Monitoring/RCA 和四类人工批准动作均通过。
+- `yarn operations:verify` 隔离契约验收通过：20/20 模块和 9/9 基础设施健康，5/5 Golden Journey 相关性覆盖、36 个语义事件写入 ClickHouse 协议实现并输出 OTel；状态图 35 个节点/89 条依赖边，`unknown=0`、`unmonitored=0`、`degraded=0`，Shadow Monitoring/RCA 和四类人工批准动作均通过。
+- `yarn check:independent-module-topology` 通过：20/20 物理运行时、20/20 readiness、20/20 Prometheus target、20/20 mTLS 身份均完整；平台 Master Key 只挂载于 Key Custody。
 
 ### 构建与静态门禁
 
@@ -149,7 +166,9 @@ yarn check:micro-module-runtimes
 
 该命令覆盖：
 
-- 20 个模块清单与 30 个 RPC 契约审计
+- 20 个模块清单与 32 个 RPC 契约审计
+- 20 个独立 Compose 服务、Docker build target、entrypoint、readiness、Prometheus mTLS target 和服务身份
+- Identity、Knowledge Ingest、RAG 与 Operations Shadow Agents
 - Scheduler
 - Operations Plane
 - Chat Runtime
@@ -167,10 +186,14 @@ yarn check:micro-module-runtimes
 另外：
 
 - SQLite Prisma Schema 校验通过
-- Compose YAML 可解析为 16 个服务
+- 独立拓扑静态验收返回 `physicalRuntimes=20`、`operationsReadinessEndpoints=20`、`prometheusTargets=20`、`mtlsIdentities=20`
 - Docker entrypoint shell 语法通过
 
 本机没有可用 Docker daemon，因此本报告不把 Docker 镜像构建、真实容器健康、PostgreSQL/NATS/S3/ClickHouse 联机、真实 mTLS 模块探针或蓝绿切流标记为已通过。`ATHENA_OPERATIONS_VERIFY_LIVE=true yarn operations:verify` 必须在预生产环境再次运行，且只有已配置模块全部健康、JetStream 的 stream sequence 与 ACK floor 对齐、lag/ACK pending/redelivery/DLQ 归零并确认 ClickHouse 最新落盘后才算真实验收通过。
+
+`ATHENA_MODULE_SCHEMA_CUTOVER` 与 `ATHENA_SHARED_STORAGE_CUTOVER` 仍保持关闭。PostgreSQL 已是预生产配置中的数据库权威，但 16 个领域 Schema 尚未完成 expand/contract 的物理搬迁和角色收紧；Collector 热目录、输出目录及兼容存储仍存在跨运行时共享挂载。静态门禁会把这些状态明确报告为 warning，并令 `productionCutoverReady=false`，因此不能把“20 个容器已经独立”误报为“数据平面已经完全隔离”。
+
+正式 cutover evidence 现已强制要求逻辑 Schema 和共享存储两项切换均为权威状态，并要求 Operations 同时达到模块 20/20 与基础设施 9/9；任一 `unknown`、`unmonitored` 或 `degraded` 都会拒绝生产切换。
 
 ## 生产发布顺序
 

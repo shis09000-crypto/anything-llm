@@ -49,6 +49,15 @@ function topologyFindings(value) {
     counts.degraded !== 0
   )
     findings.push("operations_coverage_not_20_of_20");
+  const infrastructure = value.operations?.infrastructureCounts || {};
+  if (
+    infrastructure.total !== 9 ||
+    infrastructure.healthy !== 9 ||
+    infrastructure.unknown !== 0 ||
+    infrastructure.unmonitored !== 0 ||
+    infrastructure.degraded !== 0
+  )
+    findings.push("operations_infrastructure_coverage_not_9_of_9");
   if (
     heartbeats.expected !== 20 ||
     heartbeats.fresh !== 20 ||
@@ -57,8 +66,8 @@ function topologyFindings(value) {
   )
     findings.push("operations_heartbeat_coverage_incomplete");
   if (
-    value.prometheus?.expected !== 16 ||
-    value.prometheus?.up !== 16 ||
+    value.prometheus?.expected !== 20 ||
+    value.prometheus?.up !== 20 ||
     (value.prometheus?.missing || []).length !== 0
   )
     findings.push("prometheus_module_coverage_incomplete");
@@ -68,7 +77,9 @@ function topologyFindings(value) {
     paths.broadcast !== "nats" ||
     paths.contentStore !== "s3" ||
     paths.serviceMtlsRequired !== true ||
-    paths.durableReaderQueue !== true
+    paths.durableReaderQueue !== true ||
+    paths.logicalSchemaCutover !== true ||
+    paths.sharedStorageCutover !== true
   )
     findings.push("authoritative_paths_incomplete");
   return findings;

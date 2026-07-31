@@ -32,6 +32,10 @@ const EXPECTED_PROMETHEUS_MODULES = Object.freeze([
   "crypto-forecast",
   "key-custody",
   "collector",
+  "authentication",
+  "knowledge-ingest",
+  "rag",
+  "operations-shadow-agents",
 ]);
 
 function argument(name, fallback = null) {
@@ -64,6 +68,7 @@ async function waitForOperations(timeoutMs) {
     try {
       last = await operations("/internal/v1/operations/health");
       const summary = last.moduleHealth?.summary || {};
+      const infrastructure = last.infrastructureHealth?.summary || {};
       const heartbeats = last.moduleHeartbeatCoverage || {};
       if (
         last.ready === true &&
@@ -71,6 +76,10 @@ async function waitForOperations(timeoutMs) {
         summary.healthy === 20 &&
         summary.degraded === 0 &&
         summary.unmonitored === 0 &&
+        infrastructure.total === 9 &&
+        infrastructure.healthy === 9 &&
+        infrastructure.degraded === 0 &&
+        infrastructure.unmonitored === 0 &&
         heartbeats.expected === 20 &&
         heartbeats.fresh === 20 &&
         (heartbeats.missing || []).length === 0
@@ -176,20 +185,43 @@ async function main() {
     throw new Error("distributed_topology_required");
   const timeoutMs = Math.max(30_000, Number(argument("timeout-ms", "180000")));
   const health = await waitForOperations(timeoutMs);
-  const [moduleHealth, prometheus, database, objectStore] = await Promise.all([
-    operations("/internal/v1/operations/module-health").then(
-      (result) => result.moduleHealth
-    ),
+  const [
+    moduleHealthResponse,
+    infrastructureHealthResponse,
+    prometheus,
+    database,
+    objectStore,
+  ] = await Promise.all([
+    operations("/internal/v1/operations/module-health"),
+    operations("/internal/v1/operations/infrastructure-health"),
     prometheusCoverage(timeoutMs),
     DataAccessCenter.runtimeLifecycle.databaseReadiness(),
     objectStoreProbe(),
   ]);
+  const moduleHealth = moduleHealthResponse.moduleHealth;
+  const infrastructureHealth =
+    infrastructureHealthResponse.infrastructureHealth;
   const topology = evaluateCutover({
     env: process.env,
     phase: "foundation",
     strict: false,
   });
   const counts = moduleCounts(moduleHealth);
+  const infrastructureCounts = {
+    total: infrastructureHealth.components?.length || 0,
+    healthy: (infrastructureHealth.components || []).filter(
+      (component) => component.status === "healthy"
+    ).length,
+    degraded: (infrastructureHealth.components || []).filter(
+      (component) => component.status === "degraded"
+    ).length,
+    unmonitored: (infrastructureHealth.components || []).filter(
+      (component) => component.status === "unmonitored"
+    ).length,
+    unknown: (infrastructureHealth.components || []).filter(
+      (component) => component.status === "unknown"
+    ).length,
+  };
   const ready =
     topology.ready &&
     counts.total === 20 &&
@@ -197,6 +229,11 @@ async function main() {
     counts.degraded === 0 &&
     counts.unmonitored === 0 &&
     counts.unknown === 0 &&
+    infrastructureCounts.total === 9 &&
+    infrastructureCounts.healthy === 9 &&
+    infrastructureCounts.degraded === 0 &&
+    infrastructureCounts.unmonitored === 0 &&
+    infrastructureCounts.unknown === 0 &&
     health.moduleHeartbeatCoverage?.fresh === 20 &&
     prometheus.up === prometheus.expected &&
     database?.ready !== false &&
@@ -212,6 +249,8 @@ async function main() {
       contentStore: topology.topology.contentStore,
       serviceMtlsRequired: topology.topology.serviceMtlsRequired,
       durableReaderQueue: topology.topology.durableReaderQueue,
+      logicalSchemaCutover: topology.topology.logicalSchemaCutover,
+      sharedStorageCutover: topology.topology.sharedStorageCutover,
     },
     manifests: {
       count: loadManifests().length,
@@ -221,6 +260,7 @@ async function main() {
       status: health.status,
       ready: health.ready,
       counts,
+      infrastructureCounts,
       coverage: health.coverage,
       heartbeats: {
         expected: health.moduleHeartbeatCoverage?.expected || 0,
@@ -244,6 +284,15 @@ async function main() {
       ...(counts.unknown ? ["operations_unknown_nonzero"] : []),
       ...(counts.unmonitored ? ["operations_unmonitored_nonzero"] : []),
       ...(counts.degraded ? ["operations_degraded_nonzero"] : []),
+      ...(infrastructureCounts.unknown
+        ? ["operations_infrastructure_unknown_nonzero"]
+        : []),
+      ...(infrastructureCounts.unmonitored
+        ? ["operations_infrastructure_unmonitored_nonzero"]
+        : []),
+      ...(infrastructureCounts.degraded
+        ? ["operations_infrastructure_degraded_nonzero"]
+        : []),
       ...prometheus.missing.map(
         (moduleId) => `prometheus_target_missing:${moduleId}`
       ),

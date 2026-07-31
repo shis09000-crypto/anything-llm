@@ -9,6 +9,7 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_POSTGRES_MAIN_MIGRATION_URL: postgresql://athena_main_migrator:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main
   ATHENA_POSTGRES_AUTH_MIGRATION_URL: postgresql://athena_auth_migrator:${ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth
   ATHENA_MODULE_SCHEMA_CUTOVER: "false"
+  ATHENA_SHARED_STORAGE_CUTOVER: "false"
   ATHENA_SQLITE_RUNTIME_FALLBACK: "false"
   ATHENA_BROADCAST_TRANSPORT: nats
   ATHENA_MEMORY_TRANSPORT_FALLBACK: "false"
@@ -37,6 +38,12 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_OPERATIONS_ENABLED: "true"
   ATHENA_OPERATIONS_PLANE_INLINE: "false"
   ATHENA_OPERATIONS_INTERNAL_URL: https://anything-llm-operations-plane:3015
+  ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
+  ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
+  ATHENA_IDENTITY_URL: https://anything-llm-identity:3026
+  ATHENA_KNOWLEDGE_INGEST_URL: https://anything-llm-knowledge-ingest:3027
+  ATHENA_RAG_CUTOVER: "true"
+  ATHENA_RAG_URL: https://anything-llm-rag:3028
   ATHENA_OPERATIONS_HEARTBEAT_ENABLED: "true"
   ATHENA_OPERATIONS_HEARTBEAT_MS: "60000"
   ATHENA_OPERATIONS_PRODUCER_STALE_MS: "180000"
@@ -61,6 +68,8 @@ x-authoritative-runtime: &authoritative-runtime
   PUBLIC_APP_URL: ${ATHENA_PREPROD_PUBLIC_URL:-https://preproduction.athena.invalid}
   ATHENA_ALLOWED_ORIGINS: ${ATHENA_PREPROD_PUBLIC_URL:-https://preproduction.athena.invalid}
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  ATHENA_OTEL_HEALTH_URL: http://otel-collector:13133
+  ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
 
 x-nats-secrets-volume: &nats-secrets-volume ${ATHENA_PREPROD_SECRETS_DIR:?required}/nats:/run/secrets/athena-nats:ro
 x-nats-subject-volume: &nats-subject-volume ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/nats-subject-key:/run/secrets/athena_nats_subject_key:ro
@@ -186,7 +195,8 @@ services:
       - ./clickhouse/config.d/low-resource.xml:/etc/clickhouse-server/config.d/low-resource.xml:ro
       - ./clickhouse/init/10-operations.sql:/docker-entrypoint-initdb.d/10-operations.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - 'http://127.0.0.1:8123/ping' | grep -q Ok"]
+      test:
+        ["CMD-SHELL", "wget -q -O - 'http://127.0.0.1:8123/ping' | grep -q Ok"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -274,6 +284,9 @@ services:
       minio-init: { condition: service_completed_successfully }
       anything-llm-key-custody: { condition: service_healthy }
       anything-llm-collector: { condition: service_healthy }
+      anything-llm-identity: { condition: service_healthy }
+      anything-llm-knowledge-ingest: { condition: service_healthy }
+      anything-llm-rag: { condition: service_healthy }
     volumes:
       - ./preproduction.empty.env:/app/server/.env:ro
       - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
@@ -293,8 +306,10 @@ services:
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/api.key
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/api.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-api
-      ATHENA_COLOCATED_MODULE_IDS: athena-api,authentication,knowledge-ingest,rag
       ATHENA_API_INTERNAL_PORT: "3024"
+      ATHENA_AUTHENTICATION_INLINE: "false"
+      ATHENA_KNOWLEDGE_INGEST_INLINE: "false"
+      ATHENA_RAG_INLINE: "false"
       COLLECTOR_ENDPOINT: https://anything-llm-collector:8888
       ATHENA_CHAT_UPSTREAM: https://anything-llm-chat-runtime:3016
       ATHENA_AGENT_UPSTREAM: https://anything-llm-agent-runtime:3017
@@ -320,6 +335,8 @@ services:
       anything-llm-chat-runtime: { condition: service_healthy }
       anything-llm-agent-runtime: { condition: service_healthy }
       anything-llm-realtime-gateway: { condition: service_healthy }
+      anything-llm-identity: { condition: service_healthy }
+      anything-llm-knowledge-ingest: { condition: service_healthy }
     volumes:
       - ./preproduction/edge-proxy-ssl.conf:/etc/nginx/conf.d/athena-proxy-ssl.conf:ro
       - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
@@ -332,6 +349,8 @@ services:
       ATHENA_TOOL_UPSTREAM: https://anything-llm-tool-broker:3019
       ATHENA_CRYPTO_ACCOUNT_UPSTREAM: https://anything-llm-crypto-account:3021
       ATHENA_CRYPTO_FORECAST_UPSTREAM: https://anything-llm-crypto-forecast:3022
+      ATHENA_IDENTITY_UPSTREAM: https://anything-llm-identity:3026
+      ATHENA_KNOWLEDGE_INGEST_UPSTREAM: https://anything-llm-knowledge-ingest:3027
     networks: [anything-llm]
 
   anything-llm-edge-probe:
@@ -488,8 +507,10 @@ services:
       ATHENA_CLICKHOUSE_USER: athena_ops
       ATHENA_CLICKHOUSE_PASSWORD_FILE: /run/secrets/athena_clickhouse_password
       ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED: "true"
+      ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
+      ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"athena-api":"https://anything-llm-api:3024","authentication":{"url":"https://anything-llm-api:3024","readinessPath":"/internal/v1/module-readiness/authentication"},"background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":{"url":"https://anything-llm-api:3024","readinessPath":"/internal/v1/module-readiness/knowledge-ingest"},"model-gateway":"https://anything-llm-model-gateway:3018","rag":{"url":"https://anything-llm-api:3024","readinessPath":"/internal/v1/module-readiness/rag"},"reader-worker":"https://anything-llm-reader-worker:3011","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019"}
+        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019"}
     networks: [anything-llm]
 
   anything-llm-chat-runtime:
@@ -691,6 +712,109 @@ services:
       ATHENA_MASTER_KEY_FILE: /run/secrets/athena_master_key
     networks: [anything-llm]
 
+  anything-llm-identity:
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      anything-llm-key-custody: { condition: service_healthy }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - preprod-storage:/app/server/storage
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: identity
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/identity
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/identity.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/identity.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/identity.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-identity
+      IDENTITY_PORT: "3026"
+    networks: [anything-llm]
+
+  anything-llm-knowledge-ingest:
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      anything-llm-key-custody: { condition: service_healthy }
+      anything-llm-collector: { condition: service_healthy }
+      anything-llm-reader-worker: { condition: service_healthy }
+      anything-llm-rag: { condition: service_healthy }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - preprod-storage:/app/server/storage
+      - preprod-collector-hotdir:/app/collector/hotdir
+      - preprod-collector-outputs:/app/collector/outputs
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: knowledge-ingest
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/knowledge-ingest
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/knowledge-ingest.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/knowledge-ingest.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/knowledge-ingest.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-knowledge-ingest
+      COLLECTOR_ENDPOINT: https://anything-llm-collector:8888
+      KNOWLEDGE_INGEST_PORT: "3027"
+    networks: [anything-llm]
+
+  anything-llm-rag:
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      anything-llm-key-custody: { condition: service_healthy }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - preprod-storage:/app/server/storage
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: rag
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/rag
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/rag.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/rag.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/rag.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-rag
+      RAG_PORT: "3028"
+    networks: [anything-llm]
+
+  anything-llm-operations-shadow-agents:
+    depends_on:
+      nats: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+      anything-llm-operations-plane: { condition: service_started }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: operations-shadow-agents
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/operations-shadow-agents
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/operations-shadow-agents.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/operations-shadow-agents.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/operations-shadow-agents.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-operations-shadow-agents
+      ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED: "true"
+      OPERATIONS_SHADOW_AGENTS_PORT: "3029"
+    networks: [anything-llm]
+
   anything-llm-collector:
     depends_on:
       minio-init: { condition: service_completed_successfully }
@@ -704,11 +828,12 @@ services:
       APP_ENV: preproduction
       NODE_ENV: production
       ATHENA_RUNTIME_ROLE: collector
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/collector
       ATHENA_SERVICE_MTLS_REQUIRED: "true"
       COLLECTOR_MTLS_CA_FILE: /run/secrets/athena-mtls/ca.pem
       COLLECTOR_MTLS_CERT_FILE: /run/secrets/athena-mtls/collector.pem
       COLLECTOR_MTLS_KEY_FILE: /run/secrets/athena-mtls/collector.key
-      COLLECTOR_MTLS_ALLOWED_CLIENT_IDS: spiffe://athena/preproduction/api,spiffe://athena/preproduction/background-worker,spiffe://athena/preproduction/operations-plane,spiffe://athena/preproduction/prometheus,spiffe://athena/preproduction/collector
+      COLLECTOR_MTLS_ALLOWED_CLIENT_IDS: spiffe://athena/preproduction/api,spiffe://athena/preproduction/background-worker,spiffe://athena/preproduction/knowledge-ingest,spiffe://athena/preproduction/operations-plane,spiffe://athena/preproduction/prometheus,spiffe://athena/preproduction/collector
       ATHENA_METRICS_TOKEN_FILE: /run/secrets/athena_metrics_token
       ATHENA_COLLECTOR_GUARD_V2: "true"
       COLLECTOR_PORT: "8888"

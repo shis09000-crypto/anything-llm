@@ -52,6 +52,10 @@ function topologyFindings(env = process.env, phase = "foundation") {
     findings.push("reader_durable_queue_disabled");
   if (env.ATHENA_READER_WORKER_FALLBACK_IN_PROCESS !== "false")
     findings.push("reader_in_process_fallback_enabled");
+  if (env.ATHENA_MODULE_SCHEMA_CUTOVER !== "true")
+    findings.push("logical_schema_cutover_not_authoritative");
+  if (env.ATHENA_SHARED_STORAGE_CUTOVER !== "true")
+    findings.push("shared_storage_cutover_not_authoritative");
   if (phase === "retirement") {
     if (!present(env.ATHENA_KEY_CUSTODY_URL))
       findings.push("remote_key_custody_url_missing");
@@ -171,6 +175,8 @@ function evaluateCutover({
       contentStore: env.ATHENA_CONTENT_STORE || "local",
       serviceMtlsRequired: env.ATHENA_SERVICE_MTLS_REQUIRED === "true",
       durableReaderQueue: env.ATHENA_READER_WORKER_QUEUE === "true",
+      logicalSchemaCutover: env.ATHENA_MODULE_SCHEMA_CUTOVER === "true",
+      sharedStorageCutover: env.ATHENA_SHARED_STORAGE_CUTOVER === "true",
     },
     modules: {
       count: manifests.length,

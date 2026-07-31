@@ -108,10 +108,17 @@ function buildStateGraph({
   agents = [],
   syncState = null,
   moduleHealth = null,
+  infrastructureHealth = null,
 } = {}) {
   const services = serviceCatalog();
   const runtimeStates = new Map(
     (moduleHealth?.modules || []).map((state) => [state.moduleId, state])
+  );
+  const infrastructureStates = new Map(
+    (infrastructureHealth?.components || []).map((state) => [
+      state.componentId,
+      state,
+    ])
   );
   const nodes = services.map((service) => ({
     id: service.id,
@@ -142,6 +149,16 @@ function buildStateGraph({
           pendingOutbox: syncState.pendingOutbox || 0,
           maxCursorLag: syncState.maxCursorLag || 0,
           source: "sync-runtime",
+        };
+      const infrastructure = infrastructureStates.get(service.id);
+      if (infrastructure)
+        return {
+          status: infrastructure.status,
+          ready: infrastructure.ready,
+          reasonCode: infrastructure.reasonCode,
+          checkedAt: infrastructure.checkedAt,
+          durationMs: infrastructure.durationMs,
+          source: infrastructure.source,
         };
       const eventState = stateFromEvents(service.id, events);
       if (eventState.status !== "unknown") return eventState;

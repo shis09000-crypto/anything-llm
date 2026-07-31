@@ -422,6 +422,62 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
   CMD curl --silent --fail --insecure "https://localhost:${EDGE_PROBE_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
+FROM backend-build AS identity-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=identity
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV IDENTITY_PORT=3026
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${IDENTITY_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS knowledge-ingest-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=knowledge-ingest
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV KNOWLEDGE_INGEST_PORT=3027
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${KNOWLEDGE_INGEST_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS rag-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=rag
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV RAG_PORT=3028
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${RAG_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS operations-shadow-agents-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=operations-shadow-agents
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV OPERATIONS_SHADOW_AGENTS_PORT=3029
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${OPERATIONS_SHADOW_AGENTS_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
 FROM nginx:1.27-alpine AS web-production-build
 ENV ATHENA_WEB_PORT=3000
 ENV ATHENA_API_UPSTREAM=http://anything-llm-api:3001
@@ -431,6 +487,8 @@ ENV ATHENA_AGENT_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_TOOL_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_CRYPTO_ACCOUNT_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_CRYPTO_FORECAST_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_IDENTITY_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_KNOWLEDGE_INGEST_UPSTREAM=http://anything-llm-api:3001
 COPY ./docker/nginx-web.conf.template /etc/nginx/templates/default.conf.template
 RUN touch /etc/nginx/conf.d/athena-proxy-ssl.conf
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html

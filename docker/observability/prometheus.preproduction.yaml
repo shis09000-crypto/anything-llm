@@ -190,3 +190,47 @@ scrape_configs:
     static_configs:
       - targets: [anything-llm-collector:8888]
         labels: { module_id: collector }
+
+  - job_name: athena-identity
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-identity
+    static_configs:
+      - targets: [anything-llm-identity:3026]
+        labels: { module_id: authentication }
+
+  - job_name: athena-knowledge-ingest
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-knowledge-ingest
+    static_configs:
+      - targets: [anything-llm-knowledge-ingest:3027]
+        labels: { module_id: knowledge-ingest }
+
+  - job_name: athena-rag
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-rag
+    static_configs:
+      - targets: [anything-llm-rag:3028]
+        labels: { module_id: rag }
+
+  - job_name: athena-operations-shadow-agents
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-operations-shadow-agents
+    static_configs:
+      - targets: [anything-llm-operations-shadow-agents:3029]
+        labels: { module_id: operations-shadow-agents }

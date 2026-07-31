@@ -34,14 +34,32 @@ const {
 const {
   moduleHealthMonitor,
 } = require("./utils/operations/moduleHealthMonitor");
+const {
+  infrastructureHealthMonitor,
+} = require("./utils/operations/infrastructureHealthMonitor");
+const {
+  buildInfrastructureProbeProviders,
+} = require("./utils/operations/infrastructureProbes");
 const { distributedTopology } = require("./utils/microModules/serviceHost");
 const { expectedServiceId } = require("./utils/security/serviceIdentity");
 
 const port = Number(process.env.OPERATIONS_PLANE_PORT || 3015);
 let localHeartbeatTimer = null;
 
+function shadowAgentsInline() {
+  return (
+    String(
+      process.env.ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE || "true"
+    ).toLowerCase() !== "false"
+  );
+}
+
 function recordLocalHeartbeats() {
-  for (const moduleId of ["operations-plane", "operations-shadow-agents"]) {
+  const moduleIds = [
+    "operations-plane",
+    ...(shadowAgentsInline() ? ["operations-shadow-agents"] : []),
+  ];
+  for (const moduleId of moduleIds) {
     const event = semanticEvent({
       eventType: "module.telemetry.heartbeat",
       category: "module_health",
@@ -80,40 +98,61 @@ const host = new MicroModuleServiceHost({
   readiness: () => {
     const plane = operationsPlane.health();
     const moduleHealth = moduleHealthMonitor.snapshot();
+    const infrastructureHealth = infrastructureHealthMonitor.snapshot();
     const coverage = operationsCoverageSnapshot();
     return {
       ...plane,
       moduleHealth: moduleHealth.summary,
+      infrastructureHealth: infrastructureHealth.summary,
       coverage,
-      ready: plane.ready && moduleHealth.summary.complete && coverage.complete,
+      ready:
+        plane.ready &&
+        moduleHealth.summary.complete &&
+        infrastructureHealth.summary.complete &&
+        coverage.complete,
     };
   },
   onStart: async () => {
     const health = await operationsPlane.start();
     if (!["running", "degraded"].includes(health.status))
       throw new Error(health.lastError || "operations_plane_not_ready");
-    await operationsShadowRuntime.start();
+    if (shadowAgentsInline()) await operationsShadowRuntime.start();
     await operationsActionRuntime.start();
     startLocalHeartbeats();
     moduleHealthMonitor.start({
       localProviders: {
         "operations-plane": () => operationsPlane.health(),
-        "operations-shadow-agents": () => {
-          const snapshot = operationsShadowRuntime.snapshot();
-          return {
-            ...snapshot,
-            ready: snapshot.status === "running",
-          };
-        },
+        ...(shadowAgentsInline()
+          ? {
+              "operations-shadow-agents": () => {
+                const snapshot = operationsShadowRuntime.snapshot();
+                return {
+                  ...snapshot,
+                  ready: snapshot.status === "running",
+                };
+              },
+            }
+          : {}),
       },
     });
-    await moduleHealthMonitor.refresh();
+    infrastructureHealthMonitor.start({
+      providers: buildInfrastructureProbeProviders({
+        plane: operationsPlane,
+      }),
+    });
+    await Promise.all([
+      moduleHealthMonitor.refresh(),
+      infrastructureHealthMonitor.refresh(),
+    ]);
   },
   onDrain: async () => {
     stopLocalHeartbeats();
-    await moduleHealthMonitor.stop();
+    await Promise.all([
+      moduleHealthMonitor.stop(),
+      infrastructureHealthMonitor.stop(),
+    ]);
     await operationsActionRuntime.stop();
-    await operationsShadowRuntime.stop();
+    if (shadowAgentsInline()) await operationsShadowRuntime.stop();
     await operationsPlane.stop();
   },
   onStop: shutdownOpenTelemetry,
@@ -141,8 +180,12 @@ const host = new MicroModuleServiceHost({
 
     const controlCaller = (request, response, next) => {
       if (!distributedTopology(process.env)) return next();
+      const caller = response.locals.serviceCaller;
+      if (caller === expectedServiceId("api", process.env)) return next();
       if (
-        response.locals.serviceCaller === expectedServiceId("api", process.env)
+        caller === expectedServiceId("operations-shadow-agents", process.env) &&
+        request.path.replace(/\/$/, "") === "/timeline" &&
+        request.method === "POST"
       )
         return next();
       return response.status(403).json({
@@ -308,9 +351,14 @@ const host = new MicroModuleServiceHost({
     app.post(
       "/internal/v1/operations/module-health/refresh",
       async (_request, response) => {
+        const [moduleHealth, infrastructureHealth] = await Promise.all([
+          moduleHealthMonitor.refresh(),
+          infrastructureHealthMonitor.refresh(),
+        ]);
         response.json({
           success: true,
-          moduleHealth: await moduleHealthMonitor.refresh(),
+          moduleHealth,
+          infrastructureHealth,
         });
       }
     );
@@ -318,8 +366,18 @@ const host = new MicroModuleServiceHost({
       response.json({
         success: true,
         moduleHealth: moduleHealthMonitor.snapshot(),
+        infrastructureHealth: infrastructureHealthMonitor.snapshot(),
       });
     });
+    app.get(
+      "/internal/v1/operations/infrastructure-health",
+      (_request, response) => {
+        response.json({
+          success: true,
+          infrastructureHealth: infrastructureHealthMonitor.snapshot(),
+        });
+      }
+    );
   },
 });
 

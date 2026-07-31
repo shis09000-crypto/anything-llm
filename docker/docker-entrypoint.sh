@@ -166,6 +166,38 @@ run_edge_probe() {
     exec node /app/server/edge-probe.js
 }
 
+run_identity() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/identity.js
+}
+
+run_knowledge_ingest() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/knowledge-ingest.js
+}
+
+run_rag() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/rag.js
+}
+
+run_operations_shadow_agents() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/operations-shadow-agents.js
+}
+
 child_pids=()
 
 stop_children() {
@@ -223,6 +255,18 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   edge-web)
     run_edge_probe
+    ;;
+  identity)
+    run_identity
+    ;;
+  knowledge-ingest)
+    run_knowledge_ingest
+    ;;
+  rag)
+    run_rag
+    ;;
+  operations-shadow-agents)
+    run_operations_shadow_agents
     ;;
   reader-worker)
     run_reader_worker

@@ -142,6 +142,22 @@ const host = new MicroModuleServiceHost({
       await new Promise((resolve) => setTimeout(resolve, 25));
   },
   registerRoutes: (app) => {
+    app.get("/internal/v1/models/health", (_request, response) => {
+      const provider = getLLMProvider({});
+      const ready =
+        typeof provider?.getChatCompletion === "function" &&
+        typeof provider?.streamGetChatCompletion === "function";
+      response.json({
+        success: true,
+        ready,
+        dependencies: {
+          modelProvider: {
+            ready,
+            reasonCode: ready ? null : "model_provider_contract_invalid",
+          },
+        },
+      });
+    });
     app.get("/internal/v1/models/catalog", (_request, response) => {
       response.json({
         success: true,

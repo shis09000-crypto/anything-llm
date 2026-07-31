@@ -11,6 +11,9 @@ const {
   operationsActionRuntime,
 } = require("./actions/orchestrator");
 const { moduleHealthMonitor } = require("./moduleHealthMonitor");
+const {
+  infrastructureHealthMonitor,
+} = require("./infrastructureHealthMonitor");
 const { projectFlows } = require("./flowProjection");
 
 function operationsRemoteMode(env = process.env) {
@@ -24,16 +27,21 @@ function operationsRemoteMode(env = process.env) {
 }
 
 function runtimeStateById() {
-  return new Map(
-    moduleHealthMonitor
+  return new Map([
+    ...moduleHealthMonitor
       .snapshot()
-      .modules.map((state) => [state.moduleId, state])
-  );
+      .modules.map((state) => [state.moduleId, state]),
+    ...infrastructureHealthMonitor
+      .snapshot()
+      .components.map((state) => [state.componentId, state]),
+  ]);
 }
 
 function operationsCoverageSnapshot() {
   const plane = operationsPlane.health();
   const moduleHealth = moduleHealthMonitor.snapshot();
+  const infrastructureHealth = infrastructureHealthMonitor.snapshot();
+  const infrastructureRequired = distributedTopology(process.env);
   const freshHeartbeatIds = new Set(
     (plane.moduleHeartbeatCoverage?.heartbeats || [])
       .filter((heartbeat) => !heartbeat.stale)
@@ -54,20 +62,77 @@ function operationsCoverageSnapshot() {
     expected: expected.length,
     covered: covered.length,
     coverageRatio: expected.length ? covered.length / expected.length : 0,
-    complete: expected.length > 0 && missing.length === 0,
+    complete:
+      expected.length > 0 &&
+      missing.length === 0 &&
+      (!infrastructureRequired || infrastructureHealth.summary.complete),
     missing,
     freshHeartbeatModules: [...freshHeartbeatIds].sort(),
     healthyProbeModules: [...healthyProbeIds].sort(),
+    infrastructureRequired,
+    infrastructure: infrastructureHealth.summary,
   };
+}
+
+function operationsShadowRemoteMode(env = process.env) {
+  return (
+    distributedTopology(env) &&
+    String(env.ATHENA_RUNTIME_ROLE || "") === "operations-plane" &&
+    String(
+      env.ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE || "true"
+    ).toLowerCase() === "false" &&
+    Boolean(String(env.ATHENA_OPERATIONS_SHADOW_AGENTS_URL || "").trim())
+  );
+}
+
+async function remoteShadowCall(path, env = process.env) {
+  return requestInternalService({
+    callerRole: "operations-plane",
+    url: `${String(env.ATHENA_OPERATIONS_SHADOW_AGENTS_URL).replace(
+      /\/+$/,
+      ""
+    )}${path}`,
+    method: "GET",
+    env,
+    timeoutMs: 10_000,
+  });
+}
+
+async function operationsShadowSnapshot(
+  env = process.env,
+  request = remoteShadowCall
+) {
+  if (!operationsShadowRemoteMode(env))
+    return operationsShadowRuntime.snapshot();
+  try {
+    return await request("/internal/v1/operations/shadow", env);
+  } catch (error) {
+    return {
+      success: false,
+      ready: false,
+      status: "degraded",
+      reasonCode: "operations_shadow_agents_unavailable",
+      retryable: true,
+      lastError: String(error?.code || "shadow_runtime_unavailable").slice(
+        0,
+        96
+      ),
+    };
+  }
 }
 
 const localOperationsAccess = {
   async health() {
     const plane = operationsPlane.health();
     const moduleHealth = moduleHealthMonitor.snapshot();
+    const infrastructureHealth = infrastructureHealthMonitor.snapshot();
     const coverage = operationsCoverageSnapshot();
     const ready =
-      plane.ready && moduleHealth.summary.complete && coverage.complete;
+      plane.ready &&
+      moduleHealth.summary.complete &&
+      coverage.complete &&
+      (!coverage.infrastructureRequired ||
+        infrastructureHealth.summary.complete);
     return {
       ...plane,
       ready,
@@ -77,8 +142,9 @@ const localOperationsAccess = {
           : "coverage-incomplete"
         : plane.status,
       actions: operationsActionRuntime.snapshot(),
-      shadowAgents: operationsShadowRuntime.snapshot(),
+      shadowAgents: await operationsShadowSnapshot(),
       moduleHealth,
+      infrastructureHealth,
       coverage,
     };
   },
@@ -94,6 +160,7 @@ const localOperationsAccess = {
           : {}),
       })),
       moduleHealth: moduleHealthMonitor.snapshot(),
+      infrastructureHealth: infrastructureHealthMonitor.snapshot(),
     };
   },
 
@@ -102,14 +169,22 @@ const localOperationsAccess = {
   },
 
   async shadowAgents() {
-    return operationsShadowRuntime.snapshot();
+    return operationsShadowSnapshot();
   },
 
   async evaluationLatest() {
+    if (operationsShadowRemoteMode())
+      return remoteShadowCall(
+        "/internal/v1/operations/shadow/evaluations/latest"
+      );
     return { report: operationsShadowRuntime.evaluation() };
   },
 
   async evaluationCorpus() {
+    if (operationsShadowRemoteMode())
+      return remoteShadowCall(
+        "/internal/v1/operations/shadow/evaluations/corpus"
+      );
     return { manifest: operationsShadowRuntime.corpus() };
   },
 
@@ -188,6 +263,7 @@ const localOperationsAccess = {
         agents,
         syncState,
         moduleHealth: moduleHealthMonitor.snapshot(),
+        infrastructureHealth: infrastructureHealthMonitor.snapshot(),
       }),
     };
   },
@@ -369,5 +445,7 @@ module.exports = {
   operationsAccess,
   operationsCoverageSnapshot,
   operationsRemoteMode,
+  operationsShadowRemoteMode,
+  operationsShadowSnapshot,
   remoteOperationsAccess,
 };

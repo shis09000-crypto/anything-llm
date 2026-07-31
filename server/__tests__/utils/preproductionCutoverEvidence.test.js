@@ -17,11 +17,20 @@ function topology() {
       contentStore: "s3",
       serviceMtlsRequired: true,
       durableReaderQueue: true,
+      logicalSchemaCutover: true,
+      sharedStorageCutover: true,
     },
     operations: {
       counts: {
         total: 20,
         healthy: 20,
+        unknown: 0,
+        unmonitored: 0,
+        degraded: 0,
+      },
+      infrastructureCounts: {
+        total: 9,
+        healthy: 9,
         unknown: 0,
         unmonitored: 0,
         degraded: 0,
@@ -33,7 +42,7 @@ function topology() {
         missing: [],
       },
     },
-    prometheus: { expected: 16, up: 16, missing: [] },
+    prometheus: { expected: 20, up: 20, missing: [] },
   };
 }
 

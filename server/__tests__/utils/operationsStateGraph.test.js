@@ -136,4 +136,29 @@ describe("Operations State Graph", () => {
       source: "probe",
     });
   });
+
+  test("uses authoritative infrastructure probes instead of event guesses", () => {
+    const graph = buildStateGraph({
+      events: [],
+      infrastructureHealth: {
+        components: [
+          {
+            componentId: "main-database",
+            status: "healthy",
+            ready: true,
+            checkedAt: "2026-07-31T00:00:00.000Z",
+            durationMs: 4,
+            source: "authoritative-probe",
+          },
+        ],
+      },
+    });
+    expect(
+      graph.nodes.find((node) => node.id === "main-database").state
+    ).toMatchObject({
+      status: "healthy",
+      ready: true,
+      source: "authoritative-probe",
+    });
+  });
 });

@@ -414,6 +414,13 @@ async function main() {
     ModuleHealthMonitor,
     parseEndpointMap,
   } = require("../utils/operations/moduleHealthMonitor");
+  const {
+    InfrastructureHealthMonitor,
+    infrastructureServices,
+  } = require("../utils/operations/infrastructureHealthMonitor");
+  const {
+    buildInfrastructureProbeProviders,
+  } = require("../utils/operations/infrastructureProbes");
   const { projectFlows } = require("../utils/operations/flowProjection");
   const { loadManifests } = require("../utils/modulePlatform/manifestRegistry");
   const { agentDefinitions } = require("../utils/operations/agentRegistry");
@@ -455,6 +462,7 @@ async function main() {
   };
   const audit = [];
   let moduleMonitor = null;
+  let infrastructureMonitor = null;
   try {
     const health = await plane.start();
     assert(health.ready, "operations_plane_not_ready");
@@ -682,11 +690,29 @@ async function main() {
         );
     moduleMonitor.start({ localProviders });
     const moduleHealth = await moduleMonitor.refresh();
+    infrastructureMonitor = new InfrastructureHealthMonitor({
+      env: process.env,
+    });
+    infrastructureMonitor.start({
+      providers: liveInfrastructure
+        ? buildInfrastructureProbeProviders({
+            plane,
+            env: process.env,
+          })
+        : Object.fromEntries(
+            infrastructureServices().map((service) => [
+              service.id,
+              () => ({ ready: true }),
+            ])
+          ),
+    });
+    const infrastructureHealth = await infrastructureMonitor.refresh();
     const graph = buildStateGraph({
       events: timeline,
       agents: await agentDefinitions(),
       syncState: { ready: true, deadLetterOutbox: 0 },
       moduleHealth,
+      infrastructureHealth,
     });
     const flows = projectFlows(timeline);
     const explanation = explainEvent(
@@ -699,6 +725,10 @@ async function main() {
     assert(
       moduleHealth.summary.degraded === 0,
       "module_health_contains_degraded_runtime"
+    );
+    assert(
+      infrastructureHealth.summary.complete,
+      "infrastructure_health_contract_incomplete"
     );
     if (liveInfrastructure) {
       const configuredEndpoints = Object.keys(
@@ -725,7 +755,8 @@ async function main() {
     assert(explanation?.evidence?.length, "incident_evidence_missing");
     if (!liveInfrastructure)
       assert(
-        clickhouse.rows.size === timeline.length,
+        clickhouse.rows.size >= timeline.length &&
+          timeline.every((event) => clickhouse.rows.has(event.eventId)),
         "clickhouse_projection_mismatch"
       );
     if (liveInfrastructure) {
@@ -755,6 +786,7 @@ async function main() {
     report.otel = { ...otlp.received };
     report.stateGraph = graph.summary;
     report.moduleHealth = moduleHealth.summary;
+    report.infrastructureHealth = infrastructureHealth.summary;
     report.flows = flows.summary;
     report.shadowAgents = {
       mode: shadow.mode,
@@ -782,6 +814,7 @@ async function main() {
     console.info = originalConsoleInfo;
     await plane.stop().catch(() => null);
     await moduleMonitor?.stop().catch(() => null);
+    await infrastructureMonitor?.stop().catch(() => null);
     await shutdownOpenTelemetry().catch(() => null);
     await DataAccessCenter.runtimeLifecycle
       .disconnectDatabases()

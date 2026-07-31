@@ -61,6 +61,7 @@ function parseEndpointMap(env = process.env) {
   }
   const conventional = {
     "athena-api": env.ATHENA_API_INTERNAL_URL,
+    authentication: env.ATHENA_IDENTITY_URL,
     "edge-web": env.ATHENA_EDGE_WEB_URL,
     "chat-runtime": env.ATHENA_CHAT_RUNTIME_URL || env.ATHENA_CHAT_UPSTREAM,
     "agent-runtime": env.ATHENA_AGENT_RUNTIME_URL || env.ATHENA_AGENT_UPSTREAM,
@@ -72,6 +73,9 @@ function parseEndpointMap(env = process.env) {
     "crypto-forecast":
       env.ATHENA_CRYPTO_FORECAST_URL || env.ATHENA_CRYPTO_FORECAST_UPSTREAM,
     "key-custody": env.ATHENA_KEY_CUSTODY_URL,
+    "knowledge-ingest": env.ATHENA_KNOWLEDGE_INGEST_URL,
+    rag: env.ATHENA_RAG_URL,
+    "operations-shadow-agents": env.ATHENA_OPERATIONS_SHADOW_AGENTS_URL,
     scheduler: env.ATHENA_SCHEDULER_INTERNAL_URL,
     "reader-worker": env.ATHENA_READER_WORKER_URL,
     "background-worker": env.ATHENA_BACKGROUND_WORKER_URL,
@@ -83,7 +87,11 @@ function parseEndpointMap(env = process.env) {
     if (!endpoints[id] && normalized) endpoints[id] = normalized;
   }
   const apiInternal = normalizedEndpoint(env.ATHENA_API_INTERNAL_URL);
-  if (apiInternal) {
+  const legacyColocated =
+    String(
+      env.ATHENA_ALLOW_COLOCATED_MODULE_PROBES || "false"
+    ).toLowerCase() === "true";
+  if (apiInternal && legacyColocated) {
     const baseUrl =
       typeof apiInternal === "string" ? apiInternal : apiInternal.url;
     for (const id of ["authentication", "knowledge-ingest", "rag"]) {

@@ -17,6 +17,7 @@ jest.mock("@aws-sdk/client-s3", () => {
   return {
     DeleteObjectCommand: class DeleteObjectCommand extends Command {},
     GetObjectCommand: class GetObjectCommand extends Command {},
+    HeadBucketCommand: class HeadBucketCommand extends Command {},
     HeadObjectCommand: class HeadObjectCommand extends Command {},
     PutObjectCommand: class PutObjectCommand extends Command {},
     S3Client: class S3Client {
@@ -168,5 +169,17 @@ describe("ContentObjectS3Provider", () => {
         ObjectLockRetainUntilDate: expect.any(Date),
       })
     );
+  });
+
+  it("checks the configured bucket instead of reporting configuration-only health", async () => {
+    mockSend.mockResolvedValueOnce({});
+    await expect(ContentObjectS3Provider.health()).resolves.toMatchObject({
+      ready: true,
+      provider: "s3",
+      reachable: true,
+    });
+    expect(mockSend.mock.calls[0][0].input).toEqual({
+      Bucket: "athena-test",
+    });
   });
 });

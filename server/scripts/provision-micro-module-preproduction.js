@@ -34,6 +34,10 @@ const physicalRoles = Object.freeze([
   ["key-custody", "anything-llm-key-custody"],
   ["collector", "anything-llm-collector"],
   ["edge-web", "anything-llm-edge-probe"],
+  ["identity", "anything-llm-identity"],
+  ["knowledge-ingest", "anything-llm-knowledge-ingest"],
+  ["rag", "anything-llm-rag"],
+  ["operations-shadow-agents", "anything-llm-operations-shadow-agents"],
   ["prometheus", "anything-llm-prometheus"],
 ]);
 const infrastructureCertificates = Object.freeze([["minio", "minio"]]);

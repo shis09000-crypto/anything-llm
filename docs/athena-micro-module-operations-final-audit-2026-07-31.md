@@ -4,6 +4,28 @@
 检测范围：当前工作区、自动化契约与运行时测试、线上生产容器、NATS JetStream、ClickHouse、Prometheus、OTel、Loki、Tempo、Grafana、公开 HTTPS 健康接口
 检测方式：只读生产核验；未重启、重建、切流或修改生产数据
 
+## 本轮继续推进补充
+
+工作区已进一步补齐 9 个基础设施节点的权威健康投影。隔离契约验收现在返回：20/20 微模块健康、9/9 基础设施健康、状态图 35 个节点中 `unknown=0`、`unmonitored=0`、`degraded=0`。新增探针覆盖 PostgreSQL、NATS、S3、ClickHouse、OTel、向量库、模型 Provider、Embedding Provider 和 PQ 控制；所有事件保持 metadata-only。
+
+这项结果只证明代码和隔离协议完整，仍不等于独立预生产实测。静态拓扑同时识别到 16 个逻辑 Schema 尚未切换，以及 Collector/兼容存储仍有共享可写卷，因此 `productionCutoverReady=false`。正式证据门禁已经改为同时要求 20/20 模块、9/9 基础设施、Schema 权威、共享存储退休、滚动发布、断连恢复、故障隔离、备份恢复和双账户 Crypto 演练全部通过。
+
+## 本轮物理拓扑收口补充
+
+在本报告首次检测之后，工作区进一步补齐了 `authentication`、`knowledge-ingest`、`rag` 和 `operations-shadow-agents` 四个独立运行时。当前代码与部署契约已经达到：
+
+- 20/20 模块拥有独立 Compose service、Docker build target、entrypoint 和服务身份。
+- 20/20 模块拥有独立 readiness endpoint 与 Prometheus mTLS target。
+- Operations Plane 对 19 个远程模块执行主动探测，并将自身作为第 20 个本地 provider。
+- API 已停止替 Authentication、Knowledge Ingest 和 RAG 代报健康。
+- Identity 的内部 session introspection 校验服务端 Session、账户、客户端撤销状态与 `clientId`，只返回最小主体断言。
+- RAG 分布式 cutover 后禁止进程内向量回退；Shadow Agent 故障只降级运维建议。
+- 预生产拓扑中平台 Master Key 只挂载到 Key Custody；Crypto Account 经远程 custody 解封，Tool Broker 经 Crypto Account 获取私有账户能力。
+
+本地隔离验收返回 `healthy=20`、`degraded=0`、`unmonitored=0`，5/5 Golden Journey 相关性覆盖率为 100%；密码资产审计与加密敏捷性审计均为零发现。
+
+这些结果更新了“代码和部署契约”的完成度，不改变本报告关于生产状态的结论：本轮没有获得独立预生产 Docker 主机，也没有执行生产切流。`ATHENA_MODULE_SCHEMA_CUTOVER` 仍保持关闭，16 个领域 Schema 的 expand/contract 物理迁移和数据库角色收紧尚需真实预生产证据。
+
 ## 一、最终结论
 
 Athena 的微模块代码底座已经成型，模块契约、独立运行角色、持久运行状态、远程 Operations Plane、主动健康探测、跨模块流程投影、Tool/Crypto 隔离和远程 Key Custody 均已通过本地代码级与隔离契约测试。
@@ -107,7 +129,7 @@ flowchart LR
 当前静态契约结果：
 
 - 20 个 Manifest。
-- 30 个唯一 RPC 契约。
+- 32 个唯一 RPC 契约。
 - 18 个唯一公共路由所有者。
 - 16 个唯一数据库 Schema 所有者。
 - 20 个唯一服务身份。

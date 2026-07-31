@@ -9,6 +9,7 @@ const {
   peerServiceIds,
 } = require("./serviceHost");
 const { registerCompatibleApi } = require("./runtimeApp");
+const { createApiScope } = require("./scopedApi");
 const {
   installStandaloneShutdown,
   secureDatabaseStart,
@@ -21,6 +22,7 @@ module.exports = {
   installStandaloneShutdown,
   peerServiceIds,
   registerCompatibleApi,
+  createApiScope,
   requestInternalService,
   requestInternalStream,
   secureDatabaseStart,

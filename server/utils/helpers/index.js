@@ -273,7 +273,9 @@ function getVectorDbClass(getExactly = null) {
       const { LanceDb: DefaultLanceDb } = require("../vectorDbProviders/lance");
       vectorDb = new DefaultLanceDb();
   }
-  return scopeVectorDatabase(vectorDb);
+  const scoped = scopeVectorDatabase(vectorDb);
+  const { wrapWithRemoteRag } = require("../rag/remoteProvider");
+  return wrapWithRemoteRag(scoped);
 }
 
 /**

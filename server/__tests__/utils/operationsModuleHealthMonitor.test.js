@@ -30,6 +30,40 @@ describe("Operations module health monitor", () => {
     });
   });
 
+  test("requires physical endpoints unless legacy colocated probes are explicit", () => {
+    expect(
+      parseEndpointMap({
+        ATHENA_API_INTERNAL_URL: "https://api:3024",
+        ATHENA_IDENTITY_URL: "https://identity:3026",
+        ATHENA_KNOWLEDGE_INGEST_URL: "https://ingest:3027",
+        ATHENA_RAG_URL: "https://rag:3028",
+        ATHENA_OPERATIONS_SHADOW_AGENTS_URL: "https://shadow:3029",
+      })
+    ).toMatchObject({
+      "athena-api": "https://api:3024",
+      authentication: "https://identity:3026",
+      "knowledge-ingest": "https://ingest:3027",
+      rag: "https://rag:3028",
+      "operations-shadow-agents": "https://shadow:3029",
+    });
+    expect(
+      parseEndpointMap({
+        ATHENA_API_INTERNAL_URL: "https://api:3024",
+      })
+    ).toEqual({ "athena-api": "https://api:3024" });
+    expect(
+      parseEndpointMap({
+        ATHENA_API_INTERNAL_URL: "https://api:3024",
+        ATHENA_ALLOW_COLOCATED_MODULE_PROBES: "true",
+      })
+    ).toMatchObject({
+      authentication: {
+        url: "https://api:3024",
+        readinessPath: "/internal/v1/module-readiness/authentication",
+      },
+    });
+  });
+
   test("rejects version, manifest, and identity drift", () => {
     expect(
       normalizedRemoteState(
