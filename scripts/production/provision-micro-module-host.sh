@@ -8,6 +8,8 @@ legacy_nats_seed="${ATHENA_PROD_LEGACY_NATS_SEED:-${legacy_secret_dir}/ai-operat
 backend_image="${ATHENA_PROD_BACKEND_IMAGE:-anythingllm-v2-anythingllm:latest}"
 browser_worker_image="${ATHENA_PROD_BROWSER_WORKER_IMAGE:-anythingllm-v2-browser-worker:latest}"
 repo_dir="${ATHENA_PROD_REPO_DIR:-/data/anythingllm/app}"
+compose_dir="${ATHENA_PROD_COMPOSE_DIR:-/data/anythingllm/compose/micro-modular}"
+browser_seccomp_source="${repo_dir}/docker/playwright-seccomp-profile.json"
 
 if [[ "${ATHENA_PROD_CONFIRM:-}" != "athena-production-micro" ]]; then
   echo "Refusing to provision without ATHENA_PROD_CONFIRM=athena-production-micro" >&2
@@ -17,6 +19,18 @@ if [[ ! -s "${legacy_env}" ]]; then
   echo "Legacy production environment is missing." >&2
   exit 1
 fi
+if [[ ! -s "${browser_seccomp_source}" ]]; then
+  echo "Browser Worker seccomp policy is missing from the release source." >&2
+  exit 1
+fi
+if ! jq empty "${browser_seccomp_source}" >/dev/null 2>&1; then
+  echo "Browser Worker seccomp policy is not valid JSON." >&2
+  exit 1
+fi
+
+install -d -m 0755 "${compose_dir}"
+install -m 0644 "${browser_seccomp_source}" \
+  "${compose_dir}/playwright-seccomp-profile.json"
 
 secrets_dir="${state_dir}/secrets"
 runtime_secret_dir="${secrets_dir}/runtime-secrets"
@@ -326,3 +340,4 @@ chown 1000:65534 "${mtls_dir}/prometheus.key" "${runtime_secret_dir}/metrics-tok
 chmod 0640 "${mtls_dir}/prometheus.key" "${runtime_secret_dir}/metrics-token"
 
 echo "Production micro-module secrets provisioned without rotating existing account, JWT, password-pepper, or platform master-key material."
+echo "Browser Worker seccomp policy installed as a versioned deployment dependency."

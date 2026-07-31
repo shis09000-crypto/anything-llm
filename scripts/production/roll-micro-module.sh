@@ -44,6 +44,14 @@ if [[ ! -f "$compose_file" || ! -f "$env_file" ]]; then
   echo "production_compose_or_env_missing" >&2
   exit 2
 fi
+if [[ "$service" == "anything-llm-browser-worker" ]]; then
+  browser_seccomp_profile="$(dirname "$compose_file")/playwright-seccomp-profile.json"
+  if [[ ! -s "$browser_seccomp_profile" ]] ||
+    ! jq empty "$browser_seccomp_profile" >/dev/null 2>&1; then
+    echo "browser_worker_seccomp_policy_missing_or_invalid:$browser_seccomp_profile" >&2
+    exit 2
+  fi
+fi
 docker image inspect "$new_image" >/dev/null
 
 compose=(docker compose --env-file "$env_file" -p "$project" -f "$compose_file")
