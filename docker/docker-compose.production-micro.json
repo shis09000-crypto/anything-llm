@@ -277,7 +277,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_API_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -454,7 +454,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_API_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -651,7 +651,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_EDGE_PROBE_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "healthcheck": {
@@ -811,7 +811,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_BACKGROUND_WORKER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -954,7 +954,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_REALTIME_GATEWAY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1101,7 +1101,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_READER_WORKER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1244,7 +1244,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_SCHEDULER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1394,7 +1394,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_OPERATIONS_PLANE_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1540,7 +1540,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_CHAT_RUNTIME_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1689,7 +1689,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_AGENT_RUNTIME_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1832,7 +1832,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_MODEL_GATEWAY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -1977,7 +1977,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_TOOL_BROKER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -2115,7 +2115,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_CRYPTO_MARKET_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -2263,7 +2263,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -2412,7 +2412,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_CRYPTO_FORECAST_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -2558,7 +2558,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_KEY_CUSTODY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -2705,7 +2705,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_IDENTITY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -2857,7 +2857,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_KNOWLEDGE_INGEST_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -3007,7 +3007,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_RAG_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -3147,7 +3147,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_OPERATIONS_SHADOW_AGENTS_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -3296,7 +3296,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_BROWSER_PLANE_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -3514,7 +3514,7 @@
       "networks": [
         "production"
       ],
-      "image": "${ATHENA_PROD_BACKEND_IMAGE:?required}",
+      "image": "${ATHENA_PROD_COLLECTOR_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",

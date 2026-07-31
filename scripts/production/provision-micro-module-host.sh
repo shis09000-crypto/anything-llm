@@ -264,6 +264,35 @@ ensure_env ATHENA_PROD_COLLECTOR_OUTPUTS /data/anythingllm/collector/outputs
 ensure_env ATHENA_PROD_WEB_ROOT "${state_dir}/web/current"
 ensure_env ATHENA_PROD_BACKEND_IMAGE "${backend_image}"
 ensure_env ATHENA_PROD_BROWSER_WORKER_IMAGE "${browser_worker_image}"
+module_backend_image="$(awk -F= '$1 == "ATHENA_PROD_BACKEND_IMAGE" { sub(/^[^=]*=/, ""); print; exit }' "${compose_env}")"
+module_browser_worker_image="$(awk -F= '$1 == "ATHENA_PROD_BROWSER_WORKER_IMAGE" { sub(/^[^=]*=/, ""); print; exit }' "${compose_env}")"
+module_image_variables=(
+  ATHENA_PROD_API_IMAGE
+  ATHENA_PROD_EDGE_PROBE_IMAGE
+  ATHENA_PROD_BACKGROUND_WORKER_IMAGE
+  ATHENA_PROD_REALTIME_GATEWAY_IMAGE
+  ATHENA_PROD_READER_WORKER_IMAGE
+  ATHENA_PROD_SCHEDULER_IMAGE
+  ATHENA_PROD_OPERATIONS_PLANE_IMAGE
+  ATHENA_PROD_CHAT_RUNTIME_IMAGE
+  ATHENA_PROD_AGENT_RUNTIME_IMAGE
+  ATHENA_PROD_MODEL_GATEWAY_IMAGE
+  ATHENA_PROD_TOOL_BROKER_IMAGE
+  ATHENA_PROD_CRYPTO_MARKET_IMAGE
+  ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE
+  ATHENA_PROD_CRYPTO_FORECAST_IMAGE
+  ATHENA_PROD_KEY_CUSTODY_IMAGE
+  ATHENA_PROD_IDENTITY_IMAGE
+  ATHENA_PROD_KNOWLEDGE_INGEST_IMAGE
+  ATHENA_PROD_RAG_IMAGE
+  ATHENA_PROD_OPERATIONS_SHADOW_AGENTS_IMAGE
+  ATHENA_PROD_BROWSER_PLANE_IMAGE
+  ATHENA_PROD_COLLECTOR_IMAGE
+)
+for module_image_variable in "${module_image_variables[@]}"; do
+  ensure_env "${module_image_variable}" "${module_backend_image}"
+done
+ensure_env ATHENA_PROD_BROWSER_WORKER_IMAGE "${module_browser_worker_image}"
 ensure_env ATHENA_PROD_NETWORK anythingllm-v2_default
 ensure_env ATHENA_PROD_POSTGRES_ADMIN_PASSWORD "$(random_secret 36)"
 ensure_env ATHENA_PROD_POSTGRES_MAIN_PASSWORD "$(random_secret 36)"

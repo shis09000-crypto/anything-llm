@@ -36,12 +36,18 @@ wait_healthy() {
   return 1
 }
 
-current_line="$(grep -E '^ATHENA_PROD_BACKEND_IMAGE=' "$env_file" || true)"
+current_line="$(grep -E '^ATHENA_PROD_API_IMAGE=' "$env_file" || true)"
 if [[ -z "$current_line" ]]; then
-  echo "backend_image_setting_missing" >&2
+  echo "api_image_setting_missing" >&2
   exit 2
 fi
-old_image="${current_line#ATHENA_PROD_BACKEND_IMAGE=}"
+old_image="${current_line#ATHENA_PROD_API_IMAGE=}"
+blue_container="$("${compose[@]}" ps -q anything-llm-api)"
+running_blue_image="$(docker inspect -f '{{.Config.Image}}' "$blue_container")"
+if [[ "$old_image" != "$running_blue_image" ]]; then
+  echo "api_image_state_mismatch:configured=$old_image running=$running_blue_image" >&2
+  exit 2
+fi
 backup="${env_file}.api-roll-backup"
 cp -p "$env_file" "$backup"
 rollout_complete=false
@@ -76,7 +82,7 @@ trap rollback ERR INT TERM
 
 awk -v image="$new_image" '
   BEGIN { replaced = 0 }
-  /^ATHENA_PROD_BACKEND_IMAGE=/ { print "ATHENA_PROD_BACKEND_IMAGE=" image; replaced = 1; next }
+  /^ATHENA_PROD_API_IMAGE=/ { print "ATHENA_PROD_API_IMAGE=" image; replaced = 1; next }
   { print }
   END { if (!replaced) exit 2 }
 ' "$env_file" >"${env_file}.next"

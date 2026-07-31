@@ -130,6 +130,7 @@ function main() {
   const backendRuntimeSourceBuild = read(
     "scripts/production/build-backend-runtime-source.sh"
   );
+  const moduleRollout = read("scripts/production/roll-micro-module.sh");
   const findings = [];
   const warnings = [];
 
@@ -323,6 +324,20 @@ function main() {
   for (const apiSlot of ["anything-llm-api", "anything-llm-api-green"])
     if (!production.services?.[apiSlot])
       findings.push(`production_api_zero_downtime_slot_missing:${apiSlot}`);
+  for (const [moduleId, [serviceName]] of Object.entries(RUNTIME_BINDINGS)) {
+    const suffix = serviceName
+      .replace(/^anything-llm-/, "")
+      .replaceAll("-", "_")
+      .toUpperCase();
+    const expected = `\${ATHENA_PROD_${suffix}_IMAGE:?required}`;
+    if (production.services?.[serviceName]?.image !== expected)
+      findings.push(`production_module_image_not_independent:${moduleId}`);
+    if (
+      serviceName !== "anything-llm-api" &&
+      !moduleRollout.includes(`${serviceName}) image_variable=`)
+    )
+      findings.push(`production_module_rollout_missing:${moduleId}`);
+  }
   const cryptoAccount =
     preproduction.services?.["anything-llm-crypto-account"] || {};
   const toolBroker = preproduction.services?.["anything-llm-tool-broker"] || {};

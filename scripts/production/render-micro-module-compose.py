@@ -42,6 +42,11 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-collector",
 }
 
+
+def module_image_variable(service_name: str) -> str:
+    module = service_name.removeprefix("anything-llm-")
+    return f"ATHENA_PROD_{module.replace('-', '_').upper()}_IMAGE"
+
 # The production topology mirrors the validated preproduction trust boundary:
 # only Key Custody receives platform master-key material. All other services
 # call its mTLS policy endpoint and cannot silently fall back to local unwrap.
@@ -213,11 +218,7 @@ def render(source: Path) -> dict:
 
         environment = service.setdefault("environment", {})
         if name in BACKEND_IMAGE_SERVICES:
-            service["image"] = (
-                "${ATHENA_PROD_BROWSER_WORKER_IMAGE:?required}"
-                if name == "anything-llm-browser-worker"
-                else "${ATHENA_PROD_BACKEND_IMAGE:?required}"
-            )
+            service["image"] = f"${{{module_image_variable(name)}:?required}}"
             service["init"] = True
             service["stop_grace_period"] = "120s"
             service["restart"] = "unless-stopped"
