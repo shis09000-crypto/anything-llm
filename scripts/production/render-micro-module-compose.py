@@ -60,6 +60,27 @@ EXCLUDED_SERVICES = {
     "athena-preproduction-ingress",
 }
 
+DEFAULT_SERVICE_PORTS = {
+    "anything-llm-reader-worker": 3011,
+    "anything-llm-background-worker": 3012,
+    "anything-llm-realtime-gateway": 3013,
+    "anything-llm-scheduler": 3014,
+    "anything-llm-operations-plane": 3015,
+    "anything-llm-chat-runtime": 3016,
+    "anything-llm-agent-runtime": 3017,
+    "anything-llm-model-gateway": 3018,
+    "anything-llm-tool-broker": 3019,
+    "anything-llm-crypto-market": 3020,
+    "anything-llm-crypto-account": 3021,
+    "anything-llm-crypto-forecast": 3022,
+    "anything-llm-key-custody": 3023,
+    "anything-llm-edge-probe": 3025,
+    "anything-llm-identity": 3026,
+    "anything-llm-knowledge-ingest": 3027,
+    "anything-llm-rag": 3028,
+    "anything-llm-operations-shadow-agents": 3029,
+}
+
 
 def transform_string(value: str) -> str:
     replacements = (
@@ -106,7 +127,7 @@ def healthcheck(port: int, path: str = "/ready") -> dict:
     }
 
 
-def service_port(environment: dict) -> int | None:
+def service_port(name: str, environment: dict) -> int | None:
     names = (
         "BACKGROUND_WORKER_PORT",
         "REALTIME_GATEWAY_PORT",
@@ -130,7 +151,7 @@ def service_port(environment: dict) -> int | None:
     for name in names:
         if name in environment:
             return int(environment[name])
-    return None
+    return DEFAULT_SERVICE_PORTS.get(name)
 
 
 def render(source: Path) -> dict:
@@ -209,7 +230,7 @@ def render(source: Path) -> dict:
                 for volume in service.get("volumes", [])
             ]
 
-        port = service_port(environment)
+        port = service_port(name, environment)
         if port:
             service["healthcheck"] = healthcheck(port)
         if name == "anything-llm-api":
