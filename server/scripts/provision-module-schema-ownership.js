@@ -74,7 +74,7 @@ async function applyOwnership({ client, database, registry, roles }) {
         `SELECT pg_get_serial_sequence($1, column_name) AS sequence_name
            FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = $2`,
-        [`public.${table}`, table]
+        [`public.${quoteIdentifier(table)}`, table]
       );
       for (const row of sequences.rows) {
         if (!row.sequence_name) continue;
