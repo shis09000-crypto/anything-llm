@@ -111,6 +111,21 @@ describe("databaseProvider", () => {
     expect(new URL(authPostgresqlUrl(env)).username).toBe("auth_observer");
   });
 
+  it("gives Key Custody its dedicated main and auth principals", () => {
+    const env = {
+      ATHENA_RUNTIME_ROLE: "key-custody",
+      ATHENA_MODULE_SCHEMA_CUTOVER: "true",
+      ATHENA_KEY_CUSTODY_MAIN_DATABASE_URL:
+        "postgresql://custody@localhost:5432/athena_main?schema=public",
+      ATHENA_KEY_CUSTODY_DATABASE_URL:
+        "postgresql://custody@localhost:5432/athena_auth?schema=public",
+      ATHENA_MAIN_OBSERVER_DATABASE_URL:
+        "postgresql://main_observer@localhost:5432/athena_main?schema=public",
+    };
+    expect(new URL(mainPostgresqlUrl(env)).username).toBe("custody");
+    expect(new URL(authPostgresqlUrl(env)).username).toBe("custody");
+  });
+
   it("requires a dedicated migration principal", () => {
     expect(() =>
       migrationPostgresqlUrl("main", {

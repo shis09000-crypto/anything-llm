@@ -5,8 +5,11 @@ set -eu
 # may share local values, but the principals, databases and grants stay
 # separate so an API credential cannot silently acquire migration privileges.
 psql --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
+  --set admin_user="$POSTGRES_USER" \
+  --set admin_password="$POSTGRES_PASSWORD" \
   --set main_password="$ATHENA_POSTGRES_MAIN_PASSWORD" \
   --set auth_password="$ATHENA_POSTGRES_AUTH_PASSWORD" <<'SQL'
+SELECT format('ALTER ROLE %I PASSWORD %L', :'admin_user', :'admin_password')\gexec
 SELECT 'CREATE ROLE athena_main_owner NOLOGIN'
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_main_owner')\gexec
 SELECT 'CREATE ROLE athena_auth_owner NOLOGIN'
@@ -31,6 +34,16 @@ SELECT format('CREATE ROLE athena_main_observer LOGIN PASSWORD %L', :'main_passw
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_main_observer')\gexec
 SELECT format('CREATE ROLE athena_auth_observer LOGIN PASSWORD %L', :'auth_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_auth_observer')\gexec
+
+ALTER ROLE athena_main_migrator PASSWORD :'main_password';
+ALTER ROLE athena_main_api PASSWORD :'main_password';
+ALTER ROLE athena_main_background PASSWORD :'main_password';
+ALTER ROLE athena_main_reader PASSWORD :'main_password';
+ALTER ROLE athena_main_gateway PASSWORD :'main_password';
+ALTER ROLE athena_main_observer PASSWORD :'main_password';
+ALTER ROLE athena_auth_migrator PASSWORD :'auth_password';
+ALTER ROLE athena_auth_api PASSWORD :'auth_password';
+ALTER ROLE athena_auth_observer PASSWORD :'auth_password';
 
 SELECT 'CREATE DATABASE athena_main OWNER athena_main_owner'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'athena_main')\gexec
@@ -115,8 +128,26 @@ WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_schedu
 SELECT format('CREATE ROLE athena_sync LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_sync')\gexec
 
+ALTER ROLE athena_identity PASSWORD :'auth_password';
+ALTER ROLE athena_key_custody PASSWORD :'auth_password';
+ALTER ROLE athena_workspace PASSWORD :'main_password';
+ALTER ROLE athena_chat PASSWORD :'main_password';
+ALTER ROLE athena_agent PASSWORD :'main_password';
+ALTER ROLE athena_model_runtime PASSWORD :'main_password';
+ALTER ROLE athena_tools PASSWORD :'main_password';
+ALTER ROLE athena_crypto_market PASSWORD :'main_password';
+ALTER ROLE athena_crypto_account PASSWORD :'main_password';
+ALTER ROLE athena_crypto_forecast PASSWORD :'main_password';
+ALTER ROLE athena_browser_plane PASSWORD :'main_password';
+ALTER ROLE athena_knowledge_query PASSWORD :'main_password';
+ALTER ROLE athena_knowledge_ingest PASSWORD :'main_password';
+ALTER ROLE athena_knowledge_reader PASSWORD :'main_password';
+ALTER ROLE athena_maintenance PASSWORD :'main_password';
+ALTER ROLE athena_scheduler PASSWORD :'main_password';
+ALTER ROLE athena_sync PASSWORD :'main_password';
+
 GRANT CONNECT ON DATABASE athena_auth TO athena_identity, athena_key_custody;
-GRANT CONNECT ON DATABASE athena_main TO athena_identity;
+GRANT CONNECT ON DATABASE athena_main TO athena_identity, athena_key_custody;
 GRANT CONNECT ON DATABASE athena_main TO
   athena_workspace,
   athena_chat,
@@ -154,6 +185,37 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_key_custody IN SCHEMA key_custody
 SQL
 
 psql --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname athena_main <<'SQL'
+-- Until the security governance tables are physically moved into the
+-- key_custody schema, the dedicated principal owns only their exact legacy
+-- public-table ACLs. This keeps expand/contract compatible without restoring
+-- the old main API or observer credential inside Key Custody.
+GRANT USAGE ON SCHEMA public TO athena_key_custody;
+DO $$
+DECLARE
+  object_name text;
+BEGIN
+  FOREACH object_name IN ARRAY ARRAY[
+    'security_key_registry',
+    'security_key_domain_bindings',
+    'security_key_rotation_jobs',
+    'security_key_rotation_approvals',
+    'security_key_events'
+  ] LOOP
+    IF to_regclass(format('public.%I', object_name)) IS NOT NULL THEN
+      EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO athena_key_custody',
+        object_name
+      );
+    END IF;
+    IF to_regclass(format('public.%I_id_seq', object_name)) IS NOT NULL THEN
+      EXECUTE format(
+        'GRANT USAGE, SELECT ON SEQUENCE public.%I TO athena_key_custody',
+        object_name || '_id_seq'
+      );
+    END IF;
+  END LOOP;
+END $$;
+
 CREATE SCHEMA IF NOT EXISTS workspace AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS identity AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS chat AUTHORIZATION athena_main_owner;

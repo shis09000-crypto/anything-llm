@@ -24,11 +24,36 @@ if [[ -z "$postgres_container" ]]; then
   exit 2
 fi
 
-# The checked-in initializer is deliberately idempotent. Running it through
-# the live PostgreSQL container gives existing installations the same roles,
-# logical schemas, and default privileges as a fresh installation without
-# exporting database passwords to the host process or logs.
-"${compose[@]}" exec -T postgresql sh -s <"$init_script" >/dev/null
+# The checked-in initializer is deliberately idempotent. Existing PostgreSQL
+# containers retain the environment from their original creation, so the
+# authoritative values must be re-read from the protected compose env file on
+# every reconciliation. Secrets travel over stdin only: they are never placed
+# in argv, compose labels, or command output.
+set -a
+# shellcheck disable=SC1090
+. "$env_file"
+set +a
+: "${ATHENA_PROD_POSTGRES_ADMIN_PASSWORD:?missing production PostgreSQL admin password}"
+: "${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?missing production PostgreSQL main password}"
+: "${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?missing production PostgreSQL auth password}"
+
+{
+  printf '%s\n' \
+    "$ATHENA_PROD_POSTGRES_ADMIN_PASSWORD" \
+    "$ATHENA_PROD_POSTGRES_MAIN_PASSWORD" \
+    "$ATHENA_PROD_POSTGRES_AUTH_PASSWORD"
+  cat "$init_script"
+} | "${compose[@]}" exec -T postgresql sh -ceu '
+  IFS= read -r POSTGRES_PASSWORD
+  IFS= read -r ATHENA_POSTGRES_MAIN_PASSWORD
+  IFS= read -r ATHENA_POSTGRES_AUTH_PASSWORD
+  export POSTGRES_PASSWORD ATHENA_POSTGRES_MAIN_PASSWORD ATHENA_POSTGRES_AUTH_PASSWORD
+  exec sh -s
+' >/dev/null
+
+unset ATHENA_PROD_POSTGRES_ADMIN_PASSWORD
+unset ATHENA_PROD_POSTGRES_MAIN_PASSWORD
+unset ATHENA_PROD_POSTGRES_AUTH_PASSWORD
 
 expected_roles='athena_main_observer athena_auth_observer athena_identity athena_key_custody athena_workspace athena_chat athena_agent athena_model_runtime athena_tools athena_crypto_market athena_crypto_account athena_crypto_forecast athena_browser_plane athena_knowledge_query athena_knowledge_ingest athena_knowledge_reader athena_maintenance athena_scheduler athena_sync'
 actual_roles="$("${compose[@]}" exec -T postgresql sh -ceu '

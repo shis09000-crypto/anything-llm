@@ -29,6 +29,7 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_SYNC_DATABASE_URL: postgresql://athena_sync:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_MAIN_OBSERVER_DATABASE_URL: postgresql://athena_main_observer:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_IDENTITY_MAIN_DATABASE_URL: postgresql://athena_identity:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
+  ATHENA_KEY_CUSTODY_MAIN_DATABASE_URL: postgresql://athena_key_custody:${ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_IDENTITY_DATABASE_URL: postgresql://athena_identity:${ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth?schema=public
   ATHENA_KEY_CUSTODY_DATABASE_URL: postgresql://athena_key_custody:${ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth?schema=public
   ATHENA_AUTH_OBSERVER_DATABASE_URL: postgresql://athena_auth_observer:${ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth?schema=public

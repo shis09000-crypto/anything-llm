@@ -131,6 +131,10 @@ function main() {
     "scripts/production/build-backend-runtime-source.sh"
   );
   const moduleRollout = read("scripts/production/roll-micro-module.sh");
+  const databaseRoleInitializer = read("docker/postgresql/init-athena.sh");
+  const databaseRoleProvisioner = read(
+    "scripts/production/provision-module-database-roles.sh"
+  );
   const findings = [];
   const warnings = [];
 
@@ -312,6 +316,49 @@ function main() {
       findings.push(`runtime_source_dependency_guard_missing:${immutableInput}`);
   if (!backendRuntimeSourceBuild.includes("full_rebuild_required"))
     findings.push("runtime_source_dependency_change_not_fail_closed");
+  for (const role of [
+    "athena_main_observer",
+    "athena_auth_observer",
+    "athena_key_custody",
+    "athena_crypto_forecast",
+    "athena_browser_plane",
+  ])
+    if (!databaseRoleInitializer.includes(`ALTER ROLE ${role} PASSWORD`))
+      findings.push(`database_role_password_reconciliation_missing:${role}`);
+  if (
+    !databaseRoleInitializer.includes(
+      "SELECT format('ALTER ROLE %I PASSWORD %L', :'admin_user', :'admin_password')"
+    )
+  )
+    findings.push("database_admin_password_reconciliation_missing");
+  for (const secret of [
+    "ATHENA_PROD_POSTGRES_ADMIN_PASSWORD",
+    "ATHENA_PROD_POSTGRES_MAIN_PASSWORD",
+    "ATHENA_PROD_POSTGRES_AUTH_PASSWORD",
+  ])
+    if (!databaseRoleProvisioner.includes(secret))
+      findings.push(`database_role_provisioner_secret_missing:${secret}`);
+  if (
+    !String(
+      preproduction["x-authoritative-runtime"]
+        ?.ATHENA_KEY_CUSTODY_MAIN_DATABASE_URL || ""
+    ).includes("athena_key_custody:")
+  )
+    findings.push("key_custody_dedicated_main_principal_missing");
+  for (const table of [
+    "security_key_registry",
+    "security_key_domain_bindings",
+    "security_key_rotation_jobs",
+    "security_key_rotation_approvals",
+    "security_key_events",
+  ])
+    if (!databaseRoleInitializer.includes(table))
+      findings.push(`key_custody_legacy_table_acl_missing:${table}`);
+  if (
+    !databaseRoleProvisioner.includes('IFS= read -r POSTGRES_PASSWORD') ||
+    !databaseRoleProvisioner.includes('exec sh -s')
+  )
+    findings.push("database_role_provisioner_stdin_reconciliation_missing");
   if (!dockerfile.includes(".bin/playwright-core install --with-deps chromium"))
     findings.push("browser_worker_standard_build_uses_invalid_playwright_cli");
   if (
