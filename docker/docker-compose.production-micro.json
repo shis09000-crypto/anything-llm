@@ -2644,6 +2644,9 @@
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
       "mem_limit": "384m",
+      "cap_add": [
+        "SYS_ADMIN"
+      ],
       "healthcheck": {
         "test": [
           "CMD-SHELL",

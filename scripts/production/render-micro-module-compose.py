@@ -291,6 +291,10 @@ def render(source: Path) -> dict:
     api_tls["mem_limit"] = "64m"
 
     collector = services["anything-llm-collector"]
+    # Preserve the existing production Chromium sandbox contract. The
+    # alternative would be --no-sandbox, which is not an acceptable security
+    # downgrade for Collector parsing workloads.
+    collector["cap_add"] = ["SYS_ADMIN"]
     collector["healthcheck"] = {
         "test": [
             "CMD-SHELL",
