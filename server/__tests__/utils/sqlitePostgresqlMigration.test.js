@@ -1,10 +1,14 @@
 const Database = require("better-sqlite3");
 const {
+  bindValue,
   chunkHash,
   convertValue,
+  differingColumns,
   installCdc,
   orderedTables,
+  parameterExpression,
   parseArgs,
+  sourceTables,
   tableMetadata,
   upsertStatement,
 } = require("../../scripts/migrate-sqlite-to-postgresql");
@@ -71,6 +75,43 @@ describe("SQLite to PostgreSQL migration controls", () => {
     expect(first).toBe(second);
   });
 
+  it("binds integer-valued SQLite REALs through an explicit text cast", () => {
+    const metadata = {
+      table: "scores",
+      columns: ["id", "score", "amount"],
+      primaryKey: ["id"],
+    };
+    const statement = upsertStatement(
+      metadata,
+      new Map([
+        ["id", "integer"],
+        ["score", "double precision"],
+        ["amount", "numeric"],
+      ])
+    );
+    expect(statement.sql).toContain(
+      'VALUES ($1, $2::text::double precision, $3::text::numeric)'
+    );
+    expect(parameterExpression(0, "integer")).toBe("$1");
+    expect(bindValue(1, "double precision")).toBe("1");
+    expect(convertValue(1, "double precision")).toBe(1);
+  });
+
+  it("reports only differing column names during hash diagnosis", () => {
+    expect(
+      differingColumns(
+        [{ id: 1, enabled: 1, value: "source" }],
+        [{ id: 1, enabled: true, value: "target" }],
+        ["id", "enabled", "value"],
+        new Map([
+          ["id", "integer"],
+          ["enabled", "boolean"],
+          ["value", "text"],
+        ])
+      )
+    ).toEqual(["value"]);
+  });
+
   it("discovers composite primary keys in declared order", () => {
     const db = new Database(":memory:");
     db.exec(
@@ -80,6 +121,34 @@ describe("SQLite to PostgreSQL migration controls", () => {
       "userId",
       "clientId",
     ]);
+    db.close();
+  });
+
+  it("combines PostgreSQL-only foreign keys with SQLite table ordering", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE child_rows (id INTEGER PRIMARY KEY, parentId INTEGER);
+      CREATE TABLE parent_rows (id INTEGER PRIMARY KEY);
+    `);
+    expect(
+      orderedTables(
+        db,
+        ["child_rows", "parent_rows"],
+        new Map([["child_rows", new Set(["parent_rows"])]])
+      )
+    ).toEqual(["parent_rows", "child_rows"]);
+    db.close();
+  });
+
+  it("never copies Prisma or Athena migration control tables", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE _prisma_migrations (id TEXT PRIMARY KEY);
+      CREATE TABLE athena_migration_changes (seq INTEGER PRIMARY KEY);
+      CREATE TABLE athena_migration_state (key TEXT PRIMARY KEY);
+      CREATE TABLE business_rows (id INTEGER PRIMARY KEY);
+    `);
+    expect(sourceTables(db)).toEqual(["business_rows"]);
     db.close();
   });
 });

@@ -7,8 +7,17 @@ const {
 } = require("./lib/runtimeBootstrap");
 
 const CONTROL_TABLES = new Set([
+  "_prisma_migrations",
   "athena_migration_changes",
   "athena_migration_state",
+]);
+
+const TEXT_CAST_PARAMETER_TYPES = new Set([
+  "bigint",
+  "decimal",
+  "double precision",
+  "numeric",
+  "real",
 ]);
 
 function parseArgs(argv = process.argv.slice(2)) {
@@ -57,18 +66,25 @@ function tableMetadata(db, table) {
   };
 }
 
-function orderedTables(db, tables = sourceTables(db)) {
+function orderedTables(
+  db,
+  tables = sourceTables(db),
+  additionalParents = new Map()
+) {
   const remaining = new Set(tables);
   const ordered = [];
   while (remaining.size) {
     let progressed = false;
     for (const table of [...remaining].sort()) {
-      const parents = db
+      const parents = new Set(
+        db
         .prepare(`PRAGMA foreign_key_list(${quoteIdentifier(table)})`)
         .all()
         .map((row) => String(row.table))
-        .filter((parent) => remaining.has(parent));
-      if (parents.length) continue;
+      );
+      for (const parent of additionalParents.get(table) || [])
+        parents.add(parent);
+      if ([...parents].some((parent) => remaining.has(parent))) continue;
       ordered.push(table);
       remaining.delete(table);
       progressed = true;
@@ -116,6 +132,15 @@ function installCdc(db) {
       updatedAt TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
   `);
+  for (const table of CONTROL_TABLES) {
+    for (const operation of ["insert", "update", "delete"]) {
+      db.exec(
+        `DROP TRIGGER IF EXISTS ${quoteIdentifier(
+          cdcTriggerName(table, operation)
+        )}`
+      );
+    }
+  }
   let installed = 0;
   for (const table of sourceTables(db)) {
     const { primaryKey } = tableMetadata(db, table);
@@ -157,6 +182,28 @@ async function targetMetadata(client) {
   return tables;
 }
 
+async function targetParentDependencies(client) {
+  const rows = await client.$queryRawUnsafe(`
+    SELECT child.relname AS table_name, parent.relname AS parent_table_name
+    FROM pg_constraint constraint_row
+    JOIN pg_class child ON child.oid = constraint_row.conrelid
+    JOIN pg_namespace child_namespace ON child_namespace.oid = child.relnamespace
+    JOIN pg_class parent ON parent.oid = constraint_row.confrelid
+    JOIN pg_namespace parent_namespace ON parent_namespace.oid = parent.relnamespace
+    WHERE constraint_row.contype = 'f'
+      AND child_namespace.nspname = current_schema()
+      AND parent_namespace.nspname = current_schema()
+    ORDER BY child.relname, parent.relname
+  `);
+  const dependencies = new Map();
+  for (const row of rows) {
+    const table = String(row.table_name);
+    if (!dependencies.has(table)) dependencies.set(table, new Set());
+    dependencies.get(table).add(String(row.parent_table_name));
+  }
+  return dependencies;
+}
+
 function convertValue(value, dataType) {
   if (value === null || value === undefined) return null;
   if (dataType === "boolean") return Boolean(Number(value));
@@ -168,8 +215,28 @@ function convertValue(value, dataType) {
     return value instanceof Date ? value : new Date(value);
   if (dataType === "bytea" && !(value instanceof Buffer))
     return Buffer.from(value);
+  if (["double precision", "real"].includes(dataType)) return Number(value);
+  if (["decimal", "numeric"].includes(dataType)) return String(value);
   if (dataType === "bigint") return BigInt(value);
   return value;
+}
+
+function bindValue(value, dataType) {
+  const converted = convertValue(value, dataType);
+  if (converted === null || converted === undefined) return converted;
+  // Prisma selects the PostgreSQL binary representation for a JavaScript
+  // number from its runtime value. Integer-valued SQLite REALs (for example
+  // 1.0) can consequently be encoded as integers while PostgreSQL expects a
+  // float8 parameter. Bind numeric families as text and cast them explicitly
+  // in SQL so values keep their exact meaning without binary OID ambiguity.
+  if (TEXT_CAST_PARAMETER_TYPES.has(dataType)) return String(converted);
+  return converted;
+}
+
+function parameterExpression(index, dataType) {
+  const parameter = `$${index + 1}`;
+  if (!TEXT_CAST_PARAMETER_TYPES.has(dataType)) return parameter;
+  return `${parameter}::text::${dataType}`;
 }
 
 function upsertStatement(metadata, targetColumns) {
@@ -180,7 +247,11 @@ function upsertStatement(metadata, targetColumns) {
     columns.includes(column)
   );
   if (!columns.length || !primaryKey.length) return null;
-  const values = columns.map((_, index) => `$${index + 1}`).join(", ");
+  const values = columns
+    .map((column, index) =>
+      parameterExpression(index, targetColumns.get(column))
+    )
+    .join(", ");
   const updates = columns
     .filter((column) => !primaryKey.includes(column))
     .map(
@@ -204,9 +275,14 @@ async function copyRows({ client, metadata, targetColumns, rows }) {
   let copied = 0;
   for (const row of rows) {
     const values = statement.columns.map((column) =>
-      convertValue(row[column], targetColumns.get(column))
+      bindValue(row[column], targetColumns.get(column))
     );
-    await client.$executeRawUnsafe(statement.sql, ...values);
+    try {
+      await client.$executeRawUnsafe(statement.sql, ...values);
+    } catch (error) {
+      error.code = `POSTGRESQL_COPY_FAILED:${metadata.table}`;
+      throw error;
+    }
     copied += 1;
   }
   return copied;
@@ -236,6 +312,24 @@ function chunkHash(rows, columns, dataTypes = null) {
   return hash.digest("hex");
 }
 
+function differingColumns(sourceRows, targetRows, columns, dataTypes) {
+  const differing = new Set();
+  const rowCount = Math.max(sourceRows.length, targetRows.length);
+  for (let index = 0; index < rowCount; index += 1) {
+    const source = sourceRows[index] || {};
+    const target = targetRows[index] || {};
+    for (const column of columns) {
+      const sourceValue = canonicalValue(
+        convertValue(source[column], dataTypes.get(column))
+      );
+      const targetValue = canonicalValue(target[column]);
+      if (JSON.stringify(sourceValue) !== JSON.stringify(targetValue))
+        differing.add(column);
+    }
+  }
+  return [...differing].sort();
+}
+
 async function ensureEmptyTarget(client, tables, allowNonempty) {
   if (allowNonempty) return;
   for (const table of tables) {
@@ -252,7 +346,10 @@ async function ensureEmptyTarget(client, tables, allowNonempty) {
 
 async function snapshot({ db, client, batchSize, allowNonempty }) {
   const targets = await targetMetadata(client);
-  const tables = orderedTables(db).filter((table) => targets.has(table));
+  const targetParents = await targetParentDependencies(client);
+  const tables = orderedTables(db, sourceTables(db), targetParents).filter(
+    (table) => targets.has(table)
+  );
   await ensureEmptyTarget(client, tables, allowNonempty);
   const startSeq = Number(
     db
@@ -411,6 +508,12 @@ async function verify({ db, client, batchSize }) {
           offset,
           sourceHash,
           targetHash,
+          differingColumns: differingColumns(
+            sourceRows,
+            targetRows,
+            columns,
+            targets.get(table)
+          ),
         });
         break;
       }
@@ -543,14 +646,18 @@ if (require.main === module) {
 
 module.exports = {
   catchUp,
+  bindValue,
   cdcTriggerName,
   chunkHash,
   convertValue,
+  differingColumns,
   installCdc,
   orderedTables,
   parseArgs,
+  parameterExpression,
   quoteIdentifier,
   sourceTables,
   tableMetadata,
+  targetParentDependencies,
   upsertStatement,
 };
