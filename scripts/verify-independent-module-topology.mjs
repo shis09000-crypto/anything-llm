@@ -108,7 +108,9 @@ function writableNamedVolumeMounts(service = {}) {
       const source = parts.join(":");
       return { source, target };
     })
-    .filter(({ source, target }) => source && target && !source.startsWith("."));
+    .filter(
+      ({ source, target }) => source && target && !source.startsWith(".")
+    );
 }
 
 function main() {
@@ -116,7 +118,9 @@ function main() {
   const manifestIds = new Set(manifests.map(({ id }) => id));
   const base = loadYaml("docker/docker-compose.modular.yml");
   const preproduction = loadYaml("docker/docker-compose.preproduction.yml");
-  const production = JSON.parse(read("docker/docker-compose.production-micro.json"));
+  const production = JSON.parse(
+    read("docker/docker-compose.production-micro.json")
+  );
   const prometheus = loadYaml(
     "docker/observability/prometheus.preproduction.yaml"
   );
@@ -160,7 +164,8 @@ function main() {
     )
   );
   const authority = preproduction["x-authoritative-runtime"] || {};
-  const ingress = preproduction.services?.["athena-preproduction-ingress"] || {};
+  const ingress =
+    preproduction.services?.["athena-preproduction-ingress"] || {};
   const requiredAuthority = {
     ATHENA_RUNTIME_TOPOLOGY: "distributed",
     ATHENA_DATABASE_PROVIDER: "postgresql",
@@ -185,12 +190,16 @@ function main() {
 
   if (!String(ingress.image || "").startsWith("caddy:"))
     findings.push("preproduction_caddy_ingress_missing");
-  if (!(ingress.volumes || []).some((mount) =>
-    String(mount).includes("preproduction/Caddyfile:/etc/caddy/Caddyfile:ro")
-  ))
+  if (
+    !(ingress.volumes || []).some((mount) =>
+      String(mount).includes("preproduction/Caddyfile:/etc/caddy/Caddyfile:ro")
+    )
+  )
     findings.push("preproduction_caddy_config_missing");
   for (const port of ["80:80", "443:443"]) {
-    if (!(ingress.ports || []).some((mapping) => String(mapping).includes(port)))
+    if (
+      !(ingress.ports || []).some((mapping) => String(mapping).includes(port))
+    )
       findings.push(`preproduction_caddy_port_missing:${port}`);
   }
   if (
@@ -301,7 +310,7 @@ function main() {
   if (!apiMtlsProxy.includes("proxy_next_upstream_tries 2"))
     findings.push("api_zero_downtime_failover_missing");
   if (
-    !apiRollout.includes('proxy_switched=false') ||
+    !apiRollout.includes("proxy_switched=false") ||
     !apiRollout.includes('if [[ "$proxy_switched" != "true" ]]') ||
     !apiRollout.includes("rm -sf anything-llm-api-green")
   )
@@ -313,7 +322,9 @@ function main() {
     "server/prisma/postgresql/schema.prisma",
   ])
     if (!backendRuntimeSourceBuild.includes(immutableInput))
-      findings.push(`runtime_source_dependency_guard_missing:${immutableInput}`);
+      findings.push(
+        `runtime_source_dependency_guard_missing:${immutableInput}`
+      );
   if (!backendRuntimeSourceBuild.includes("full_rebuild_required"))
     findings.push("runtime_source_dependency_change_not_fail_closed");
   for (const role of [
@@ -355,8 +366,8 @@ function main() {
     if (!databaseRoleInitializer.includes(table))
       findings.push(`key_custody_legacy_table_acl_missing:${table}`);
   if (
-    !databaseRoleProvisioner.includes('IFS= read -r POSTGRES_PASSWORD') ||
-    !databaseRoleProvisioner.includes('exec sh -s')
+    !databaseRoleProvisioner.includes("IFS= read -r POSTGRES_PASSWORD") ||
+    !databaseRoleProvisioner.includes("exec sh -s")
   )
     findings.push("database_role_provisioner_stdin_reconciliation_missing");
   if (!dockerfile.includes(".bin/playwright-core install --with-deps chromium"))
@@ -368,6 +379,26 @@ function main() {
     !browserWorkerRuntimeDockerfile.includes("ATHENA_BACKEND_BASE_IMAGE")
   )
     findings.push("browser_worker_independent_runtime_build_invalid");
+  for (const [environment, topology] of [
+    ["modular", base],
+    ["preproduction", preproduction],
+    ["production", production],
+  ]) {
+    const worker = topology.services?.["anything-llm-browser-worker"] || {};
+    const capabilities = new Set(worker.cap_add || []);
+    const dropped = new Set(worker.cap_drop || []);
+    const security = new Set(worker.security_opt || []);
+    if (
+      capabilities.size !== 1 ||
+      !capabilities.has("SYS_CHROOT") ||
+      !dropped.has("ALL") ||
+      !security.has("no-new-privileges:true") ||
+      ![...security].some((value) =>
+        String(value).startsWith("seccomp=./playwright-seccomp-profile.json")
+      )
+    )
+      findings.push(`browser_worker_sandbox_policy_invalid:${environment}`);
+  }
   for (const apiSlot of ["anything-llm-api", "anything-llm-api-green"])
     if (!production.services?.[apiSlot])
       findings.push(`production_api_zero_downtime_slot_missing:${apiSlot}`);
@@ -435,7 +466,9 @@ function main() {
     "anything-llm-api-green",
   ]);
   const productionWritableVolumes = new Map();
-  for (const [serviceName, service] of Object.entries(production.services || {})) {
+  for (const [serviceName, service] of Object.entries(
+    production.services || {}
+  )) {
     if (!productionRuntimeNames.has(serviceName)) continue;
     for (const mount of writableNamedVolumeMounts(service)) {
       const key = `${mount.source}:${mount.target}`;
@@ -506,9 +539,9 @@ function main() {
         cryptoAccount.depends_on?.["anything-llm-key-custody"]
       ),
       toolBrokerUsesCryptoAccount: Boolean(
-        String(toolBroker.environment?.ATHENA_CRYPTO_ACCOUNT_URL || "").startsWith(
-          "https://anything-llm-crypto-account:"
-        )
+        String(
+          toolBroker.environment?.ATHENA_CRYPTO_ACCOUNT_URL || ""
+        ).startsWith("https://anything-llm-crypto-account:")
       ),
     },
     warnings,

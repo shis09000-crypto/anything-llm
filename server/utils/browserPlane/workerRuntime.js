@@ -219,6 +219,10 @@ class BrowserWorkerRuntime {
     this.activeStreams = new Set();
     this.accepting = true;
     this.stats = { created: 0, actions: 0, failed: 0, crashed: 0 };
+    this.sandboxVerified = false;
+    this.sandboxVerifiedAt = null;
+    this.sandboxProbeError = null;
+    this.sandboxProbe = null;
     this.sweeper = null;
   }
 
@@ -242,11 +246,18 @@ class BrowserWorkerRuntime {
       this.sessions.size
     );
     return {
-      ready: this.accepting && Boolean(executable) && playwrightReady,
+      ready:
+        this.accepting &&
+        Boolean(executable) &&
+        playwrightReady &&
+        this.sandboxVerified,
       driver: "playwright-chromium",
       contract: "athena.browser.driver.v1",
       executableAvailable: Boolean(executable),
       playwrightReady,
+      sandboxVerified: this.sandboxVerified,
+      sandboxVerifiedAt: this.sandboxVerifiedAt,
+      sandboxProbeError: this.sandboxProbeError,
       activeSessions: this.sessions.size,
       maxSessions: this.maxSessions,
       maxTabs: this.maxTabs,
@@ -265,6 +276,69 @@ class BrowserWorkerRuntime {
     if (this.sweeper) return;
     this.sweeper = setInterval(() => void this.sweepIdle(), 30_000);
     this.sweeper.unref?.();
+  }
+
+  async verifySandbox() {
+    if (this.sandboxProbe) return this.sandboxProbe;
+    this.sandboxProbe = (async () => {
+      const binary = executablePath();
+      if (!binary)
+        throw Object.assign(new Error("browser_chromium_unavailable"), {
+          code: "browser_chromium_unavailable",
+        });
+      const probeRoot = path.join(
+        process.env.BROWSER_WORKER_PROFILE_ROOT ||
+          ensureStoragePath("browser-plane", "runtime-probe"),
+        ".sandbox-probe",
+        `${process.pid}-${crypto.randomUUID()}`
+      );
+      let context = null;
+      try {
+        await fs.promises.mkdir(probeRoot, { recursive: true, mode: 0o700 });
+        context = await playwright().chromium.launchPersistentContext(
+          probeRoot,
+          {
+            executablePath: binary,
+            headless: true,
+            chromiumSandbox: true,
+            args: [
+              "--disable-dev-shm-usage",
+              "--disable-background-networking",
+            ],
+          }
+        );
+        const page = context.pages()[0] || (await context.newPage());
+        await page.goto(
+          "data:text/html,<title>Athena Browser Sandbox</title>",
+          {
+            waitUntil: "domcontentloaded",
+            timeout: 10_000,
+          }
+        );
+        if ((await page.title()) !== "Athena Browser Sandbox")
+          throw new Error("browser_sandbox_probe_title_mismatch");
+        this.sandboxVerified = true;
+        this.sandboxVerifiedAt = new Date().toISOString();
+        this.sandboxProbeError = null;
+        return true;
+      } catch (error) {
+        this.sandboxVerified = false;
+        this.sandboxVerifiedAt = null;
+        this.sandboxProbeError = String(
+          error?.code || error?.message || "browser_sandbox_probe_failed"
+        )
+          .replace(/[^a-zA-Z0-9_.:-]/g, "_")
+          .slice(0, 160);
+        throw Object.assign(new Error("browser_sandbox_probe_failed"), {
+          code: "browser_sandbox_probe_failed",
+          cause: error,
+        });
+      } finally {
+        await context?.close().catch(() => null);
+        await fs.promises.rm(probeRoot, { recursive: true, force: true });
+      }
+    })();
+    return this.sandboxProbe;
   }
 
   async sweepIdle() {

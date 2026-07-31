@@ -54,6 +54,43 @@ function safeError(error) {
     .slice(0, 160);
 }
 
+function wrapAsyncRouteHandler(handler) {
+  if (Array.isArray(handler)) return handler.map(wrapAsyncRouteHandler);
+  if (typeof handler !== "function" || handler.length === 4) return handler;
+  return function asyncRouteBoundary(request, response, next) {
+    try {
+      const result = handler.call(this, request, response, next);
+      if (result && typeof result.then === "function") result.catch(next);
+      return result;
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+function installAsyncRouteBoundary(app) {
+  for (const method of [
+    "all",
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "use",
+  ]) {
+    const original = app[method];
+    if (typeof original !== "function") continue;
+    app[method] = function boundedRouteRegistration(...args) {
+      return original.apply(
+        this,
+        args.map((argument) => wrapAsyncRouteHandler(argument))
+      );
+    };
+  }
+}
+
 class MicroModuleServiceHost {
   constructor({
     manifestId,
@@ -118,6 +155,10 @@ class MicroModuleServiceHost {
   }
 
   configureApp() {
+    // Express 4 does not forward rejected async route promises to its error
+    // middleware. A rejected module RPC must become a scoped 4xx/5xx response,
+    // never an unhandled rejection that restarts the whole runtime.
+    installAsyncRouteBoundary(this.app);
     this.app.disable("x-powered-by");
     if (this.parseJson) this.app.use(express.json({ limit: this.jsonLimit }));
     this.app.use((request, response, next) => {

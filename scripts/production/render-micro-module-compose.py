@@ -343,7 +343,10 @@ def render(source: Path) -> dict:
             service["mem_limit"] = "640m"
         elif name == "anything-llm-browser-worker":
             service["mem_limit"] = "768m"
-            service.pop("cap_add", None)
+            # Chromium's namespace sandbox performs a final chroot into an
+            # empty proc fd. Grant only that capability; SYS_ADMIN and the
+            # unsafe --no-sandbox mode remain prohibited.
+            service["cap_add"] = ["SYS_CHROOT"]
             service["init"] = True
             service["cap_drop"] = ["ALL"]
             service["security_opt"] = [

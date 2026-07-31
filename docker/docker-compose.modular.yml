@@ -598,6 +598,8 @@ services:
     init: true
     cap_drop:
       - ALL
+    cap_add:
+      - SYS_CHROOT
     security_opt:
       - no-new-privileges:true
       - seccomp=./playwright-seccomp-profile.json

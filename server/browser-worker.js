@@ -26,7 +26,12 @@ const host = new MicroModuleServiceHost({
   jsonLimit: "2mb",
   enableWebSockets: true,
   readiness: () => runtime.capabilities(),
-  onStart: async () => runtime.start(),
+  onStart: async () => {
+    runtime.start();
+    // Readiness is granted only after a real sandboxed Chromium process has
+    // launched and rendered a page under the deployed container policy.
+    await runtime.verifySandbox();
+  },
   onDrain: async () => runtime.drain(),
   onStop: async () => runtime.drain(),
   registerRoutes: (app) => {
