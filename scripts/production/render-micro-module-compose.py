@@ -83,6 +83,13 @@ DEFAULT_SERVICE_PORTS = {
 
 
 def transform_string(value: str) -> str:
+    result = value.replace(
+        "./preproduction/api-mtls-proxy.conf",
+        "__ATHENA_PRODUCTION_API_MTLS_PROXY__",
+    ).replace(
+        "./preproduction/edge-proxy-ssl.conf",
+        "__ATHENA_PRODUCTION_EDGE_PROXY_SSL__",
+    )
     replacements = (
         ("ATHENA_PREPROD_", "ATHENA_PROD_"),
         ("ATHENA_PREPRODUCTION_", "ATHENA_PRODUCTION_"),
@@ -95,13 +102,16 @@ def transform_string(value: str) -> str:
         ("preprod-collector-hotdir:/app/collector/hotdir", "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:/app/collector/hotdir"),
         ("preprod-collector-outputs:/app/collector/outputs", "${ATHENA_PROD_COLLECTOR_OUTPUTS:?required}:/app/collector/outputs"),
         ("./preproduction.empty.env:/app/server/.env:ro", "${ATHENA_PROD_RUNTIME_ENV:?required}:/app/server/.env:ro"),
-        ("./preproduction/api-mtls-proxy.conf", "${ATHENA_PROD_REPO_DIR:?required}/docker/preproduction/api-mtls-proxy.conf"),
-        ("./preproduction/edge-proxy-ssl.conf", "${ATHENA_PROD_REPO_DIR:?required}/docker/preproduction/edge-proxy-ssl.conf"),
     )
-    result = value
     for source, target in replacements:
         result = result.replace(source, target)
-    return result
+    return result.replace(
+        "__ATHENA_PRODUCTION_API_MTLS_PROXY__",
+        "${ATHENA_PROD_REPO_DIR:?required}/docker/preproduction/api-mtls-proxy.conf",
+    ).replace(
+        "__ATHENA_PRODUCTION_EDGE_PROXY_SSL__",
+        "${ATHENA_PROD_REPO_DIR:?required}/docker/preproduction/edge-proxy-ssl.conf",
+    )
 
 
 def transform(value):
@@ -240,6 +250,46 @@ def render(source: Path) -> dict:
             )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
 
+        if name in {"anything-llm-api", "anything-llm-background-worker"}:
+            # Preserve the existing hybrid audit/agent signing boundary while
+            # moving the runtime from the monolith to independent roles. Only
+            # the roles that already held these keys receive private material.
+            environment["ATHENA_AUDIT_HYBRID_SIGNATURES"] = "required"
+            environment["ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED"] = "true"
+            environment["ATHENA_AUDIT_MLDSA65_KEY_ID"] = (
+                "${ATHENA_PROD_AUDIT_MLDSA65_KEY_ID:?required}"
+            )
+            environment["ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE"] = (
+                "/run/secrets/audit-mldsa65-private.pem"
+            )
+            environment["ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE"] = (
+                "/run/secrets/audit-mldsa65-public.pem"
+            )
+            environment["ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION"] = (
+                "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:?required}"
+            )
+            environment["ATHENA_AGENT_MLDSA65_KEY_ID"] = (
+                "${ATHENA_PROD_AGENT_MLDSA65_KEY_ID:?required}"
+            )
+            environment["ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE"] = (
+                "/run/secrets/agent-mldsa65-private.pem"
+            )
+            environment["ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE"] = (
+                "/run/secrets/agent-mldsa65-public.pem"
+            )
+            service.setdefault("volumes", []).extend(
+                [
+                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-private.pem:/run/secrets/audit-mldsa65-private.pem:ro",
+                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-public.pem:/run/secrets/audit-mldsa65-public.pem:ro",
+                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-private.pem:/run/secrets/agent-mldsa65-private.pem:ro",
+                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-public.pem:/run/secrets/agent-mldsa65-public.pem:ro",
+                ]
+            )
+            service["volumes"] = list(dict.fromkeys(service["volumes"]))
+
+        if name == "anything-llm-api":
+            environment["ATHENA_IOS_HIGH_RISK_PQ_REQUIRED"] = "true"
+
         if name in {"anything-llm-chat-runtime", "anything-llm-agent-runtime"}:
             service["volumes"] = [
                 volume.replace(
@@ -264,7 +314,7 @@ def render(source: Path) -> dict:
             )
         if name == "anything-llm-api":
             service["healthcheck"] = {
-                "test": ["CMD-SHELL", "curl --silent --fail http://127.0.0.1:3001/api/ready >/dev/null"],
+                "test": ["CMD-SHELL", "curl --silent --fail --header 'X-Forwarded-Proto: https' http://127.0.0.1:3001/api/ready >/dev/null"],
                 "interval": "15s",
                 "timeout": "5s",
                 "start_period": "60s",

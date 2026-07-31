@@ -27,6 +27,8 @@ const CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT =
 const CHECKPOINT_SIGNING_PAYLOAD_FORMAT = "athena-audit-checkpoint-payload:v2";
 const CHECKPOINT_SIGNATURE_MIGRATION_FORMAT =
   "athena-audit-signature-migration:v1";
+const CHECKPOINT_METADATA_REBIND_FORMAT =
+  "athena-audit-checkpoint-metadata-rebind:v1";
 const ED25519_PKCS8_SEED_PREFIX = Buffer.from(
   "302e020100300506032b657004220420",
   "hex"
@@ -208,6 +210,14 @@ function signingKey(keyId = null) {
       .export({ format: "der", type: "spki" })
       .toString("base64"),
   };
+}
+
+function isTrustedCheckpointKeyMetadata(signature, trusted) {
+  return (
+    signature.parameterSet === trusted.parameterSet &&
+    signature.hardwareProtection === trusted.hardwareProtection &&
+    signature.keyOrigin === trusted.keyOrigin
+  );
 }
 
 function pqSigningKey(keyId = null, { privateKeyRequired = true } = {}) {
@@ -793,9 +803,7 @@ async function verifySecurityAudit({
             : signingKey(signature.keyId);
           if (
             signature.parameterSet !== suite.parameterSet ||
-            signature.parameterSet !== trusted.parameterSet ||
-            signature.keyOrigin !== trusted.keyOrigin ||
-            signature.hardwareProtection !== trusted.hardwareProtection
+            !isTrustedCheckpointKeyMetadata(signature, trusted)
           ) {
             addFailure({
               sequence: checkpoint.throughSequence,
@@ -963,6 +971,230 @@ async function verifySecurityAudit({
     headHash: previousHash,
     failures,
     failureOverflow,
+  };
+}
+
+/**
+ * Rebind checkpoint assurance metadata after the same custody key material is
+ * moved to a different provider. This is an explicit, one-shot migration, not
+ * a verifier exception: the source records must still validate with the
+ * currently anchored public key, and normal verification accepts only the
+ * target metadata after the transaction commits.
+ */
+async function rebindSecurityAuditCheckpointMetadata({
+  sourceKeyOrigin,
+  now = new Date(),
+  dryRun = true,
+  chainId = CHAIN_ID,
+} = {}) {
+  const sourceOrigin = String(sourceKeyOrigin || "").trim();
+  if (!/^hkdf-derived-from-[a-z0-9-]+$/.test(sourceOrigin))
+    throw new Error("security_audit_metadata_rebind_source_origin_required");
+
+  const checkpoints = await prisma.security_audit_checkpoints.findMany({
+    where: { chainId },
+    orderBy: { throughSequence: "asc" },
+  });
+  const candidates = checkpoints.filter(
+    (checkpoint) => checkpoint.keyOrigin === sourceOrigin
+  );
+  if (!candidates.length) {
+    const current = await verifySecurityAudit({ chainId });
+    if (!current.valid)
+      throw new Error("security_audit_metadata_rebind_source_invalid");
+    return {
+      chainId,
+      sourceKeyOrigin: sourceOrigin,
+      targetKeyOrigins: [],
+      matched: 0,
+      migrated: 0,
+      dryRun: dryRun === true,
+      verified: true,
+    };
+  }
+
+  const targetOrigins = new Set();
+  const reboundViews = checkpoints.map((checkpoint) => {
+    if (checkpoint.keyOrigin !== sourceOrigin) return checkpoint;
+    const envelope = JSON.parse(checkpoint.signatureEnvelopeJson || "null");
+    const parsed = parseCheckpointSignatureEnvelope(checkpoint);
+    if (!envelope || !parsed)
+      throw new Error("security_audit_metadata_rebind_envelope_required");
+    const trusted = signingKey(checkpoint.keyId);
+    if (
+      trusted.keyOrigin === sourceOrigin ||
+      checkpoint.parameterSet !== trusted.parameterSet ||
+      checkpoint.hardwareProtection !== trusted.hardwareProtection ||
+      checkpoint.publicKey !== trusted.publicKey
+    ) {
+      throw new Error("security_audit_metadata_rebind_key_mismatch");
+    }
+    const primary = parsed.signatures[0];
+    if (
+      primary?.keyId !== checkpoint.keyId ||
+      primary?.keyOrigin !== sourceOrigin ||
+      primary?.parameterSet !== trusted.parameterSet ||
+      primary?.hardwareProtection !== trusted.hardwareProtection ||
+      primary?.publicKey !== trusted.publicKey
+    ) {
+      throw new Error("security_audit_metadata_rebind_primary_mismatch");
+    }
+    let reboundClassical = 0;
+    const signatures = envelope.signatures.map((signature) => {
+      if (
+        signature?.keyId === checkpoint.keyId &&
+        signature?.postQuantum !== true
+      ) {
+        if (
+          signature.keyOrigin !== sourceOrigin ||
+          signature.parameterSet !== trusted.parameterSet ||
+          signature.hardwareProtection !== trusted.hardwareProtection ||
+          signature.publicKey !== trusted.publicKey
+        ) {
+          throw new Error("security_audit_metadata_rebind_signature_mismatch");
+        }
+        reboundClassical += 1;
+        return { ...signature, keyOrigin: trusted.keyOrigin };
+      }
+      return signature;
+    });
+    if (reboundClassical !== 1)
+      throw new Error("security_audit_metadata_rebind_signature_ambiguous");
+    targetOrigins.add(trusted.keyOrigin);
+    return {
+      ...checkpoint,
+      keyOrigin: trusted.keyOrigin,
+      signatureEnvelopeJson: JSON.stringify({ ...envelope, signatures }),
+    };
+  });
+
+  // Validate the full chain and every classical/PQ signature through a
+  // migration-only in-memory view. No runtime environment flag or alternate
+  // verification path is introduced.
+  const sourceVerification = await verifySecurityAudit({
+    chainId,
+    client: {
+      security_audit_ledger: prisma.security_audit_ledger,
+      security_audit_checkpoints: {
+        findMany: async () => reboundViews,
+      },
+    },
+  });
+  if (!sourceVerification.valid)
+    throw new Error("security_audit_metadata_rebind_source_invalid");
+
+  if (dryRun === true) {
+    return {
+      chainId,
+      sourceKeyOrigin: sourceOrigin,
+      targetKeyOrigins: [...targetOrigins].sort(),
+      matched: candidates.length,
+      migrated: 0,
+      dryRun: true,
+      verified: true,
+    };
+  }
+
+  const reboundById = new Map(
+    reboundViews.map((checkpoint) => [checkpoint.id, checkpoint])
+  );
+  const migrations = candidates.map((checkpoint) => {
+    const rebound = reboundById.get(checkpoint.id);
+    const originalEnvelope = JSON.parse(checkpoint.signatureEnvelopeJson);
+    const reboundEnvelope = JSON.parse(rebound.signatureEnvelopeJson);
+    const parsed = parseCheckpointSignatureEnvelope(rebound);
+    const trusted = signingKey(checkpoint.keyId);
+    const payload = Buffer.from(
+      ledgerCanonical(
+        checkpointSigningPayload({
+          chainId: checkpoint.chainId,
+          throughSequence: checkpoint.throughSequence,
+          throughHash: checkpoint.throughHash,
+          policy: parsed.policy,
+          legacyPolicyShape: parsed.legacyPolicyShape,
+        })
+      ),
+      "utf8"
+    );
+    const targetSignature = classicalCheckpointSignature({
+      key: trusted,
+      payload,
+      signedAt: now,
+    });
+    const retainedSignatures = reboundEnvelope.signatures.filter(
+      (signature) =>
+        signature?.keyId !== checkpoint.keyId || signature?.postQuantum === true
+    );
+    const signatures = [targetSignature, ...retainedSignatures];
+    const priorHistory = Array.isArray(
+      originalEnvelope.metadataRebindHistory
+    )
+      ? originalEnvelope.metadataRebindHistory.slice(-31)
+      : [];
+    const previousEnvelope = Object.fromEntries(
+      Object.entries(originalEnvelope).filter(
+        ([key]) => key !== "metadataRebindHistory"
+      )
+    );
+    const nextEnvelope = {
+      ...reboundEnvelope,
+      signatures,
+      metadataRebindHistory: [
+        ...priorHistory,
+        {
+          format: CHECKPOINT_METADATA_REBIND_FORMAT,
+          reboundAt: new Date(now).toISOString(),
+          keyId: checkpoint.keyId,
+          sourceKeyOrigin: sourceOrigin,
+          targetKeyOrigin: trusted.keyOrigin,
+          previousCheckpoint: {
+            parameterSet: checkpoint.parameterSet,
+            keyOrigin: checkpoint.keyOrigin,
+            hardwareProtection: checkpoint.hardwareProtection,
+            publicKey: checkpoint.publicKey,
+            signature: checkpoint.signature,
+          },
+          previousSignatureEnvelope: previousEnvelope,
+        },
+      ],
+    };
+    return {
+      id: checkpoint.id,
+      keyId: checkpoint.keyId,
+      data: {
+        keyOrigin: trusted.keyOrigin,
+        signature: targetSignature.signature,
+        signatureEnvelopeJson: JSON.stringify(nextEnvelope),
+      },
+    };
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const migration of migrations) {
+      const changed = await tx.security_audit_checkpoints.updateMany({
+        where: {
+          id: migration.id,
+          keyId: migration.keyId,
+          keyOrigin: sourceOrigin,
+        },
+        data: migration.data,
+      });
+      if (Number(changed?.count || 0) !== 1)
+        throw new Error("security_audit_metadata_rebind_write_conflict");
+    }
+    const after = await verifySecurityAudit({ chainId, client: tx });
+    if (!after.valid)
+      throw new Error("security_audit_metadata_rebind_target_invalid");
+  });
+
+  return {
+    chainId,
+    sourceKeyOrigin: sourceOrigin,
+    targetKeyOrigins: [...targetOrigins].sort(),
+    matched: candidates.length,
+    migrated: migrations.length,
+    dryRun: false,
+    verified: true,
   };
 }
 
@@ -1137,6 +1369,7 @@ module.exports = {
   appendSecurityAuditDurably,
   isSecurityRelevantEvent,
   reconcileSecurityAuditSpool,
+  rebindSecurityAuditCheckpointMetadata,
   resignSecurityAuditCheckpoints,
   securityAuditDurabilitySnapshot,
   verifySecurityAudit,
@@ -1144,11 +1377,13 @@ module.exports = {
     CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT,
     CHECKPOINT_SIGNING_PAYLOAD_FORMAT,
     CHECKPOINT_SIGNATURE_MIGRATION_FORMAT,
+    CHECKPOINT_METADATA_REBIND_FORMAT,
     checkpointEnvelope,
     checkpointSigningPayload,
     parseCheckpointSignatureEnvelope,
     boundAuditValue,
     entryEnvelope,
+    isTrustedCheckpointKeyMetadata,
     ledgerCanonical,
     signingKey,
     pqSigningKey,

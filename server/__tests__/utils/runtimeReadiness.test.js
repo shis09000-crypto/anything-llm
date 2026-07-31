@@ -36,7 +36,12 @@ const {
 } = require("../../utils/runtimeReadiness");
 
 describe("runtime readiness disclosure boundaries", () => {
+  const originalTopology = process.env.ATHENA_RUNTIME_TOPOLOGY;
+  const originalOutboxInline = process.env.ATHENA_SYNC_V2_OUTBOX_INLINE;
+
   beforeEach(() => {
+    delete process.env.ATHENA_RUNTIME_TOPOLOGY;
+    delete process.env.ATHENA_SYNC_V2_OUTBOX_INLINE;
     mockRuntimeSnapshot.mockReturnValue({
       status: "running",
       ready: true,
@@ -59,6 +64,14 @@ describe("runtime readiness disclosure boundaries", () => {
       quarantined: false,
       writeBarrier: false,
     });
+  });
+
+  afterAll(() => {
+    if (originalTopology === undefined) delete process.env.ATHENA_RUNTIME_TOPOLOGY;
+    else process.env.ATHENA_RUNTIME_TOPOLOGY = originalTopology;
+    if (originalOutboxInline === undefined)
+      delete process.env.ATHENA_SYNC_V2_OUTBOX_INLINE;
+    else process.env.ATHENA_SYNC_V2_OUTBOX_INLINE = originalOutboxInline;
   });
 
   it("keeps public liveness and readiness free of internal topology", () => {
@@ -90,6 +103,16 @@ describe("runtime readiness disclosure boundaries", () => {
       status: "not_ready",
       ready: false,
       reasonCode: "control_plane_unhealthy",
+    });
+  });
+
+  it("delegates Outbox readiness to the realtime service in micro-module topology", () => {
+    process.env.ATHENA_RUNTIME_TOPOLOGY = "micro-modules";
+    mockOutboxSnapshot.mockReturnValue({ running: false, healthy: true });
+    expect(publicReadinessSnapshot()).toEqual({
+      status: "ready",
+      ready: true,
+      reasonCode: "ready",
     });
   });
 

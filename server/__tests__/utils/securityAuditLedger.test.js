@@ -94,6 +94,7 @@ jest.mock("../../utils/environment", () => ({
 
 const {
   appendSecurityAudit,
+  rebindSecurityAuditCheckpointMetadata,
   resignSecurityAuditCheckpoints,
   verifySecurityAudit,
   _internals,
@@ -102,7 +103,6 @@ const {
 describe("security audit ledger", () => {
   const originalInterval =
     process.env.ATHENA_SECURITY_AUDIT_CHECKPOINT_INTERVAL;
-
   beforeEach(() => {
     mockLedger.length = 0;
     mockCheckpoints.length = 0;
@@ -267,6 +267,92 @@ describe("security audit ledger", () => {
     expect(result.failures).toContainEqual(
       expect.objectContaining({ code: "checkpoint_key_metadata_mismatch" })
     );
+  });
+
+  test("does not allow an environment flag to bypass provider-origin verification", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-provider-migration",
+      event: "key_provider_migrated",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const checkpoint = mockCheckpoints[0];
+    const envelope = JSON.parse(checkpoint.signatureEnvelopeJson);
+    envelope.signatures[0].keyOrigin = "hkdf-derived-from-env-file";
+    checkpoint.keyOrigin = "hkdf-derived-from-env-file";
+    checkpoint.signatureEnvelopeJson = JSON.stringify(envelope);
+
+    await expect(verifySecurityAudit({ pageSize: 50 })).resolves.toMatchObject({
+      valid: false,
+      failures: expect.arrayContaining([
+        expect.objectContaining({ code: "checkpoint_key_metadata_mismatch" }),
+      ]),
+    });
+
+    process.env.ATHENA_AUDIT_TRUSTED_LEGACY_KEY_ORIGINS =
+      "hkdf-derived-from-env-file";
+    await expect(verifySecurityAudit({ pageSize: 50 })).resolves.toMatchObject({
+      valid: false,
+      failures: expect.arrayContaining([
+        expect.objectContaining({ code: "checkpoint_key_metadata_mismatch" }),
+      ]),
+    });
+    delete process.env.ATHENA_AUDIT_TRUSTED_LEGACY_KEY_ORIGINS;
+  });
+
+  test("atomically rebinds provider metadata without leaving a verifier bypass", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-provider-migration",
+      event: "key_provider_migrated",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const checkpoint = mockCheckpoints[0];
+    const envelope = JSON.parse(checkpoint.signatureEnvelopeJson);
+    envelope.signatures[0].keyOrigin = "hkdf-derived-from-env-file";
+    checkpoint.keyOrigin = "hkdf-derived-from-env-file";
+    checkpoint.signatureEnvelopeJson = JSON.stringify(envelope);
+
+    await expect(
+      rebindSecurityAuditCheckpointMetadata({
+        sourceKeyOrigin: "hkdf-derived-from-env-file",
+        dryRun: true,
+      })
+    ).resolves.toMatchObject({
+      matched: 1,
+      migrated: 0,
+      dryRun: true,
+      verified: true,
+    });
+    expect(checkpoint.keyOrigin).toBe("hkdf-derived-from-env-file");
+
+    await expect(
+      rebindSecurityAuditCheckpointMetadata({
+        sourceKeyOrigin: "hkdf-derived-from-env-file",
+        dryRun: false,
+        now: new Date("2026-07-19T00:01:00.000Z"),
+      })
+    ).resolves.toMatchObject({
+      matched: 1,
+      migrated: 1,
+      dryRun: false,
+      verified: true,
+    });
+
+    const reboundEnvelope = JSON.parse(checkpoint.signatureEnvelopeJson);
+    expect(checkpoint.keyOrigin).toBe("hkdf-derived-from-key-custody");
+    expect(reboundEnvelope.signatures[0].keyOrigin).toBe(
+      "hkdf-derived-from-key-custody"
+    );
+    expect(reboundEnvelope.metadataRebindHistory).toEqual([
+      expect.objectContaining({
+        format: "athena-audit-checkpoint-metadata-rebind:v1",
+        sourceKeyOrigin: "hkdf-derived-from-env-file",
+        targetKeyOrigin: "hkdf-derived-from-key-custody",
+      }),
+    ]);
+    await expect(verifySecurityAudit({ pageSize: 50 })).resolves.toMatchObject({
+      valid: true,
+      failures: [],
+    });
   });
 
   test("rejects a signature envelope whose threshold cannot be satisfied", async () => {

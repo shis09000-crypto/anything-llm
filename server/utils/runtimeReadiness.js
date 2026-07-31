@@ -1,5 +1,18 @@
 const { runtimeCoordinator } = require("./runtimeCoordinator");
 
+function localOutboxReadinessRequired(env = process.env) {
+  const enabled = require("./syncV2/config").syncV2OutboxDispatchEnabled(env);
+  if (!enabled) return false;
+  if (env.ATHENA_SYNC_V2_OUTBOX_INLINE !== undefined) {
+    return String(env.ATHENA_SYNC_V2_OUTBOX_INLINE).toLowerCase() === "true";
+  }
+  return !["distributed", "micro-modules"].includes(
+    String(env.ATHENA_RUNTIME_TOPOLOGY || "")
+      .trim()
+      .toLowerCase()
+  );
+}
+
 function detailedReadinessSnapshot() {
   const snapshot = runtimeCoordinator.snapshot();
   const keyCustody = require("./security/keyRuntimeState").securityState();
@@ -10,8 +23,7 @@ function detailedReadinessSnapshot() {
     require("./security/auditLedgerRuntime").securityAuditMaintenanceSnapshot();
   const authSessions =
     require("./security/authSessionSyncReconciler").authSessionSyncReconcilerSnapshot();
-  const outboxRequired =
-    require("./syncV2/config").syncV2OutboxDispatchEnabled();
+  const outboxRequired = localOutboxReadinessRequired();
   const controlPlaneReady =
     keyCustody.status === "ready" &&
     !keyCustody.quarantined &&
@@ -71,6 +83,7 @@ function strictReadinessEnabled(env = process.env) {
 module.exports = {
   detailedReadinessSnapshot,
   livenessSnapshot,
+  localOutboxReadinessRequired,
   publicReadinessSnapshot,
   strictReadinessEnabled,
 };

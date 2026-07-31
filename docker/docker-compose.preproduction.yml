@@ -68,7 +68,9 @@ x-authoritative-runtime: &authoritative-runtime
   PUBLIC_APP_URL: ${ATHENA_PREPROD_PUBLIC_URL:-https://preproduction.athena.invalid}
   ATHENA_ALLOWED_ORIGINS: ${ATHENA_PREPROD_PUBLIC_URL:-https://preproduction.athena.invalid}
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
-  ATHENA_OTEL_HEALTH_URL: http://otel-collector:13133
+  # The production collector does not enable the optional health_check
+  # extension. Its Prometheus exporter is the authoritative liveness surface.
+  ATHENA_OTEL_HEALTH_URL: http://otel-collector:9464/metrics
   ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
 
 x-nats-secrets-volume: &nats-secrets-volume ${ATHENA_PREPROD_SECRETS_DIR:?required}/nats:/run/secrets/athena-nats:ro

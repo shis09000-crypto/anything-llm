@@ -82,6 +82,29 @@ fi
 private_copy "${legacy_secret_dir}/ai-operations/clickhouse-password.server" \
   "${runtime_secret_dir}/clickhouse-password"
 
+unique_pq_secret() {
+  local name="$1"
+  local -a matches=()
+  while IFS= read -r match; do matches+=("${match}"); done < <(
+    find "${legacy_secret_dir}/pq-signing" -mindepth 2 -maxdepth 2 \
+      -type f -name "${name}" -print 2>/dev/null | sort
+  )
+  if [[ "${#matches[@]}" -ne 1 ]]; then
+    echo "Expected exactly one ${name} legacy PQ signing key, found ${#matches[@]}." >&2
+    exit 1
+  fi
+  printf '%s' "${matches[0]}"
+}
+
+private_copy "$(unique_pq_secret audit-mldsa65-private.pem)" \
+  "${runtime_secret_dir}/audit-mldsa65-private.pem"
+public_copy "$(unique_pq_secret audit-mldsa65-public.pem)" \
+  "${runtime_secret_dir}/audit-mldsa65-public.pem"
+private_copy "$(unique_pq_secret agent-registry-mldsa65-private.pem)" \
+  "${runtime_secret_dir}/agent-mldsa65-private.pem"
+public_copy "$(unique_pq_secret agent-registry-mldsa65-public.pem)" \
+  "${runtime_secret_dir}/agent-mldsa65-public.pem"
+
 if [[ ! -s "${runtime_secret_dir}/nats-subject-key" ]]; then
   umask 077
   openssl rand -hex 32 >"${runtime_secret_dir}/nats-subject-key"
@@ -248,11 +271,24 @@ ensure_env ATHENA_PROD_AUTH_TOKEN "$(read_env AUTH_TOKEN)"
 ensure_env ATHENA_PROD_JWT_SECRET "$(read_env JWT_SECRET)"
 ensure_env ATHENA_PROD_SIG_KEY "$(read_env SIG_KEY)"
 ensure_env ATHENA_PROD_SIG_SALT "$(read_env SIG_SALT)"
+ensure_env ATHENA_PROD_AUDIT_MLDSA65_KEY_ID \
+  "${ATHENA_PROD_AUDIT_MLDSA65_KEY_ID:-audit-mldsa65-2026-v1}"
+ensure_env ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION \
+  "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:-software-protected}"
+ensure_env ATHENA_PROD_AGENT_MLDSA65_KEY_ID \
+  "${ATHENA_PROD_AGENT_MLDSA65_KEY_ID:-agent-registry-mldsa65-2026-v1}"
 chmod 0600 "${compose_env}"
 
 chown -R 1000:1000 "${secrets_dir}"
 find "${secrets_dir}" -type d -exec chmod 0700 {} +
 find "${secrets_dir}" -type f -name '*.pem' -exec chmod 0644 {} +
 find "${secrets_dir}" -type f \( -name '*.key' -o -name '*.nk' -o -name '*.env' -o -name '*-private.pem' -o -name 'master-key' -o -name 'password-pepper' -o -name 'nats-subject-key' -o -name 'metrics-token' \) -exec chmod 0600 {} +
+
+# Prometheus runs as uid/gid 65534. Keep every other service secret private,
+# but allow that dedicated identity to traverse the certificate mount and read
+# only its own client key plus the metrics bearer token.
+chmod 0755 "${mtls_dir}"
+chown 1000:65534 "${mtls_dir}/prometheus.key" "${runtime_secret_dir}/metrics-token"
+chmod 0640 "${mtls_dir}/prometheus.key" "${runtime_secret_dir}/metrics-token"
 
 echo "Production micro-module secrets provisioned without rotating existing account, JWT, password-pepper, or platform master-key material."
