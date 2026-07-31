@@ -50,7 +50,39 @@ const RUNTIME_BINDINGS = Object.freeze({
     "anything-llm-operations-shadow-agents",
     "operations-shadow-agents-build",
   ],
+  "browser-plane": ["anything-llm-browser-plane", "browser-plane-build"],
+  "browser-worker": ["anything-llm-browser-worker", "browser-worker-build"],
 });
+
+// RPC edges must not become Compose lifecycle edges. Otherwise pausing an
+// optional module can block an unrelated caller from restarting or rolling
+// back independently.
+const FORBIDDEN_STARTUP_COUPLINGS = Object.freeze([
+  ["anything-llm-api", "anything-llm-collector"],
+  ["anything-llm-api", "anything-llm-identity"],
+  ["anything-llm-api", "anything-llm-knowledge-ingest"],
+  ["anything-llm-api", "anything-llm-rag"],
+  ["anything-llm-api", "anything-llm-browser-plane"],
+  ["anything-llm-api", "anything-llm-browser-worker"],
+  ["anything-llm-api-tls", "anything-llm-api"],
+  ["anything-llm-api-tls", "anything-llm-api-green"],
+  ["anything-llm-web", "anything-llm-api-tls"],
+  ["anything-llm-web", "anything-llm-chat-runtime"],
+  ["anything-llm-web", "anything-llm-agent-runtime"],
+  ["anything-llm-web", "anything-llm-realtime-gateway"],
+  ["anything-llm-web", "anything-llm-browser-worker"],
+  ["anything-llm-tool-broker", "anything-llm-crypto-account"],
+  ["anything-llm-knowledge-ingest", "anything-llm-collector"],
+  ["anything-llm-knowledge-ingest", "anything-llm-reader-worker"],
+  ["anything-llm-knowledge-ingest", "anything-llm-rag"],
+  ["anything-llm-operations-shadow-agents", "anything-llm-operations-plane"],
+  ["anything-llm-browser-plane", "anything-llm-browser-worker"],
+]);
+
+function dependencies(service = {}) {
+  const value = service.depends_on || {};
+  return new Set(Array.isArray(value) ? value : Object.keys(value));
+}
 
 function environment(service = {}) {
   return service.environment && typeof service.environment === "object"
@@ -69,7 +101,11 @@ function writableNamedVolumeMounts(service = {}) {
     .map((mount) => String(mount))
     .filter((mount) => !mount.endsWith(":ro"))
     .map((mount) => {
-      const [source, target] = mount.split(":");
+      const parts = mount.split(":");
+      const maybeMode = parts.at(-1);
+      if (["ro", "rw"].includes(maybeMode)) parts.pop();
+      const target = parts.pop();
+      const source = parts.join(":");
       return { source, target };
     })
     .filter(({ source, target }) => source && target && !source.startsWith("."));
@@ -80,11 +116,13 @@ function main() {
   const manifestIds = new Set(manifests.map(({ id }) => id));
   const base = loadYaml("docker/docker-compose.modular.yml");
   const preproduction = loadYaml("docker/docker-compose.preproduction.yml");
+  const production = JSON.parse(read("docker/docker-compose.production-micro.json"));
   const prometheus = loadYaml(
     "docker/observability/prometheus.preproduction.yaml"
   );
   const dockerfile = read("docker/Dockerfile");
   const entrypoint = read("docker/docker-entrypoint.sh");
+  const apiMtlsProxy = read("docker/preproduction/api-mtls-proxy.conf");
   const findings = [];
   const warnings = [];
 
@@ -135,8 +173,6 @@ function main() {
 
   if (!String(ingress.image || "").startsWith("caddy:"))
     findings.push("preproduction_caddy_ingress_missing");
-  if (!ingress.depends_on?.["anything-llm-web"])
-    findings.push("preproduction_caddy_web_dependency_missing");
   if (!(ingress.volumes || []).some((mount) =>
     String(mount).includes("preproduction/Caddyfile:/etc/caddy/Caddyfile:ro")
   ))
@@ -233,13 +269,46 @@ function main() {
     findings.push(
       `master_key_mount_scope_invalid:${masterKeyConsumers.sort().join(",")}`
     );
+  const productionMasterKeyConsumers = Object.entries(production.services || {})
+    .filter(([, service]) =>
+      (service.volumes || []).some((volume) =>
+        String(volume).includes("runtime-secrets/master-key")
+      )
+    )
+    .map(([service]) => service);
+  if (
+    productionMasterKeyConsumers.length !== 1 ||
+    productionMasterKeyConsumers[0] !== "anything-llm-key-custody"
+  )
+    findings.push(
+      `production_master_key_mount_scope_invalid:${productionMasterKeyConsumers.sort().join(",")}`
+    );
+  for (const apiSlot of ["anything-llm-api", "anything-llm-api-green"])
+    if (!apiMtlsProxy.includes(`server ${apiSlot}:3001 resolve`))
+      findings.push(`api_zero_downtime_slot_missing:${apiSlot}`);
+  if (!apiMtlsProxy.includes("proxy_next_upstream_tries 2"))
+    findings.push("api_zero_downtime_failover_missing");
+  for (const apiSlot of ["anything-llm-api", "anything-llm-api-green"])
+    if (!production.services?.[apiSlot])
+      findings.push(`production_api_zero_downtime_slot_missing:${apiSlot}`);
   const cryptoAccount =
     preproduction.services?.["anything-llm-crypto-account"] || {};
   const toolBroker = preproduction.services?.["anything-llm-tool-broker"] || {};
   if (!cryptoAccount.depends_on?.["anything-llm-key-custody"])
     findings.push("crypto_account_key_custody_dependency_missing");
-  if (!toolBroker.depends_on?.["anything-llm-crypto-account"])
-    findings.push("tool_broker_crypto_account_dependency_missing");
+  const optionalStartupCouplings = [];
+  for (const [caller, callee] of FORBIDDEN_STARTUP_COUPLINGS) {
+    for (const [topology, compose] of [
+      ["preproduction", preproduction],
+      ["production", production],
+    ]) {
+      if (!dependencies(compose.services?.[caller]).has(callee)) continue;
+      optionalStartupCouplings.push({ topology, caller, callee });
+      findings.push(
+        `optional_startup_coupling_detected:${topology}:${caller}:${callee}`
+      );
+    }
+  }
 
   const runtimeServiceNames = new Set(
     Object.values(RUNTIME_BINDINGS).map(([serviceName]) => serviceName)
@@ -267,6 +336,27 @@ function main() {
     if (sharedStorageCutover) findings.push(code);
     else warnings.push(code);
   }
+  const productionRuntimeNames = new Set([
+    ...runtimeServiceNames,
+    "anything-llm-api-green",
+  ]);
+  const productionWritableVolumes = new Map();
+  for (const [serviceName, service] of Object.entries(production.services || {})) {
+    if (!productionRuntimeNames.has(serviceName)) continue;
+    for (const mount of writableNamedVolumeMounts(service)) {
+      const key = `${mount.source}:${mount.target}`;
+      if (!productionWritableVolumes.has(key))
+        productionWritableVolumes.set(key, []);
+      productionWritableVolumes.get(key).push(serviceName);
+    }
+  }
+  const productionSharedWritableStorageConsumers = [
+    ...productionWritableVolumes.entries(),
+  ]
+    .filter(([, consumers]) => consumers.length > 1)
+    .map(([mount, consumers]) => ({ mount, consumers: consumers.sort() }));
+  if (productionSharedWritableStorageConsumers.length)
+    findings.push("production_shared_writable_storage_detected");
 
   const summary = {
     version: "athena.independent-module-topology:v1",
@@ -310,16 +400,21 @@ function main() {
     },
     dataIsolation: {
       sharedWritableStorageConsumers,
+      productionSharedWritableStorageConsumers,
       independentRuntimeStorage:
         sharedWritableStorageConsumers.length === 0 && sharedStorageCutover,
+      optionalStartupCouplings,
     },
     cryptoChain: {
       masterKeyConsumers,
+      productionMasterKeyConsumers,
       cryptoAccountUsesRemoteCustody: Boolean(
         cryptoAccount.depends_on?.["anything-llm-key-custody"]
       ),
       toolBrokerUsesCryptoAccount: Boolean(
-        toolBroker.depends_on?.["anything-llm-crypto-account"]
+        String(toolBroker.environment?.ATHENA_CRYPTO_ACCOUNT_URL || "").startsWith(
+          "https://anything-llm-crypto-account:"
+        )
       ),
     },
     warnings,

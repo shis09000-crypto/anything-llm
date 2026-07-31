@@ -16,6 +16,9 @@ export default {
   home: () => {
     return "/";
   },
+  browser: () => {
+    return "/browser";
+  },
   login: (noTry = false) => {
     return `/login${noTry ? "?nt=1" : ""}`;
   },

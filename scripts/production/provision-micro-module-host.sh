@@ -6,6 +6,7 @@ legacy_env="${ATHENA_PROD_LEGACY_ENV:-/data/anythingllm/app/docker/.env}"
 legacy_secret_dir="${ATHENA_PROD_LEGACY_SECRET_DIR:-/data/anythingllm/secrets}"
 legacy_nats_seed="${ATHENA_PROD_LEGACY_NATS_SEED:-${legacy_secret_dir}/ai-operations/nats-client.nkey}"
 backend_image="${ATHENA_PROD_BACKEND_IMAGE:-anythingllm-v2-anythingllm:latest}"
+browser_worker_image="${ATHENA_PROD_BROWSER_WORKER_IMAGE:-anythingllm-v2-browser-worker:latest}"
 repo_dir="${ATHENA_PROD_REPO_DIR:-/data/anythingllm/app}"
 
 if [[ "${ATHENA_PROD_CONFIRM:-}" != "athena-production-micro" ]]; then
@@ -115,6 +116,7 @@ roles=(
   operations-plane chat-runtime agent-runtime model-gateway tool-broker
   crypto-market crypto-account crypto-forecast key-custody collector edge-web
   identity knowledge-ingest rag operations-shadow-agents prometheus minio
+  browser-plane browser-worker
 )
 
 dns_for_role() {
@@ -139,6 +141,8 @@ dns_for_role() {
     knowledge-ingest) printf '%s' 'anything-llm-knowledge-ingest,knowledge-ingest' ;;
     rag) printf '%s' 'anything-llm-rag,rag' ;;
     operations-shadow-agents) printf '%s' 'anything-llm-operations-shadow-agents,operations-shadow-agents' ;;
+    browser-plane) printf '%s' 'anything-llm-browser-plane,browser-plane' ;;
+    browser-worker) printf '%s' 'anything-llm-browser-worker,browser-worker' ;;
     prometheus) printf '%s' 'anything-llm-prometheus,prometheus' ;;
     minio) printf '%s' 'minio' ;;
   esac
@@ -259,6 +263,7 @@ ensure_env ATHENA_PROD_COLLECTOR_HOTDIR /data/anythingllm/collector/hotdir
 ensure_env ATHENA_PROD_COLLECTOR_OUTPUTS /data/anythingllm/collector/outputs
 ensure_env ATHENA_PROD_WEB_ROOT "${state_dir}/web/current"
 ensure_env ATHENA_PROD_BACKEND_IMAGE "${backend_image}"
+ensure_env ATHENA_PROD_BROWSER_WORKER_IMAGE "${browser_worker_image}"
 ensure_env ATHENA_PROD_NETWORK anythingllm-v2_default
 ensure_env ATHENA_PROD_POSTGRES_ADMIN_PASSWORD "$(random_secret 36)"
 ensure_env ATHENA_PROD_POSTGRES_MAIN_PASSWORD "$(random_secret 36)"

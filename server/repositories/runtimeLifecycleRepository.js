@@ -14,10 +14,25 @@ const RuntimeLifecycleRepository = {
       prisma.$queryRawUnsafe("SELECT 1 AS healthy"),
       authPrisma.$queryRawUnsafe("SELECT 1 AS healthy"),
     ]);
+    let ownership = null;
+    if (
+      prisma.$databaseProvider === "postgresql" &&
+      process.env.ATHENA_MODULE_SCHEMA_CUTOVER === "true"
+    ) {
+      const {
+        verifyClientOwnership,
+      } = require("../utils/database/moduleSchemaOwnership");
+      const role = process.env.ATHENA_RUNTIME_ROLE || "api";
+      ownership = await Promise.all([
+        verifyClientOwnership(prisma, { database: "main", role }),
+        verifyClientOwnership(authPrisma, { database: "auth", role }),
+      ]);
+    }
     return {
       ready: true,
       mainProvider: prisma.$databaseProvider || "sqlite",
       authProvider: authPrisma.$databaseProvider || "sqlite",
+      ownership,
     };
   },
 

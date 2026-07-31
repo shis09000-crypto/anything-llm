@@ -79,6 +79,9 @@ const SystemPatrol = React.lazy(
   () => import("@/pages/GeneralSettings/SystemPatrol")
 );
 const CryptoCenter = React.lazy(() => import("@/modules/crypto/CryptoCenter"));
+const BrowserCenter = React.lazy(
+  () => import("@/modules/browser/BrowserCenter")
+);
 const ChatEmbedWidgets = React.lazy(
   () => import("@/pages/GeneralSettings/ChatEmbedWidgets")
 );
@@ -407,6 +410,10 @@ const router = createBrowserRouter([
             element: routeElement(AdminRoute, AdvancedGatewayConnectorSettings),
           },
         ],
+      },
+      {
+        path: "/browser",
+        element: routeElement(PrivateRoute, BrowserCenter),
       },
       {
         path: "/settings/crypto-center",

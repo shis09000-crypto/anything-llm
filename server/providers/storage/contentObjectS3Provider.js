@@ -7,6 +7,7 @@ const {
   S3Client,
 } = require("@aws-sdk/client-s3");
 const fs = require("fs");
+const { pipeline } = require("stream/promises");
 const { Upload } = require("@aws-sdk/lib-storage");
 
 let client = null;
@@ -78,6 +79,7 @@ const ContentObjectS3Provider = {
       write: true,
       delete: true,
       rangeRead: true,
+      streamToFile: true,
       immutableWrite: true,
       remote: true,
     };
@@ -240,6 +242,18 @@ const ContentObjectS3Provider = {
       new GetObjectCommand({ ...target(objectKey), Range: range })
     );
     return bodyToBuffer(result.Body);
+  },
+
+  async writeToFile({ objectKey, destinationPath }) {
+    const result = await s3Client().send(
+      new GetObjectCommand(target(objectKey))
+    );
+    if (!result.Body) throw new Error("content_object_s3_body_missing");
+    await pipeline(
+      result.Body,
+      fs.createWriteStream(destinationPath, { flags: "wx", mode: 0o600 })
+    );
+    return { bytes: Number(result.ContentLength || 0) };
   },
 
   async stat({ objectKey }) {

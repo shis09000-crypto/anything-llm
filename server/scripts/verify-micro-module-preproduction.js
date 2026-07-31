@@ -15,28 +15,11 @@ const { loadManifests } = require("../utils/modulePlatform/manifestRegistry");
 const { evaluateCutover } = require("./verify-micro-module-cutover");
 const { DataAccessCenter } = require("../utils/dataAccess");
 
-const EXPECTED_PROMETHEUS_MODULES = Object.freeze([
-  "athena-api",
-  "edge-web",
-  "background-worker",
-  "sync-v2",
-  "reader-worker",
-  "scheduler",
-  "operations-plane",
-  "chat-runtime",
-  "agent-runtime",
-  "model-gateway",
-  "tool-runtime",
-  "crypto-market",
-  "crypto-account-access",
-  "crypto-forecast",
-  "key-custody",
-  "collector",
-  "authentication",
-  "knowledge-ingest",
-  "rag",
-  "operations-shadow-agents",
-]);
+const EXPECTED_PROMETHEUS_MODULES = Object.freeze(
+  loadManifests()
+    .map(({ id }) => id)
+    .sort()
+);
 
 function argument(name, fallback = null) {
   const inline = process.argv.find((value) => value.startsWith(`--${name}=`));
@@ -61,7 +44,7 @@ async function operations(pathname, method = "GET") {
   });
 }
 
-async function waitForOperations(timeoutMs) {
+async function waitForOperations(timeoutMs, expectedModules) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (Date.now() < deadline) {
@@ -72,16 +55,16 @@ async function waitForOperations(timeoutMs) {
       const heartbeats = last.moduleHeartbeatCoverage || {};
       if (
         last.ready === true &&
-        summary.total === 20 &&
-        summary.healthy === 20 &&
+        summary.total === expectedModules &&
+        summary.healthy === expectedModules &&
         summary.degraded === 0 &&
         summary.unmonitored === 0 &&
         infrastructure.total === 9 &&
         infrastructure.healthy === 9 &&
         infrastructure.degraded === 0 &&
         infrastructure.unmonitored === 0 &&
-        heartbeats.expected === 20 &&
-        heartbeats.fresh === 20 &&
+        heartbeats.expected === expectedModules &&
+        heartbeats.fresh === expectedModules &&
         (heartbeats.missing || []).length === 0
       )
         return last;
@@ -184,7 +167,8 @@ async function main() {
   if (process.env.ATHENA_RUNTIME_TOPOLOGY !== "distributed")
     throw new Error("distributed_topology_required");
   const timeoutMs = Math.max(30_000, Number(argument("timeout-ms", "180000")));
-  const health = await waitForOperations(timeoutMs);
+  const expectedModules = EXPECTED_PROMETHEUS_MODULES.length;
+  const health = await waitForOperations(timeoutMs, expectedModules);
   const [
     moduleHealthResponse,
     infrastructureHealthResponse,
@@ -229,8 +213,8 @@ async function main() {
   };
   const operationalReady =
     deploymentTopology.ready &&
-    counts.total === 20 &&
-    counts.healthy === 20 &&
+    counts.total === expectedModules &&
+    counts.healthy === expectedModules &&
     counts.degraded === 0 &&
     counts.unmonitored === 0 &&
     counts.unknown === 0 &&
@@ -239,7 +223,8 @@ async function main() {
     infrastructureCounts.degraded === 0 &&
     infrastructureCounts.unmonitored === 0 &&
     infrastructureCounts.unknown === 0 &&
-    health.moduleHeartbeatCoverage?.fresh === 20 &&
+    health.moduleHeartbeatCoverage?.expected === expectedModules &&
+    health.moduleHeartbeatCoverage?.fresh === expectedModules &&
     prometheus.up === prometheus.expected &&
     database?.ready !== false &&
     objectStore.ready;
@@ -268,7 +253,7 @@ async function main() {
         productionCutoverTopology.topology.sharedStorageCutover,
     },
     manifests: {
-      count: loadManifests().length,
+      count: expectedModules,
       fingerprints: deploymentTopology.modules.fingerprints,
     },
     operations: {

@@ -95,6 +95,7 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   agentRun: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   toolInvocation: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   authIdentity: DATA_ACCESS_CLASSIFICATIONS.sensitive,
+  browserPlane: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   clientIdentity: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   communityHub: DATA_ACCESS_CLASSIFICATIONS.internal,
   crypto: DATA_ACCESS_CLASSIFICATIONS.sensitive,

@@ -25,6 +25,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.goldMarketAgent.name,
   AgentPlugins.createFilesAgent.name,
   AgentPlugins.documentFormattingAgent.name,
+  AgentPlugins.browserAgent.name,
 ];
 
 /**
@@ -63,6 +64,11 @@ const SKILL_FILTER_CONFIG = {
       const { cryptoAccountEligibility } = require("../cryptoAccount");
       return (await cryptoAccountEligibility(user)).available;
     },
+    disabledSettingKey: null,
+  },
+  "browser-agent": {
+    getAvailability: (_user, { registryMode = false } = {}) =>
+      registryMode || process.env.ATHENA_BROWSER_AGENT_ENABLED === "true",
     disabledSettingKey: null,
   },
 };

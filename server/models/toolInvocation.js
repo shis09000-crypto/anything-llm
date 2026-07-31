@@ -200,6 +200,36 @@ const ToolInvocation = {
     }
   },
 
+  startAutomaticExecution: async function ({
+    agentInvocationId,
+    clientTurnId = null,
+    ownerUserId = null,
+    toolName,
+    approvalClass = "automatic",
+    scope = {},
+    args = {},
+  } = {}) {
+    const approvalRequestId = `automatic:${crypto.randomUUID()}`;
+    await this.requestApproval({
+      approvalRequestId,
+      agentInvocationId,
+      clientTurnId,
+      ownerUserId,
+      toolName,
+      approvalClass,
+      scope,
+    });
+    await this.resolveApproval({ approvalRequestId, approved: true });
+    await this.startExecution({
+      approvalRequestId,
+      agentInvocationId,
+      toolName,
+      scope,
+      args,
+    });
+    return { approvalRequestId };
+  },
+
   completeExecution: async function ({ approvalRequestId, result } = {}) {
     try {
       const resultHash = sha256(
@@ -276,6 +306,16 @@ const ToolInvocation = {
         error.code = "tool_invocation_owner_changed";
         throw error;
       }
+      const agentInvocation =
+        await prisma.workspace_agent_invocations.findUnique({
+          where: { uuid: invocation.agentInvocationId || "" },
+          select: { workspace_id: true, thread_id: true },
+        });
+      if (!agentInvocation) {
+        const error = new Error("tool_invocation_agent_context_missing");
+        error.code = "tool_invocation_agent_context_missing";
+        throw error;
+      }
       return {
         id: invocation.id,
         approvalRequestId: invocation.approvalRequestId,
@@ -288,6 +328,11 @@ const ToolInvocation = {
         argumentHash: invocation.argumentHash,
         approvedAt: invocation.approvedAt,
         startedAt: invocation.startedAt,
+        workspaceId: Number(agentInvocation.workspace_id),
+        threadId:
+          agentInvocation.thread_id === null
+            ? null
+            : Number(agentInvocation.thread_id),
       };
     } catch (error) {
       throwModelDataAccessError("toolInvocation.executionContext", error);

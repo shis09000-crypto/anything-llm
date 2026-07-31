@@ -478,6 +478,44 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
   CMD curl --silent --fail --insecure "https://localhost:${OPERATIONS_SHADOW_AGENTS_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
+FROM backend-build AS browser-plane-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=browser-plane
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV BROWSER_PLANE_PORT=3030
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${BROWSER_PLANE_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS browser-worker-build
+WORKDIR /app
+USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+RUN mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" && \
+    ./server/node_modules/.bin/playwright install --with-deps chromium && \
+    chown -R anythingllm:anythingllm "${PLAYWRIGHT_BROWSERS_PATH}"
+USER anythingllm
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=browser-worker
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV BROWSER_WORKER_PORT=3031
+ENV BROWSER_WORKER_MAX_SESSIONS=1
+ENV BROWSER_WORKER_MAX_TABS=8
+ENV BROWSER_WORKER_IDLE_TIMEOUT_MS=900000
+ENV BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES=1073741824
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=45s \
+  CMD curl --silent --fail --insecure "https://localhost:${BROWSER_WORKER_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
 FROM nginx:1.27-alpine AS web-production-build
 ENV ATHENA_WEB_PORT=3000
 ENV ATHENA_API_UPSTREAM=http://anything-llm-api:3001
@@ -489,6 +527,7 @@ ENV ATHENA_CRYPTO_ACCOUNT_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_CRYPTO_FORECAST_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_IDENTITY_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_KNOWLEDGE_INGEST_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_BROWSER_STREAM_UPSTREAM=http://anything-llm-browser-worker:3031
 COPY ./docker/nginx-web.conf.template /etc/nginx/templates/default.conf.template
 RUN touch /etc/nginx/conf.d/athena-proxy-ssl.conf
 COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html

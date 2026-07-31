@@ -1,10 +1,15 @@
-const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  session,
+  shell,
+} = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const {
-  DesktopProcessSupervisor,
-} = require("./process-supervisor.cjs");
+const { DesktopProcessSupervisor } = require("./process-supervisor.cjs");
 const {
   browserWindowOptions,
   isRecoveryRendererUrl,
@@ -19,6 +24,7 @@ const {
   verifyStorageDir,
   writeRuntimeConfig,
 } = require("./runtime.cjs");
+const { DesktopBrowserNode } = require("./browser-node.cjs");
 
 let mainWindow;
 let runtimeConfig;
@@ -26,6 +32,7 @@ let serviceSupervisor;
 let startupError = null;
 let quitting = false;
 let shutdownComplete = false;
+let browserNode = null;
 const repoRoot = app.isPackaged ? __dirname : path.resolve(__dirname, "..");
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const MAX_ROTATED_LOGS = 5;
@@ -270,7 +277,11 @@ function configureRendererSecurity(window) {
 
 function assertTrustedIpc(event) {
   const senderUrl = event?.senderFrame?.url || event?.sender?.getURL?.() || "";
-  if (isRecoveryRendererUrl(senderUrl)) return;
+  if (
+    isRecoveryRendererUrl(senderUrl) ||
+    isTrustedRendererUrl(senderUrl, runtimeConfig?.serverPort)
+  )
+    return;
   const error = new Error("desktop_ipc_forbidden");
   error.code = "desktop_ipc_forbidden";
   throw error;
@@ -286,6 +297,11 @@ async function createWindow() {
     webPreferences: browserWindowOptions(path.join(__dirname, "preload.cjs")),
   });
   configureRendererSecurity(mainWindow);
+  browserNode = new DesktopBrowserNode({
+    app,
+    mainWindow,
+    log: appendDesktopLog,
+  });
 
   try {
     runtimeConfig = await loadRuntimeConfig(app);
@@ -358,6 +374,47 @@ ipcMain.handle("desktop:choose-storage-dir", async (event) => {
   }
 });
 
+function browserIpc(channel, handler) {
+  ipcMain.handle(channel, async (event, ...args) => {
+    assertTrustedIpc(event);
+    if (!browserNode) throw new Error("desktop_browser_node_unavailable");
+    return handler(browserNode, ...args);
+  });
+}
+
+browserIpc("browser-node:attach", (node, options) => node.attach(options));
+browserIpc("browser-node:detach", (node) => node.detach());
+browserIpc("browser-node:set-bounds", (node, bounds) => node.setBounds(bounds));
+browserIpc("browser-node:navigate", (node, url) => node.navigate(url));
+browserIpc("browser-node:command", (node, action) => node.command(action));
+browserIpc("browser-node:new-tab", (node, url) => node.newTab(url));
+browserIpc("browser-node:select-tab", (node, tabId) => node.selectTab(tabId));
+browserIpc("browser-node:close-tab", (node, tabId) => node.closeTab(tabId));
+browserIpc("browser-node:cookies", (node) => node.cookies());
+browserIpc("browser-node:clear-cookie-site", (node, domain) =>
+  node.clearCookieSite(domain)
+);
+browserIpc("browser-node:permission-summary", (node) =>
+  node.permissionSummary()
+);
+browserIpc("browser-node:set-site-permission", (node, name, allowed) =>
+  node.setSitePermission(name, allowed)
+);
+browserIpc("browser-node:find", (node, term) => node.find(term));
+browserIpc("browser-node:set-zoom", (node, factor) => node.setZoom(factor));
+browserIpc("browser-node:capture", (node) => node.capture());
+browserIpc("browser-node:print-to-pdf", (node) => node.printToPdf());
+ipcMain.on("browser-node:info", (event) => {
+  assertTrustedIpc(event);
+  event.returnValue = browserNode
+    ? {
+        nodeId: browserNode.nodeId,
+        version: process.versions.electron,
+        capabilities: browserNode.capabilities(),
+      }
+    : null;
+});
+
 app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler(
     (webContents, permission, callback) =>
@@ -397,8 +454,10 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (quitting) return;
   quitting = true;
-  void stopServices().finally(() => {
-    shutdownComplete = true;
-    app.quit();
-  });
+  void Promise.allSettled([stopServices(), browserNode?.closeAll?.()]).finally(
+    () => {
+      shutdownComplete = true;
+      app.quit();
+    }
+  );
 });

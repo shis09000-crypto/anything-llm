@@ -1,8 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const {
-  validateDesktopBuildSecurity,
-} = require("../security-policy.cjs");
+const { validateDesktopBuildSecurity } = require("../security-policy.cjs");
 
 const desktopRoot = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(
@@ -15,6 +13,10 @@ const preloadSource = fs.readFileSync(
 );
 const recoverySource = fs.readFileSync(
   path.join(desktopRoot, "recovery.html"),
+  "utf8"
+);
+const browserNodeSource = fs.readFileSync(
+  path.join(desktopRoot, "browser-node.cjs"),
   "utf8"
 );
 
@@ -33,6 +35,14 @@ if (!preloadSource.includes("contextBridge.exposeInMainWorld"))
   findings.push("context_bridge_missing");
 if (!recoverySource.includes("Content-Security-Policy"))
   findings.push("recovery_csp_missing");
+if (!/^42\./.test(String(packageJson.devDependencies?.electron || "")))
+  findings.push("electron_supported_version_required");
+if (!browserNodeSource.includes("WebContentsView"))
+  findings.push("browser_webcontentsview_missing");
+if (/\bBrowserView\b/.test(browserNodeSource))
+  findings.push("deprecated_browserview_forbidden");
+if (!browserNodeSource.includes("persist:athena-browser:"))
+  findings.push("browser_partition_isolation_missing");
 
 const report = {
   success: findings.length === 0,

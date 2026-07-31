@@ -6,6 +6,7 @@ state_dir="${ATHENA_PREPROD_STATE_DIR:-/data/athena-preproduction}"
 secret_dir="${ATHENA_PREPROD_SECRETS_DIR:-${state_dir}/secrets}"
 evidence_dir="${ATHENA_PREPROD_EVIDENCE_DIR:-${state_dir}/evidence}"
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+expected_modules="$(node -e "const {loadManifests}=require('${repo_root}/server/utils/modulePlatform/manifestRegistry'); process.stdout.write(String(loadManifests().length))")"
 compose_files=(
   -f "${repo_root}/docker/docker-compose.modular.yml"
   -f "${repo_root}/docker/docker-compose.preproduction.yml"
@@ -49,7 +50,7 @@ copy_from_api() {
 
 verify_topology() {
   local label="$1"
-  local container_path="/app/server/storage/preproduction/evidence/topology-${label}-${timestamp}.json"
+  local container_path="/app/server/evidence/topology-${label}-${timestamp}.json"
   local host_path="${evidence_dir}/topology-${label}-${timestamp}.json"
   compose exec -T anything-llm-api \
     node scripts/verify-micro-module-preproduction.js \
@@ -71,6 +72,8 @@ rolling_targets=(
   anything-llm-reader-worker
   anything-llm-tool-broker
   anything-llm-crypto-forecast
+  anything-llm-browser-plane
+  anything-llm-browser-worker
 )
 before_ids="$(mktemp)"
 after_ids="$(mktemp)"
@@ -123,6 +126,7 @@ rolling_topology="$(verify_topology rolling-recovered)"
 rolling_evidence="${evidence_dir}/rolling-release-${timestamp}.json"
 PROTECTED_UNCHANGED="${protected_unchanged}" \
 TARGETS_RECREATED="${targets_recreated}" \
+EXPECTED_MODULES="${expected_modules}" \
 node - "${rolling_evidence}" <<'NODE'
 const fs = require("fs");
 const target = process.argv[2];
@@ -137,8 +141,9 @@ const evidence = {
     protectedServicesUnchanged && targetServicesRecreated,
   protectedServicesUnchanged,
   targetServicesRecreated,
-  recovered20Of20: true,
-  updatedModules: ["reader-worker", "tool-runtime", "crypto-forecast"],
+  recoveredAllModules: true,
+  expectedModules: Number(process.env.EXPECTED_MODULES),
+  updatedModules: ["reader-worker", "tool-runtime", "crypto-forecast", "browser-plane", "browser-worker"],
   productionChanged: false,
 };
 fs.writeFileSync(target, `${JSON.stringify(evidence, null, 2)}\n`, {
@@ -147,7 +152,7 @@ fs.writeFileSync(target, `${JSON.stringify(evidence, null, 2)}\n`, {
 if (!evidence.passed) process.exitCode = 2;
 NODE
 
-nats_state="/app/server/storage/preproduction/evidence/nats-replay-${timestamp}.json"
+nats_state="/app/server/evidence/nats-replay-${timestamp}.json"
 compose exec -T anything-llm-api \
   node scripts/drill-nats-disconnect-recovery.js \
   --phase prepare --state "${nats_state}" >/dev/null
@@ -165,7 +170,7 @@ disconnect_topology="$(verify_topology disconnect-recovered)"
 nats_host_state="${evidence_dir}/nats-replay-${timestamp}.json"
 copy_from_api "${nats_state}" "${nats_host_state}"
 disconnect_evidence="${evidence_dir}/disconnect-recovery-${timestamp}.json"
-NATS_STATE="${nats_host_state}" node - "${disconnect_evidence}" <<'NODE'
+NATS_STATE="${nats_host_state}" EXPECTED_MODULES="${expected_modules}" node - "${disconnect_evidence}" <<'NODE'
 const fs = require("fs");
 const state = JSON.parse(fs.readFileSync(process.env.NATS_STATE, "utf8"));
 const evidence = {
@@ -181,7 +186,8 @@ const evidence = {
     state.durableSequenceReplayVerified === true,
   duplicateEvents: Number(state.duplicateEvents || 0),
   missingEvents: Number(state.missingEvents || 0),
-  recovered20Of20: true,
+  recoveredAllModules: true,
+  expectedModules: Number(process.env.EXPECTED_MODULES),
   productionChanged: false,
 };
 fs.writeFileSync(process.argv[2], `${JSON.stringify(evidence, null, 2)}\n`, {
@@ -192,7 +198,7 @@ NODE
 
 compose stop anything-llm-crypto-market >/dev/null
 crypto_market_stopped=true
-fault_inner="/app/server/storage/preproduction/evidence/fault-inner-${timestamp}.json"
+fault_inner="/app/server/evidence/fault-inner-${timestamp}.json"
 compose exec -T anything-llm-api \
   node scripts/verify-micro-module-fault-scope.js \
   --target crypto-market \
@@ -204,7 +210,7 @@ fault_topology="$(verify_topology fault-recovered)"
 fault_inner_host="${evidence_dir}/fault-inner-${timestamp}.json"
 copy_from_api "${fault_inner}" "${fault_inner_host}"
 fault_evidence="${evidence_dir}/service-fault-${timestamp}.json"
-FAULT_INNER="${fault_inner_host}" node - "${fault_evidence}" <<'NODE'
+FAULT_INNER="${fault_inner_host}" EXPECTED_MODULES="${expected_modules}" node - "${fault_evidence}" <<'NODE'
 const fs = require("fs");
 const inner = JSON.parse(fs.readFileSync(process.env.FAULT_INNER, "utf8"));
 const evidence = {
@@ -218,7 +224,8 @@ const evidence = {
   targetDegraded: inner.targetDegraded === true,
   protectedModulesHealthy: inner.protectedModulesHealthy === true,
   faultScopeContained: inner.protectedModulesHealthy === true,
-  recovered20Of20: true,
+  recoveredAllModules: true,
+  expectedModules: Number(process.env.EXPECTED_MODULES),
   productionChanged: false,
 };
 fs.writeFileSync(process.argv[2], `${JSON.stringify(evidence, null, 2)}\n`, {
@@ -230,7 +237,7 @@ NODE
 "${repo_root}/scripts/preproduction/drill-backup-restore.sh" >/dev/null
 backup_evidence="$(find "${evidence_dir}" -maxdepth 1 -name 'backup-restore-*.json' -type f -print | LC_ALL=C sort | tail -n 1)"
 
-crypto_container="/app/server/storage/preproduction/evidence/crypto-isolation-${timestamp}.json"
+crypto_container="/app/server/evidence/crypto-isolation-${timestamp}.json"
 compose exec -T anything-llm-api \
   sh -ec "node scripts/drill-crypto-account-isolation.js > '${crypto_container}'"
 crypto_preflight_evidence="${evidence_dir}/crypto-isolation-preflight-${timestamp}.json"

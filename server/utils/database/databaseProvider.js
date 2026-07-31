@@ -16,16 +16,20 @@ const RUNTIME_ROLES = Object.freeze({
   "crypto-market": "CRYPTO_MARKET",
   "crypto-account": "CRYPTO_ACCOUNT",
   "crypto-forecast": "CRYPTO_FORECAST",
+  "browser-plane": "BROWSER",
+  "browser-worker": "BROWSER",
   rag: "RAG",
   "knowledge-ingest": "KNOWLEDGE",
   scheduler: "SCHEDULER",
   "operations-plane": "OPERATIONS",
+  "operations-shadow-agents": "OPERATIONS",
 });
 
-const ROLE_DATABASE_URLS = Object.freeze({
-  identity: "ATHENA_IDENTITY_DATABASE_URL",
-  auth: "ATHENA_IDENTITY_DATABASE_URL",
-  "key-custody": "ATHENA_KEY_CUSTODY_DATABASE_URL",
+const MAIN_ROLE_DATABASE_URLS = Object.freeze({
+  api: "ATHENA_WORKSPACE_DATABASE_URL",
+  identity: "ATHENA_IDENTITY_MAIN_DATABASE_URL",
+  auth: "ATHENA_IDENTITY_MAIN_DATABASE_URL",
+  "key-custody": "ATHENA_MAIN_OBSERVER_DATABASE_URL",
   "chat-runtime": "ATHENA_CHAT_DATABASE_URL",
   "agent-runtime": "ATHENA_AGENT_DATABASE_URL",
   "model-gateway": "ATHENA_MODEL_DATABASE_URL",
@@ -33,6 +37,8 @@ const ROLE_DATABASE_URLS = Object.freeze({
   "crypto-market": "ATHENA_CRYPTO_MARKET_DATABASE_URL",
   "crypto-account": "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL",
   "crypto-forecast": "ATHENA_CRYPTO_FORECAST_DATABASE_URL",
+  "browser-plane": "ATHENA_BROWSER_DATABASE_URL",
+  "browser-worker": "ATHENA_BROWSER_DATABASE_URL",
   rag: "ATHENA_RAG_DATABASE_URL",
   "knowledge-ingest": "ATHENA_INGEST_DATABASE_URL",
   reader: "ATHENA_READER_DATABASE_URL",
@@ -42,6 +48,15 @@ const ROLE_DATABASE_URLS = Object.freeze({
   scheduler: "ATHENA_SCHEDULER_DATABASE_URL",
   gateway: "ATHENA_SYNC_DATABASE_URL",
   "realtime-gateway": "ATHENA_SYNC_DATABASE_URL",
+  "operations-plane": "ATHENA_MAINTENANCE_DATABASE_URL",
+  "operations-shadow-agents": "ATHENA_MAINTENANCE_DATABASE_URL",
+});
+
+const AUTH_ROLE_DATABASE_URLS = Object.freeze({
+  api: "ATHENA_IDENTITY_DATABASE_URL",
+  identity: "ATHENA_IDENTITY_DATABASE_URL",
+  auth: "ATHENA_IDENTITY_DATABASE_URL",
+  "key-custody": "ATHENA_KEY_CUSTODY_DATABASE_URL",
 });
 
 function databaseProvider(env = process.env) {
@@ -97,6 +112,7 @@ function connectionBudget(env = process.env, role = poolRole(env)) {
     "crypto-market": 4,
     "crypto-account": 4,
     "crypto-forecast": 3,
+    "browser-plane": 4,
     rag: 6,
     "knowledge-ingest": 5,
     scheduler: 4,
@@ -137,7 +153,7 @@ function mainPostgresqlUrl(env = process.env) {
   const role = poolRole(env);
   const roleSetting =
     env.ATHENA_MODULE_SCHEMA_CUTOVER === "true"
-      ? ROLE_DATABASE_URLS[role]
+      ? MAIN_ROLE_DATABASE_URLS[role] || "ATHENA_MAIN_OBSERVER_DATABASE_URL"
       : null;
   return withPoolBudget(
     requirePostgresqlUrl(
@@ -156,7 +172,7 @@ function authPostgresqlUrl(env = process.env) {
   const role = poolRole(env, "auth");
   const roleSetting =
     env.ATHENA_MODULE_SCHEMA_CUTOVER === "true"
-      ? ROLE_DATABASE_URLS[role]
+      ? AUTH_ROLE_DATABASE_URLS[role] || "ATHENA_AUTH_OBSERVER_DATABASE_URL"
       : null;
   return withPoolBudget(
     requirePostgresqlUrl(
@@ -197,6 +213,7 @@ module.exports = {
   mainPostgresqlUrl,
   migrationPostgresqlUrl,
   poolRole,
-  ROLE_DATABASE_URLS,
+  AUTH_ROLE_DATABASE_URLS,
+  MAIN_ROLE_DATABASE_URLS,
   withPoolBudget,
 };

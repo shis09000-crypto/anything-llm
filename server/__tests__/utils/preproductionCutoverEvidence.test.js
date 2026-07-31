@@ -2,6 +2,9 @@ const {
   evaluate,
   topologyFindings,
 } = require("../../scripts/generate-preproduction-cutover-evidence");
+const { loadManifests } = require("../../utils/modulePlatform/manifestRegistry");
+
+const EXPECTED_MODULES = loadManifests().length;
 
 function input(value) {
   return { file: "fixture.json", value, error: null };
@@ -11,6 +14,7 @@ function topology() {
   return {
     version: "athena.preproduction-topology-evidence:v1",
     ready: true,
+    manifests: { count: EXPECTED_MODULES },
     authoritativePaths: {
       database: "postgresql",
       broadcast: "nats",
@@ -22,8 +26,8 @@ function topology() {
     },
     operations: {
       counts: {
-        total: 20,
-        healthy: 20,
+        total: EXPECTED_MODULES,
+        healthy: EXPECTED_MODULES,
         unknown: 0,
         unmonitored: 0,
         degraded: 0,
@@ -36,13 +40,17 @@ function topology() {
         degraded: 0,
       },
       heartbeats: {
-        expected: 20,
-        fresh: 20,
+        expected: EXPECTED_MODULES,
+        fresh: EXPECTED_MODULES,
         stale: 0,
         missing: [],
       },
     },
-    prometheus: { expected: 20, up: 20, missing: [] },
+    prometheus: {
+      expected: EXPECTED_MODULES,
+      up: EXPECTED_MODULES,
+      missing: [],
+    },
   };
 }
 
@@ -57,7 +65,7 @@ describe("preproduction cutover qualification evidence", () => {
           counts: { ...topology().operations.counts, unknown: 1 },
         },
       })
-    ).toContain("operations_coverage_not_20_of_20");
+    ).toContain("operations_module_coverage_incomplete");
   });
 
   it("does not treat operational topology readiness as cutover authority", () => {
@@ -80,7 +88,8 @@ describe("preproduction cutover qualification evidence", () => {
         passed: true,
         protectedServicesUnchanged: true,
         targetServicesRecreated: true,
-        recovered20Of20: true,
+        recoveredAllModules: true,
+        expectedModules: EXPECTED_MODULES,
       }),
       disconnect: input({
         version: "athena.preproduction-disconnect-recovery-drill:v1",
@@ -89,7 +98,8 @@ describe("preproduction cutover qualification evidence", () => {
         durableSequenceReplayVerified: true,
         duplicateEvents: 0,
         missingEvents: 0,
-        recovered20Of20: true,
+        recoveredAllModules: true,
+        expectedModules: EXPECTED_MODULES,
       }),
       fault: input({
         version: "athena.preproduction-service-fault-drill:v1",
@@ -97,7 +107,8 @@ describe("preproduction cutover qualification evidence", () => {
         targetDegraded: true,
         protectedModulesHealthy: true,
         faultScopeContained: true,
-        recovered20Of20: true,
+        recoveredAllModules: true,
+        expectedModules: EXPECTED_MODULES,
       }),
       backup: input({
         version: "athena.preproduction-backup-restore-drill:v1",

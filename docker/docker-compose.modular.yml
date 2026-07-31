@@ -51,6 +51,8 @@ services:
       ATHENA_RAG_INLINE: "false"
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
+      ATHENA_BROWSER_PLANE_URL: https://anything-llm-browser-plane:3030
+      ATHENA_BROWSER_AGENT_ENABLED: "false"
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
     networks:
       - anything-llm
@@ -78,6 +80,7 @@ services:
       ATHENA_CRYPTO_FORECAST_UPSTREAM: ${ATHENA_CRYPTO_FORECAST_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_IDENTITY_UPSTREAM: ${ATHENA_IDENTITY_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_KNOWLEDGE_INGEST_UPSTREAM: ${ATHENA_KNOWLEDGE_INGEST_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_BROWSER_STREAM_UPSTREAM: ${ATHENA_BROWSER_STREAM_UPSTREAM:-http://anything-llm-browser-worker:3031}
     networks:
       - anything-llm
 
@@ -218,7 +221,7 @@ services:
       ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
       ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","scheduler":"https://anything-llm-scheduler:3014"}
+        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","scheduler":"https://anything-llm-scheduler:3014"}
     networks:
       - anything-llm
 
@@ -270,6 +273,7 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: agent-runtime
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_BROWSER_AGENT_ENABLED: "false"
       AGENT_RUNTIME_PORT: 3017
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
@@ -311,6 +315,11 @@ services:
         ARG_GID: ${GID:-1000}
     profiles:
       - tool-runtimes
+    depends_on:
+      anything-llm-browser-plane:
+        condition: service_healthy
+      anything-llm-knowledge-ingest:
+        condition: service_healthy
     volumes:
       - *runtime-env-volume-ro
       - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
@@ -325,6 +334,8 @@ services:
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       TOOL_BROKER_PORT: 3019
       ATHENA_CRYPTO_ACCOUNT_URL: https://anything-llm-crypto-account:3021
+      ATHENA_BROWSER_PLANE_URL: https://anything-llm-browser-plane:3030
+      ATHENA_KNOWLEDGE_INGEST_URL: https://anything-llm-knowledge-ingest:3027
     networks:
       - anything-llm
 
@@ -538,6 +549,80 @@ services:
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED: "true"
       OPERATIONS_SHADOW_AGENTS_PORT: 3029
+    networks:
+      - anything-llm
+
+  anything-llm-browser-plane:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: browser-plane-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - browser-runtimes
+    depends_on:
+      anything-llm-browser-worker:
+        condition: service_healthy
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "../server/storage:/app/server/storage"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: browser-plane
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_BROWSER_WORKER_URL: https://anything-llm-browser-worker:3031
+      BROWSER_PLANE_PORT: 3030
+    networks:
+      - anything-llm
+
+  anything-llm-browser-worker:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: browser-worker-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - browser-runtimes
+    depends_on:
+      anything-llm-key-custody:
+        condition: service_healthy
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./playwright-seccomp-profile.json
+    shm_size: "256m"
+    tmpfs:
+      - /tmp/athena-browser-worker:rw,nosuid,nodev,noexec,size=512m,mode=0700,uid=1000,gid=1000
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_RUNTIME_ROLE: browser-worker
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      BROWSER_WORKER_PORT: 3031
+      BROWSER_WORKER_MAX_SESSIONS: 1
+      BROWSER_WORKER_MAX_TABS: 8
+      BROWSER_WORKER_IDLE_TIMEOUT_MS: 900000
+      BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES: 1073741824
+      BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES: 268435456
+      BROWSER_WORKER_PROFILE_ROOT: /tmp/athena-browser-worker
+      STORAGE_DIR: /tmp/athena-browser-worker
     networks:
       - anything-llm
 

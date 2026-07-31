@@ -2,6 +2,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { loadManifests } = require("../utils/modulePlatform/manifestRegistry");
 
 const VERSION = "athena.preproduction-cutover-evidence:v1";
 
@@ -40,15 +41,17 @@ function topologyFindings(value) {
   const counts = value.operations?.counts || {};
   const heartbeats = value.operations?.heartbeats || {};
   const findings = [];
+  const expectedModules = loadManifests().length;
   if (value.ready !== true) findings.push("topology_not_ready");
   if (
-    counts.total !== 20 ||
-    counts.healthy !== 20 ||
+    value.manifests?.count !== expectedModules ||
+    counts.total !== expectedModules ||
+    counts.healthy !== expectedModules ||
     counts.unknown !== 0 ||
     counts.unmonitored !== 0 ||
     counts.degraded !== 0
   )
-    findings.push("operations_coverage_not_20_of_20");
+    findings.push("operations_module_coverage_incomplete");
   const infrastructure = value.operations?.infrastructureCounts || {};
   if (
     infrastructure.total !== 9 ||
@@ -59,15 +62,15 @@ function topologyFindings(value) {
   )
     findings.push("operations_infrastructure_coverage_not_9_of_9");
   if (
-    heartbeats.expected !== 20 ||
-    heartbeats.fresh !== 20 ||
+    heartbeats.expected !== expectedModules ||
+    heartbeats.fresh !== expectedModules ||
     heartbeats.stale !== 0 ||
     (heartbeats.missing || []).length !== 0
   )
     findings.push("operations_heartbeat_coverage_incomplete");
   if (
-    value.prometheus?.expected !== 20 ||
-    value.prometheus?.up !== 20 ||
+    value.prometheus?.expected !== expectedModules ||
+    value.prometheus?.up !== expectedModules ||
     (value.prometheus?.missing || []).length !== 0
   )
     findings.push("prometheus_module_coverage_incomplete");
@@ -111,7 +114,8 @@ function evaluate(inputs) {
         {
           protectedServicesUnchanged: true,
           targetServicesRecreated: true,
-          recovered20Of20: true,
+          recoveredAllModules: true,
+          expectedModules: loadManifests().length,
         }
       )
     );
@@ -125,7 +129,8 @@ function evaluate(inputs) {
           durableSequenceReplayVerified: true,
           duplicateEvents: 0,
           missingEvents: 0,
-          recovered20Of20: true,
+          recoveredAllModules: true,
+          expectedModules: loadManifests().length,
         }
       )
     );
@@ -138,7 +143,8 @@ function evaluate(inputs) {
           targetDegraded: true,
           protectedModulesHealthy: true,
           faultScopeContained: true,
-          recovered20Of20: true,
+          recoveredAllModules: true,
+          expectedModules: loadManifests().length,
         }
       )
     );

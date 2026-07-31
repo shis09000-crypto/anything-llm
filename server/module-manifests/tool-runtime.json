@@ -8,11 +8,36 @@
   "owner": "ai-platform",
   "criticality": "high",
   "runtimeRole": "tool-broker",
-  "sourcePaths": ["server/utils/agents/aibitat/plugins/", "server/utils/plugins/"],
-  "capabilities": ["registry", "eligibility", "approval", "capability-broker", "worker-routing"],
-  "routes": { "public": ["/api/agent-skills/"], "internal": ["/internal/v1/tools/invoke", "/internal/v1/tools/catalog"] },
-  "rpc": { "provides": ["tool.invoke", "tool.catalog"], "consumes": ["identity.assert", "crypto.market", "crypto.account"] },
-  "events": { "publishes": ["tool.invocation.*", "tool.registry.*"], "subscribes": ["approval.*", "crypto.*"] },
+  "sourcePaths": [
+    "server/utils/agents/aibitat/plugins/",
+    "server/utils/plugins/"
+  ],
+  "capabilities": [
+    "registry",
+    "eligibility",
+    "approval",
+    "capability-broker",
+    "worker-routing"
+  ],
+  "routes": {
+    "public": ["/api/agent-skills/"],
+    "internal": ["/internal/v1/tools/invoke", "/internal/v1/tools/catalog"]
+  },
+  "rpc": {
+    "provides": ["tool.invoke", "tool.catalog"],
+    "consumes": [
+      "identity.assert",
+      "crypto.market",
+      "crypto.account",
+      "browser.session",
+      "browser.task",
+      "knowledge.ingest"
+    ]
+  },
+  "events": {
+    "publishes": ["tool.invocation.*", "tool.registry.*"],
+    "subscribes": ["approval.*", "crypto.*"]
+  },
   "data": { "schemas": ["tools"], "objectPrefixes": ["tool/results"] },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/tool-broker",
@@ -29,5 +54,13 @@
     "availabilityTarget": 0.995,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "crypto-market", "crypto-account-access", "infra:postgresql", "infra:nats"]
+  "dependsOn": [
+    "authentication",
+    "crypto-market",
+    "crypto-account-access",
+    "browser-plane",
+    "knowledge-ingest",
+    "infra:postgresql",
+    "infra:nats"
+  ]
 }

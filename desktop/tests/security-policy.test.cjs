@@ -5,6 +5,7 @@ const { pathToFileURL } = require("node:url");
 const packageJson = require("../package.json");
 const {
   SECURE_WEB_PREFERENCES,
+  browserWebContentsViewOptions,
   isRecoveryRendererUrl,
   isSafeExternalUrl,
   isTrustedRendererUrl,
@@ -17,6 +18,17 @@ test("renderer process uses explicit Electron isolation defaults", () => {
   assert.equal(SECURE_WEB_PREFERENCES.sandbox, true);
   assert.equal(SECURE_WEB_PREFERENCES.webSecurity, true);
   assert.equal(SECURE_WEB_PREFERENCES.webviewTag, false);
+});
+
+test("remote Browser views keep a dedicated sandboxed partition", () => {
+  const options = browserWebContentsViewOptions(
+    "persist:athena-browser:account:default"
+  );
+  assert.equal(options.partition, "persist:athena-browser:account:default");
+  assert.equal(options.contextIsolation, true);
+  assert.equal(options.nodeIntegration, false);
+  assert.equal(options.sandbox, true);
+  assert.equal(options.webviewTag, false);
 });
 
 test("renderer navigation is limited to the bound loopback service", () => {

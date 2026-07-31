@@ -1,0 +1,55 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "browser-worker",
+  "name": "Browser Worker Service",
+  "version": "1.0.0",
+  "kind": "worker",
+  "owner": "browser-platform",
+  "criticality": "medium",
+  "runtimeRole": "browser-worker",
+  "sourcePaths": [
+    "server/browser-worker.js",
+    "server/utils/browserPlane/workerRuntime.js",
+    "server/utils/browserPlane/profileStore.js"
+  ],
+  "capabilities": [
+    "playwright-chromium",
+    "browser-driver",
+    "profile-checkpoint",
+    "capture",
+    "downloads"
+  ],
+  "routes": {
+    "public": ["/browser-stream"],
+    "internal": [
+      "/internal/v1/browser/sessions",
+      "/internal/v1/browser/profiles"
+    ]
+  },
+  "rpc": {
+    "provides": ["browser.worker"],
+    "consumes": ["key-custody.wrap", "key-custody.unwrap"]
+  },
+  "events": { "publishes": ["browser.worker.*"], "subscribes": [] },
+  "data": {
+    "schemas": [],
+    "objectPrefixes": ["browser/profiles", "browser/artifacts"]
+  },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/browser-worker",
+    "keyDomains": ["browser-profile"],
+    "allowedCallers": ["browser-plane"],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/browser-worker",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.99,
+    "reconnectP95Ms": 5000
+  },
+  "dependsOn": ["key-custody", "infra:object-store"]
+}

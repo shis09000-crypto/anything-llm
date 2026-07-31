@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { pipeline } = require("stream/promises");
 const { FileStorageProvider } = require("./fileStorageProvider");
 
 const ROOT = "content-objects";
@@ -43,6 +44,7 @@ const ContentObjectLocalProvider = {
       write: true,
       delete: true,
       rangeRead: true,
+      streamToFile: true,
       immutableWrite: true,
       remote: false,
     };
@@ -129,6 +131,15 @@ const ContentObjectLocalProvider = {
       await handle.close();
     }
     return buffer;
+  },
+
+  async writeToFile({ objectKey, destinationPath }) {
+    const source = objectPath(objectKey);
+    await pipeline(
+      fs.createReadStream(source),
+      fs.createWriteStream(destinationPath, { flags: "wx", mode: 0o600 })
+    );
+    return { bytes: (await fs.promises.stat(destinationPath)).size };
   },
 
   async stat({ objectKey }) {

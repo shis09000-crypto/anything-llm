@@ -13,7 +13,7 @@
   "routes": { "public": ["/api/crypto/forecast/"], "internal": ["/internal/v1/crypto/forecast"] },
   "rpc": { "provides": ["crypto.forecast"], "consumes": ["crypto.market"] },
   "events": { "publishes": ["crypto.forecast.*"], "subscribes": ["crypto.market.*", "model.artifact.*"] },
-  "data": { "schemas": ["crypto_forecast"], "objectPrefixes": ["crypto/models", "crypto/datasets"] },
+  "data": { "schemas": ["crypto_forecast"], "objectPrefixes": ["crypto/models", "crypto/datasets", "crypto/forecast/store-snapshots"] },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/crypto-forecast",
     "keyDomains": ["agent"],

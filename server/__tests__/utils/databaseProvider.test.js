@@ -81,21 +81,34 @@ describe("databaseProvider", () => {
     expect(new URL(authPostgresqlUrl(env)).pathname).toBe("/athena_auth");
   });
 
-  it("fails closed onto the role-owned schema after module cutover", () => {
+  it("fails closed onto the role-owned principal after module cutover", () => {
     const env = {
       ATHENA_RUNTIME_ROLE: "scheduler",
       ATHENA_MODULE_SCHEMA_CUTOVER: "true",
       ATHENA_POSTGRES_MAIN_URL:
         "postgresql://legacy@localhost:5432/athena_main",
       ATHENA_SCHEDULER_DATABASE_URL:
-        "postgresql://scheduler@localhost:5432/athena_main?schema=scheduler",
+        "postgresql://scheduler@localhost:5432/athena_main?schema=public",
     };
     const selected = new URL(mainPostgresqlUrl(env));
     expect(selected.username).toBe("scheduler");
-    expect(selected.searchParams.get("schema")).toBe("scheduler");
+    expect(selected.searchParams.get("schema")).toBe("public");
 
     delete env.ATHENA_SCHEDULER_DATABASE_URL;
     expect(() => mainPostgresqlUrl(env)).toThrow("main_postgresql_url_missing");
+  });
+
+  it("uses a read-only observer for the non-owning database", () => {
+    const env = {
+      ATHENA_RUNTIME_ROLE: "chat-runtime",
+      ATHENA_MODULE_SCHEMA_CUTOVER: "true",
+      ATHENA_CHAT_DATABASE_URL:
+        "postgresql://chat@localhost:5432/athena_main?schema=public",
+      ATHENA_AUTH_OBSERVER_DATABASE_URL:
+        "postgresql://auth_observer@localhost:5432/athena_auth?schema=public",
+    };
+    expect(new URL(mainPostgresqlUrl(env)).username).toBe("chat");
+    expect(new URL(authPostgresqlUrl(env)).username).toBe("auth_observer");
   });
 
   it("requires a dedicated migration principal", () => {

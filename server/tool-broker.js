@@ -29,7 +29,11 @@ const {
   registerCompatibleApi,
   secureDatabaseStart,
 } = require("./utils/microModules");
-const { dispatchCryptoAccount } = require("./utils/toolRuntime/broker");
+const {
+  BROWSER_TOOLS,
+  dispatchBrowser,
+  dispatchCryptoAccount,
+} = require("./utils/toolRuntime/broker");
 
 const state = {
   accepting: true,
@@ -46,7 +50,9 @@ async function invoke(request = {}) {
   }
   state.active += 1;
   try {
-    const result = await dispatchCryptoAccount(request);
+    const result = BROWSER_TOOLS.has(String(request.toolName || ""))
+      ? await dispatchBrowser(request)
+      : await dispatchCryptoAccount(request);
     state.completed += 1;
     return result;
   } catch (error) {
@@ -82,7 +88,7 @@ const host = new MicroModuleServiceHost({
       response.json({
         success: true,
         functions,
-        conditional: ["crypto-account-agent"],
+        conditional: ["crypto-account-agent", "browser-agent"],
       });
     });
     app.post("/internal/v1/tools/invoke", async (request, response) => {

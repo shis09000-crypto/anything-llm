@@ -8,16 +8,53 @@
   "owner": "security",
   "criticality": "critical",
   "runtimeRole": "key-custody",
-  "sourcePaths": ["server/key-custody.js", "server/utils/security/keyCustody/", "server/utils/security/keyLifecycle.js"],
-  "capabilities": ["remote-wrap", "remote-unwrap", "rotation", "quarantine", "crypto-suite-registry"],
-  "routes": { "public": [], "internal": ["/internal/v1/keys/wrap", "/internal/v1/keys/unwrap", "/internal/v1/keys/status"] },
-  "rpc": { "provides": ["key-custody.wrap", "key-custody.unwrap"], "consumes": [] },
-  "events": { "publishes": ["key-custody.rotation.*", "key-custody.quarantine.*"], "subscribes": [] },
+  "sourcePaths": [
+    "server/key-custody.js",
+    "server/utils/security/keyCustody/",
+    "server/utils/security/keyLifecycle.js"
+  ],
+  "capabilities": [
+    "remote-wrap",
+    "remote-unwrap",
+    "rotation",
+    "quarantine",
+    "crypto-suite-registry"
+  ],
+  "routes": {
+    "public": [],
+    "internal": [
+      "/internal/v1/keys/wrap",
+      "/internal/v1/keys/unwrap",
+      "/internal/v1/keys/status"
+    ]
+  },
+  "rpc": {
+    "provides": ["key-custody.wrap", "key-custody.unwrap"],
+    "consumes": []
+  },
+  "events": {
+    "publishes": ["key-custody.rotation.*", "key-custody.quarantine.*"],
+    "subscribes": []
+  },
   "data": { "schemas": ["key_custody"], "objectPrefixes": [] },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/key-custody",
-    "keyDomains": ["platform", "audit", "data", "file", "agent"],
-    "allowedCallers": ["authentication", "athena-api", "chat-runtime", "agent-runtime", "crypto-account-access"],
+    "keyDomains": [
+      "platform",
+      "audit",
+      "data",
+      "file",
+      "agent",
+      "browser-profile"
+    ],
+    "allowedCallers": [
+      "authentication",
+      "athena-api",
+      "chat-runtime",
+      "agent-runtime",
+      "crypto-account-access",
+      "browser-worker"
+    ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 10000
   },

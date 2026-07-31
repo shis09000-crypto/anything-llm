@@ -335,6 +335,48 @@ const goldAnalysisShadowEvents = new client.Counter({
   labelNames: ["action", "status"],
   registers: [registry],
 });
+const browserSessions = new client.Counter({
+  name: "athena_browser_sessions_total",
+  help: "Browser Plane session lifecycle events by bounded driver and outcome.",
+  labelNames: ["driver", "action", "outcome"],
+  registers: [registry],
+});
+const browserActions = new client.Counter({
+  name: "athena_browser_actions_total",
+  help: "Browser actions by bounded action category, driver and outcome.",
+  labelNames: ["action", "driver", "outcome"],
+  registers: [registry],
+});
+const browserActionDuration = new client.Histogram({
+  name: "athena_browser_action_duration_seconds",
+  help: "Browser action latency by bounded action category and driver.",
+  labelNames: ["action", "driver", "outcome"],
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 6, 10, 30],
+  registers: [registry],
+});
+const browserActiveSessions = new client.Gauge({
+  name: "athena_browser_active_sessions",
+  help: "Current active browser sessions by driver.",
+  labelNames: ["driver"],
+  registers: [registry],
+});
+const browserWorkerAvailableMemory = new client.Gauge({
+  name: "athena_browser_worker_available_memory_bytes",
+  help: "Memory available to the Browser Worker resource guard.",
+  registers: [registry],
+});
+const browserApprovals = new client.Counter({
+  name: "athena_browser_approvals_total",
+  help: "Browser action approval decisions by bounded risk and outcome.",
+  labelNames: ["risk", "outcome"],
+  registers: [registry],
+});
+const browserCrashes = new client.Counter({
+  name: "athena_browser_crashes_total",
+  help: "Unexpected Browser driver exits by bounded driver and failure class.",
+  labelNames: ["driver", "failure_class"],
+  registers: [registry],
+});
 const runtimeShutdowns = new client.Counter({
   name: "athena_runtime_shutdowns_total",
   help: "Runtime shutdown outcomes.",
@@ -772,6 +814,13 @@ module.exports = {
     authSessionRecoveryAttempts,
     authSessionRecoveryDuration,
     authSessionReconciles,
+    browserActionDuration,
+    browserActions,
+    browserActiveSessions,
+    browserApprovals,
+    browserCrashes,
+    browserSessions,
+    browserWorkerAvailableMemory,
     chatClientBacklog,
     chatClientLongTasks,
     chatClientReceiveToPaint,

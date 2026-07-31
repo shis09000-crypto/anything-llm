@@ -23,6 +23,7 @@ const { weatherAgent } = require("./weather");
 const { globalMarketAgent } = require("./global-market");
 const { goldMarketAgent } = require("./gold-market");
 const { documentFormattingAgent } = require("./document-formatting");
+const { browserAgent } = require("./browser");
 
 module.exports = {
   webScraping,
@@ -50,6 +51,7 @@ module.exports = {
   globalMarketAgent,
   goldMarketAgent,
   documentFormattingAgent,
+  browserAgent,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -77,4 +79,5 @@ module.exports = {
   [globalMarketAgent.name]: globalMarketAgent,
   [goldMarketAgent.name]: goldMarketAgent,
   [documentFormattingAgent.name]: documentFormattingAgent,
+  [browserAgent.name]: browserAgent,
 };

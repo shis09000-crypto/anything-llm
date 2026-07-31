@@ -17,12 +17,21 @@ function browserWindowOptions(preloadPath) {
   };
 }
 
+function browserWebContentsViewOptions(partition) {
+  return {
+    ...SECURE_WEB_PREFERENCES,
+    partition,
+    autoplayPolicy: "no-user-gesture-required",
+  };
+}
+
 function isRecoveryRendererUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
     return (
       url.protocol === "file:" &&
-      path.resolve(fileURLToPath(url)) === path.resolve(__dirname, "recovery.html")
+      path.resolve(fileURLToPath(url)) ===
+        path.resolve(__dirname, "recovery.html")
     );
   } catch {
     return false;
@@ -68,6 +77,7 @@ function validateDesktopBuildSecurity(packageJson = {}) {
 module.exports = {
   SECURE_WEB_PREFERENCES,
   browserWindowOptions,
+  browserWebContentsViewOptions,
   isRecoveryRendererUrl,
   isSafeExternalUrl,
   isTrustedRendererUrl,

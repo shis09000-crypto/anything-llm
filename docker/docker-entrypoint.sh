@@ -36,6 +36,10 @@ migrate_authoritative_databases() {
   if [ "${ATHENA_DATABASE_PROVIDER:-sqlite}" = "postgresql" ]; then
     node scripts/postgresql-prisma-runtime.js --execute --database main migrate deploy &&
       node scripts/postgresql-prisma-runtime.js --execute --database auth migrate deploy
+    if [ "${ATHENA_MODULE_SCHEMA_CUTOVER:-false}" = "true" ]; then
+      node scripts/provision-module-schema-ownership.js --database main --apply --execute &&
+        node scripts/provision-module-schema-ownership.js --database auth --apply --execute
+    fi
     return
   fi
   node scripts/prisma-runtime.js --execute migrate deploy &&
@@ -198,6 +202,20 @@ run_operations_shadow_agents() {
     exec node /app/server/operations-shadow-agents.js
 }
 
+run_browser_plane() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/browser-plane.js
+}
+
+run_browser_worker() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    exec node /app/server/browser-worker.js
+}
+
 child_pids=()
 
 stop_children() {
@@ -267,6 +285,12 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   operations-shadow-agents)
     run_operations_shadow_agents
+    ;;
+  browser-plane)
+    run_browser_plane
+    ;;
+  browser-worker)
+    run_browser_worker
     ;;
   reader-worker)
     run_reader_worker

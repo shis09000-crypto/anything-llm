@@ -91,6 +91,7 @@ const {
 const { agentFileServerEndpoints } = require("./endpoints/agentFileServer");
 const { experimentalEndpoints } = require("./endpoints/experimental");
 const { browserExtensionEndpoints } = require("./endpoints/browserExtension");
+const { browserEndpoints } = require("./endpoints/browser");
 const { communityHubEndpoints } = require("./endpoints/communityHub");
 const { agentFlowEndpoints } = require("./endpoints/agentFlows");
 const { mcpServersEndpoints } = require("./endpoints/mcpServers");
@@ -307,6 +308,7 @@ embeddedEndpoints(apiRouter);
 
 // Externally facing browser extension endpoints
 browserExtensionEndpoints(apiRouter);
+browserEndpoints(apiRouter);
 apiRouter.use(apiErrorMiddleware);
 app.use(apiErrorMiddleware);
 

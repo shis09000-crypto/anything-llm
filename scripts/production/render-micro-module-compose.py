@@ -37,15 +37,15 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-knowledge-ingest",
     "anything-llm-rag",
     "anything-llm-operations-shadow-agents",
+    "anything-llm-browser-plane",
+    "anything-llm-browser-worker",
     "anything-llm-collector",
 }
 
-# The platform still has synchronous legacy encryption consumers outside the
-# dedicated Key Custody RPC. Keeping the existing secret-file provider during
-# the physical split preserves behaviour; crypto-account DEKs already use the
-# remote direct-field cutover. The final remote-only closure remains guarded by
-# ATHENA_KEY_CUSTODY_CUTOVER and must not be claimed by this renderer.
-LOCAL_KEY_SERVICES = BACKEND_IMAGE_SERVICES - {"anything-llm-collector"}
+# The production topology mirrors the validated preproduction trust boundary:
+# only Key Custody receives platform master-key material. All other services
+# call its mTLS policy endpoint and cannot silently fall back to local unwrap.
+LOCAL_KEY_SERVICES = {"anything-llm-key-custody"}
 
 EXTERNAL_SERVICES = {"nats", "clickhouse", "otel-collector"}
 EXCLUDED_SERVICES = {
@@ -79,6 +79,8 @@ DEFAULT_SERVICE_PORTS = {
     "anything-llm-knowledge-ingest": 3027,
     "anything-llm-rag": 3028,
     "anything-llm-operations-shadow-agents": 3029,
+    "anything-llm-browser-plane": 3030,
+    "anything-llm-browser-worker": 3031,
 }
 
 
@@ -169,6 +171,8 @@ def service_port(service_name: str, environment: dict) -> int | None:
         "KNOWLEDGE_INGEST_PORT",
         "RAG_PORT",
         "OPERATIONS_SHADOW_AGENTS_PORT",
+        "BROWSER_PLANE_PORT",
+        "BROWSER_WORKER_PORT",
     )
     for port_name in port_names:
         if port_name in environment:
@@ -183,6 +187,11 @@ def render(source: Path) -> dict:
         if name in EXCLUDED_SERVICES:
             continue
         service = transform(copy.deepcopy(raw))
+        service["volumes"] = [
+            volume
+            for volume in service.get("volumes", [])
+            if "preprod-evidence" not in str(volume)
+        ]
         service.pop("profiles", None)
         service.pop("build", None)
         service.pop("container_name", None)
@@ -204,7 +213,11 @@ def render(source: Path) -> dict:
 
         environment = service.setdefault("environment", {})
         if name in BACKEND_IMAGE_SERVICES:
-            service["image"] = "${ATHENA_PROD_BACKEND_IMAGE:?required}"
+            service["image"] = (
+                "${ATHENA_PROD_BROWSER_WORKER_IMAGE:?required}"
+                if name == "anything-llm-browser-worker"
+                else "${ATHENA_PROD_BACKEND_IMAGE:?required}"
+            )
             service["init"] = True
             service["stop_grace_period"] = "120s"
             service["restart"] = "unless-stopped"
@@ -300,12 +313,18 @@ def render(source: Path) -> dict:
             ]
 
         if name == "anything-llm-crypto-forecast":
-            # Forecast's historical online feature store is embedded SQLite.
-            # Keep the independently deployed service present but dormant
-            # after training-data retirement; it may only be re-enabled once
-            # its feature store is backed by the authoritative PostgreSQL/S3
-            # path. Market and account services remain fully available.
-            environment["ATHENA_CRYPTO_FORECASTING_ENABLED"] = "false"
+            # SQLite remains only an instance-local, disposable query cache.
+            # PostgreSQL owns snapshot metadata and S3 owns immutable bytes.
+            environment["ATHENA_CRYPTO_FORECAST_STORE"] = "postgres-s3"
+            environment["ATHENA_CRYPTO_FORECAST_CACHE_ROOT"] = (
+                "/tmp/athena-crypto-forecast-cache"
+            )
+            environment["ATHENA_CRYPTO_FORECASTING_ENABLED"] = (
+                "${ATHENA_PROD_CRYPTO_FORECASTING_ENABLED:-true}"
+            )
+            service["tmpfs"] = [
+                "/tmp/athena-crypto-forecast-cache:rw,nosuid,nodev,noexec,size=512m,mode=0700,uid=1000,gid=1000"
+            ]
 
         port = service_port(name, environment)
         if port:
@@ -321,12 +340,49 @@ def render(source: Path) -> dict:
                 "retries": 20,
             }
             service["mem_limit"] = "640m"
+        elif name == "anything-llm-browser-worker":
+            service["mem_limit"] = "768m"
+            service.pop("cap_add", None)
+            service["init"] = True
+            service["cap_drop"] = ["ALL"]
+            service["security_opt"] = [
+                "no-new-privileges:true",
+                "seccomp=./playwright-seccomp-profile.json",
+            ]
+            service["shm_size"] = "256m"
+            environment["BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES"] = "268435456"
+            environment["BROWSER_WORKER_MEMORY_ADMISSION_MODE"] = "cgroup-isolated"
+            environment["STORAGE_DIR"] = "/tmp/athena-browser-worker"
+        elif name == "anything-llm-browser-plane":
+            service["mem_limit"] = "256m"
+            service["volumes"] = [
+                volume
+                for volume in service.get("volumes", [])
+                if ":/app/server/storage" not in volume
+            ]
+            service["tmpfs"] = [
+                "/tmp/athena-browser-plane:rw,nosuid,nodev,noexec,size=256m,mode=0700,uid=1000,gid=1000"
+            ]
+            environment["STORAGE_DIR"] = "/tmp/athena-browser-plane"
         elif name in {"anything-llm-chat-runtime", "anything-llm-agent-runtime"}:
             service["mem_limit"] = "448m"
         elif name in BACKEND_IMAGE_SERVICES:
             service["mem_limit"] = "256m"
 
         services[name] = service
+
+    # The public API keeps two independently replaceable slots behind the
+    # mTLS proxy. Both use the same service identity and application contract,
+    # while their NATS durable names remain distinct. A release replaces one
+    # slot, waits for readiness, and only then replaces the other slot.
+    api_blue = services["anything-llm-api"]
+    api_blue["environment"]["ATHENA_API_INSTANCE_SLOT"] = "blue"
+    api_green = copy.deepcopy(api_blue)
+    api_green["environment"]["ATHENA_API_INSTANCE_SLOT"] = "green"
+    api_green["environment"]["ATHENA_NATS_CONSUMER_NAME"] = (
+        "production-api-green"
+    )
+    services["anything-llm-api-green"] = api_green
 
     postgresql = services["postgresql"]
     postgresql["volumes"] = [
@@ -365,6 +421,9 @@ def render(source: Path) -> dict:
         "interval": "10s", "timeout": "3s", "start_period": "20s", "retries": 30,
     }
     web["mem_limit"] = "96m"
+    web["environment"]["ATHENA_BROWSER_STREAM_UPSTREAM"] = (
+        "https://anything-llm-browser-worker:3031"
+    )
 
     api_tls = services["anything-llm-api-tls"]
     api_tls["mem_limit"] = "64m"
@@ -384,7 +443,7 @@ def render(source: Path) -> dict:
     collector["mem_limit"] = "384m"
 
     edge = services["anything-llm-edge-probe"]
-    edge["depends_on"] = {"anything-llm-web": {"condition": "service_healthy"}}
+    edge.pop("depends_on", None)
     edge["environment"]["ATHENA_EDGE_LOCAL_HEALTH_URL"] = "http://anything-llm-web:3000/health"
 
     services["prometheus"] = {

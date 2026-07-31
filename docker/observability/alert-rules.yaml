@@ -184,3 +184,30 @@ groups:
           owner: ai-operations
         annotations:
           summary: Operations DLQ contains permanently invalid messages.
+      - alert: AthenaBrowserWorkerUnavailable
+        expr: up{job="athena-browser-worker"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          owner: browser-plane
+        annotations:
+          summary: Browser Worker is unavailable; cloud Browser sessions are degraded.
+      - alert: AthenaBrowserWorkerMemoryGuard
+        expr: |
+          athena_browser_active_sessions{driver="playwright-chromium"} > 0
+          and
+          athena_browser_worker_available_memory_bytes < 1073741824
+        for: 2m
+        labels:
+          severity: warning
+          owner: browser-plane
+        annotations:
+          summary: Browser Worker available memory is below the one GiB admission guard.
+      - alert: AthenaBrowserCrashLoop
+        expr: increase(athena_browser_crashes_total[10m]) >= 3
+        for: 1m
+        labels:
+          severity: critical
+          owner: browser-plane
+        annotations:
+          summary: Browser driver crashed at least three times within ten minutes.

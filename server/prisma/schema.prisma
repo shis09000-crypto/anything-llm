@@ -2028,6 +2028,149 @@ model tool_invocations {
   @@index([toolName, status, approvalRequestedAt])
 }
 
+model browser_profiles {
+  id                  String    @id @default(uuid())
+  profileId           String
+  ownerUserId         Int
+  executionLocation   String    @default("cloud")
+  status              String    @default("ready")
+  archiveRef          String?
+  archiveManifestJson String?
+  archiveSha256       String?
+  archiveBytes        Int?
+  checkpointedAt      DateTime?
+  leaseOwner          String?
+  leaseExpiresAt      DateTime?
+  lastUsedAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([ownerUserId, profileId])
+  @@index([ownerUserId, status])
+  @@index([leaseExpiresAt])
+  @@index([lastUsedAt])
+}
+
+model browser_sessions {
+  id                String    @id @default(uuid())
+  ownerUserId       Int
+  profileId         String
+  workerSessionId   String?
+  driver            String
+  executionLocation String
+  status            String    @default("starting")
+  currentTabId      String?
+  nodeId            String?
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  lastHeartbeatAt   DateTime?
+  errorCode         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  closedAt          DateTime?
+
+  @@index([ownerUserId, status])
+  @@index([profileId, status])
+  @@index([leaseExpiresAt])
+}
+
+model browser_workspaces {
+  id                String   @id @default(uuid())
+  ownerUserId       Int
+  name              String
+  preferredLocation String   @default("desktop")
+  stateJson         String   @default("{}")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([ownerUserId, updatedAt])
+}
+
+model browser_tabs {
+  id              String    @id
+  ownerUserId     Int
+  sessionId       String
+  workspaceId     String?
+  title           String?
+  urlWithoutQuery String?
+  position        Int       @default(0)
+  pinned          Boolean   @default(false)
+  status          String    @default("active")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  closedAt        DateTime?
+
+  @@index([ownerUserId, sessionId, status])
+  @@index([workspaceId, position])
+}
+
+model browser_tasks {
+  id                String    @id @default(uuid())
+  ownerUserId       Int
+  sessionId         String?
+  tabId             String?
+  actorType         String    @default("user")
+  action            String
+  status            String    @default("queued")
+  idempotencyKey    String
+  argumentHash      String
+  resultSha256      String?
+  approvalRequestId String?
+  reasonCode        String?
+  checkpointJson    String?
+  createdAt         DateTime  @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([ownerUserId, idempotencyKey])
+  @@index([ownerUserId, status, createdAt])
+  @@index([sessionId, status])
+}
+
+model browser_artifacts {
+  id          String    @id
+  ownerUserId Int
+  taskId      String?
+  sessionId   String?
+  type        String
+  displayName String?
+  mimeType    String?
+  objectRef   String?
+  sha256      String?
+  sizeBytes   Int?
+  status      String    @default("ready")
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([ownerUserId, createdAt])
+  @@index([taskId])
+  @@index([expiresAt])
+}
+
+model browser_bookmarks {
+  id              String   @id @default(uuid())
+  ownerUserId     Int
+  title           String?
+  urlWithoutQuery String
+  origin          String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([ownerUserId, updatedAt])
+}
+
+model browser_history {
+  id              String   @id @default(uuid())
+  ownerUserId     Int
+  title           String?
+  urlWithoutQuery String
+  origin          String
+  visitedAt       DateTime @default(now())
+
+  @@index([ownerUserId, visitedAt])
+}
+
 model plugin_capability_nonces {
   id               String   @id @default(uuid())
   nonceHash        String   @unique
@@ -3289,4 +3432,16 @@ model ai_eval_results {
   @@unique([runId, caseId])
   @@index([caseId, createdAt])
   @@index([runId])
+}
+
+model crypto_forecast_store_snapshots {
+  id                Int      @id @default(autoincrement())
+  snapshot_sha256   String   @unique
+  object_key        String
+  bytes             BigInt
+  summary_json      String
+  producer_instance String
+  created_at        DateTime @default(now())
+
+  @@index([created_at])
 }

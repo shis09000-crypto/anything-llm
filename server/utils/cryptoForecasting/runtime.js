@@ -29,6 +29,10 @@ const {
 } = require("./publicPolicy");
 const { CryptoForecastStore } = require("./store");
 const {
+  createAuthoritativeCryptoForecastStore,
+  remoteStoreEnabled,
+} = require("./authoritativeStore");
+const {
   COST_MODEL,
   COST_MODEL_SHA256,
   COST_MODEL_V3,
@@ -300,15 +304,33 @@ class CryptoForecastingRuntime {
     this.lastModelLoadErrorEmitted = null;
     this.lastCandidateHour = null;
     this.lastLowFrequencyDay = null;
+    this.contractsInstalled = false;
+    this.initializing = null;
   }
 
   ensureDependencies() {
-    if (!this.store) this.store = new CryptoForecastStore({ root: this.root });
+    if (!this.store) {
+      if (remoteStoreEnabled(this.env)) {
+        const error = new Error("crypto_forecast_store_not_initialized");
+        error.code = "CRYPTO_FORECAST_STORE_NOT_INITIALIZED";
+        throw error;
+      }
+      this.store = new CryptoForecastStore({
+        root: this.root,
+        env: this.env,
+        now: this.now,
+      });
+    }
     if (!this.modelRuntime)
       this.modelRuntime = new ForecastModelRuntime({
         root: this.root,
         env: this.env,
       });
+    this.installContracts();
+  }
+
+  installContracts() {
+    if (this.contractsInstalled) return;
     this.store.saveFeatureRegistry({
       registrySha256: FEATURE_REGISTRY_SHA256,
       registryVersion: FEATURE_REGISTRY.registryVersion,
@@ -360,12 +382,53 @@ class CryptoForecastingRuntime {
       1
     );
     metrics.cryptoForecastContractStatus.set({ contract: "cost_model" }, 1);
+    this.contractsInstalled = true;
+  }
+
+  async initializeDependencies() {
+    if (this.store) {
+      this.ensureDependencies();
+      return this.store;
+    }
+    if (this.initializing) return this.initializing;
+    this.initializing = (async () => {
+      if (remoteStoreEnabled(this.env))
+        this.store = await createAuthoritativeCryptoForecastStore({
+          env: this.env,
+          now: this.now,
+        });
+      else
+        this.store = new CryptoForecastStore({
+          root: this.root,
+          env: this.env,
+          now: this.now,
+        });
+      if (!this.modelRuntime)
+        this.modelRuntime = new ForecastModelRuntime({
+          root: this.root,
+          env: this.env,
+        });
+      this.installContracts();
+      return this.store;
+    })().finally(() => {
+      this.initializing = null;
+    });
+    return this.initializing;
   }
 
   start() {
     if (!enabled(this.env)) return { started: false, reason: "disabled" };
     if (this.running) return this.snapshot();
+    if (remoteStoreEnabled(this.env)) return this.startAuthoritative();
     this.ensureDependencies();
+    this.running = true;
+    this.schedule(250);
+    return { started: true, ...this.snapshot() };
+  }
+
+  async startAuthoritative() {
+    if (this.running) return this.snapshot();
+    await this.initializeDependencies();
     this.running = true;
     this.schedule(250);
     return { started: true, ...this.snapshot() };
@@ -390,6 +453,7 @@ class CryptoForecastingRuntime {
   }
 
   async runTick() {
+    await this.initializeDependencies();
     this.lastTickAt = new Date(this.now()).toISOString();
     if (
       !this.store.acquireLease({
@@ -448,6 +512,7 @@ class CryptoForecastingRuntime {
         new Date(this.now()).getUTCMinutes() < 10
       )
         this.store.prune();
+      await this.store.checkpoint?.();
       this.lastSuccessAt = new Date(this.now()).toISOString();
       this.lastErrorCode = null;
       return {
@@ -1400,6 +1465,10 @@ class CryptoForecastingRuntime {
       derivativeCoverage: this.store?.derivativeCoverage() || [],
       microstructure: this.microstructureCollector?.snapshot() || null,
       microstructureCoverage: this.store?.microstructureCoverage() || [],
+      authoritativeStore: this.store?.authoritativeStatus?.() || {
+        mode: "embedded",
+        cacheDurable: true,
+      },
     };
   }
 
@@ -1410,7 +1479,11 @@ class CryptoForecastingRuntime {
     if (this.inFlight) await this.inFlight.catch(() => {});
     this.microstructureCollector?.stop();
     this.store?.releaseLease({ name: LEASE_NAME, ownerId: this.ownerId });
-    this.store?.close();
+    if (this.store?.checkpoint)
+      await this.store.checkpoint({ force: true }).catch(() => {});
+    if (this.store?.closeAuthoritative)
+      await this.store.closeAuthoritative();
+    else this.store?.close();
     this.store = null;
     return this.snapshot();
   }

@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const Database = require("better-sqlite3");
@@ -12,15 +13,24 @@ const {
   forecastingRoot,
 } = require("./constants");
 
-function assertEmbeddedSqliteStoreAllowed(env = process.env) {
+function assertEmbeddedSqliteStoreAllowed(
+  env = process.env,
+  { persistenceMode = "embedded", root = forecastingRoot() } = {}
+) {
   const topology = String(env.ATHENA_RUNTIME_TOPOLOGY || "")
     .trim()
     .toLowerCase();
+  const authoritativeRemoteCache =
+    persistenceMode === "remote-cache" &&
+    String(env.ATHENA_CRYPTO_FORECAST_STORE || "").toLowerCase() ===
+      "postgres-s3" &&
+    path.resolve(root).startsWith(`${path.resolve(os.tmpdir())}${path.sep}`);
   if (
     isPostgresql(env) ||
     topology === "distributed" ||
     topology === "micro-modules"
   ) {
+    if (authoritativeRemoteCache) return;
     const error = new Error(
       "crypto_forecast_embedded_sqlite_forbidden_in_authoritative_topology"
     );
@@ -103,10 +113,12 @@ class CryptoForecastStore {
     root = forecastingRoot(),
     now = () => Date.now(),
     env = process.env,
+    persistenceMode = "embedded",
   } = {}) {
-    assertEmbeddedSqliteStoreAllowed(env);
+    assertEmbeddedSqliteStoreAllowed(env, { persistenceMode, root });
     this.root = path.resolve(root);
     this.now = now;
+    this.persistenceMode = persistenceMode;
     fs.mkdirSync(this.root, { recursive: true });
     fs.mkdirSync(path.join(this.root, "archives"), { recursive: true });
     fs.mkdirSync(path.join(this.root, "models"), { recursive: true });
