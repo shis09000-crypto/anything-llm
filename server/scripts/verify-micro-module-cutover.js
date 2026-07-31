@@ -52,10 +52,16 @@ function topologyFindings(env = process.env, phase = "foundation") {
     findings.push("reader_durable_queue_disabled");
   if (env.ATHENA_READER_WORKER_FALLBACK_IN_PROCESS !== "false")
     findings.push("reader_in_process_fallback_enabled");
-  if (env.ATHENA_MODULE_SCHEMA_CUTOVER !== "true")
-    findings.push("logical_schema_cutover_not_authoritative");
-  if (env.ATHENA_SHARED_STORAGE_CUTOVER !== "true")
-    findings.push("shared_storage_cutover_not_authoritative");
+  // A deployment-phase check proves that the isolated topology can run on the
+  // distributed foundations without claiming that production data ownership
+  // has already moved. Foundation/retirement remain the authoritative cutover
+  // gates and therefore continue to require both cutover switches.
+  if (phase !== "deployment") {
+    if (env.ATHENA_MODULE_SCHEMA_CUTOVER !== "true")
+      findings.push("logical_schema_cutover_not_authoritative");
+    if (env.ATHENA_SHARED_STORAGE_CUTOVER !== "true")
+      findings.push("shared_storage_cutover_not_authoritative");
+  }
   if (phase === "retirement") {
     if (!present(env.ATHENA_KEY_CUSTODY_URL))
       findings.push("remote_key_custody_url_missing");
@@ -190,7 +196,7 @@ function evaluateCutover({
 
 function main() {
   const options = parseArgs();
-  if (!["foundation", "retirement"].includes(options.phase))
+  if (!["deployment", "foundation", "retirement"].includes(options.phase))
     throw new Error("cutover_phase_invalid");
   const result = evaluateCutover({
     env: process.env,

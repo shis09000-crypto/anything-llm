@@ -60,6 +60,18 @@ describe("preproduction cutover qualification evidence", () => {
     ).toContain("operations_coverage_not_20_of_20");
   });
 
+  it("does not treat operational topology readiness as cutover authority", () => {
+    const operationalOnly = topology();
+    operationalOnly.operationalReady = true;
+    operationalOnly.productionCutoverReady = false;
+    operationalOnly.authoritativePaths.logicalSchemaCutover = false;
+    operationalOnly.authoritativePaths.sharedStorageCutover = false;
+
+    expect(topologyFindings(operationalOnly)).toContain(
+      "authoritative_paths_incomplete"
+    );
+  });
+
   it("accepts only a complete real-drill evidence set", () => {
     const findings = evaluate({
       topology: input(topology()),

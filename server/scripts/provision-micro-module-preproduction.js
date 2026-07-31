@@ -240,15 +240,33 @@ function provisionSecret(target, factory = () => randomSecret()) {
   return fs.readFileSync(target, "utf8").trim();
 }
 
-function writeRuntimeEnv(secretsDir, values) {
+function writeRuntimeEnv(secretsDir, values, mutableKeys = []) {
   const target = path.join(secretsDir, "runtime.env");
-  if (fs.existsSync(target)) return target;
-  privateWrite(
-    target,
-    `${Object.entries(values)
-      .map(([key, value]) => `${key}=${value}`)
-      .join("\n")}\n`
-  );
+  const existing = {};
+  if (fs.existsSync(target)) {
+    for (const line of fs.readFileSync(target, "utf8").split("\n")) {
+      if (!line || line.startsWith("#") || !line.includes("=")) continue;
+      const separator = line.indexOf("=");
+      existing[line.slice(0, separator)] = line.slice(separator + 1);
+    }
+  }
+  const merged = { ...values, ...existing };
+  for (const key of mutableKeys) merged[key] = values[key];
+  const serialized = `${Object.entries(merged)
+    .map(([key, value]) => {
+      if (String(value).includes("\n"))
+        throw new Error(`preproduction_runtime_env_value_invalid:${key}`);
+      return `${key}=${value}`;
+    })
+    .join("\n")}\n`;
+  if (!fs.existsSync(target)) {
+    privateWrite(target, serialized);
+  } else {
+    const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    privateWrite(temporary, serialized);
+    fs.renameSync(temporary, target);
+    fs.chmodSync(target, 0o600);
+  }
   return target;
 }
 
@@ -266,6 +284,11 @@ function main() {
   }
   if (Number(process.versions.node.split(".")[0]) < 24)
     throw new Error("node24_required_for_preproduction_provisioning");
+  if (
+    !process.env.ATHENA_PREPROD_PUBLIC_URL ||
+    !process.env.ATHENA_PREPROD_PUBLIC_HOST
+  )
+    throw new Error("preproduction_public_origin_required");
 
   const privateDir = path.join(outputDir, "bootstrap-private");
   const mtlsDir = path.join(outputDir, "service-mtls");
@@ -323,47 +346,53 @@ function main() {
   );
   provisionSecret(path.join(secretDir, "metrics-token"));
   provisionSecret(path.join(secretDir, "clickhouse-password"));
-  const runtimeEnv = writeRuntimeEnv(outputDir, {
-    ATHENA_PREPROD_SECRETS_DIR: hostOutputDir,
-    ATHENA_RUNTIME_ENV_FILE: "preproduction.empty.env",
-    ATHENA_PASSWORD_PEPPER_HOST_FILE: path.join(
-      hostOutputDir,
-      "runtime-secrets",
-      "password-pepper"
-    ),
-    ATHENA_MTLS_HOST_DIR: path.join(hostOutputDir, "service-mtls"),
-    ATHENA_PLUGIN_CAPABILITY_HOST_DIR: path.join(
-      hostOutputDir,
-      "plugin-capability"
-    ),
-    ATHENA_KEY_LEASE_HOST_FILE: path.join(
-      hostOutputDir,
-      "runtime-secrets",
-      "master-key"
-    ),
-    UID: String(process.getuid?.() ?? 1000),
-    GID: String(process.getgid?.() ?? 1000),
-    APP_ENV: "preproduction",
-    ATHENA_PREPROD_POSTGRES_ADMIN_PASSWORD: randomSecret(),
-    ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD: randomSecret(),
-    ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD: randomSecret(),
-    ATHENA_PREPROD_MINIO_ROOT_USER: `athena_${crypto
-      .randomBytes(8)
-      .toString("hex")}`,
-    ATHENA_PREPROD_MINIO_ROOT_PASSWORD: randomSecret(),
-    ATHENA_PREPROD_CLICKHOUSE_PASSWORD: fs
-      .readFileSync(path.join(secretDir, "clickhouse-password"), "utf8")
-      .trim(),
-    ATHENA_PREPROD_GRAFANA_PASSWORD: randomSecret(),
-    ATHENA_PREPROD_AUTH_TOKEN: randomSecret(),
-    ATHENA_PREPROD_JWT_SECRET: randomSecret(48),
-    ATHENA_PREPROD_SIG_KEY: randomSecret(48),
-    ATHENA_PREPROD_SIG_SALT: randomSecret(32),
-    ATHENA_PREPROD_S3_ACCESS_KEY: randomSecret(18),
-    ATHENA_PREPROD_S3_SECRET_KEY: randomSecret(36),
-    ATHENA_API_BIND_ADDRESS: "127.0.0.1",
-    ATHENA_WEB_BIND_ADDRESS: "127.0.0.1",
-  });
+  const runtimeEnv = writeRuntimeEnv(
+    outputDir,
+    {
+      ATHENA_PREPROD_SECRETS_DIR: hostOutputDir,
+      ATHENA_RUNTIME_ENV_FILE: "preproduction.empty.env",
+      ATHENA_PASSWORD_PEPPER_HOST_FILE: path.join(
+        hostOutputDir,
+        "runtime-secrets",
+        "password-pepper"
+      ),
+      ATHENA_MTLS_HOST_DIR: path.join(hostOutputDir, "service-mtls"),
+      ATHENA_PLUGIN_CAPABILITY_HOST_DIR: path.join(
+        hostOutputDir,
+        "plugin-capability"
+      ),
+      ATHENA_KEY_LEASE_HOST_FILE: path.join(
+        hostOutputDir,
+        "runtime-secrets",
+        "master-key"
+      ),
+      UID: String(process.getuid?.() ?? 1000),
+      GID: String(process.getgid?.() ?? 1000),
+      APP_ENV: "preproduction",
+      ATHENA_PREPROD_PUBLIC_URL: process.env.ATHENA_PREPROD_PUBLIC_URL,
+      ATHENA_PREPROD_PUBLIC_HOST: process.env.ATHENA_PREPROD_PUBLIC_HOST,
+      ATHENA_PREPROD_POSTGRES_ADMIN_PASSWORD: randomSecret(),
+      ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD: randomSecret(),
+      ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD: randomSecret(),
+      ATHENA_PREPROD_MINIO_ROOT_USER: `athena_${crypto
+        .randomBytes(8)
+        .toString("hex")}`,
+      ATHENA_PREPROD_MINIO_ROOT_PASSWORD: randomSecret(),
+      ATHENA_PREPROD_CLICKHOUSE_PASSWORD: fs
+        .readFileSync(path.join(secretDir, "clickhouse-password"), "utf8")
+        .trim(),
+      ATHENA_PREPROD_GRAFANA_PASSWORD: randomSecret(),
+      ATHENA_PREPROD_AUTH_TOKEN: randomSecret(),
+      ATHENA_PREPROD_JWT_SECRET: randomSecret(48),
+      ATHENA_PREPROD_SIG_KEY: randomSecret(48),
+      ATHENA_PREPROD_SIG_SALT: randomSecret(32),
+      ATHENA_PREPROD_S3_ACCESS_KEY: randomSecret(18),
+      ATHENA_PREPROD_S3_SECRET_KEY: randomSecret(36),
+      ATHENA_API_BIND_ADDRESS: "127.0.0.1",
+      ATHENA_WEB_BIND_ADDRESS: "127.0.0.1",
+    },
+    ["ATHENA_PREPROD_PUBLIC_URL", "ATHENA_PREPROD_PUBLIC_HOST"]
+  );
   console.log(
     JSON.stringify(
       {

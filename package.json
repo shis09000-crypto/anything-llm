@@ -31,6 +31,7 @@
     "check:modular-p4": "yarn check:modular-p3 && yarn build:realtime-gateway && yarn build:crypto-module",
     "check:micro-module-runtimes": "yarn check:micro-modules && yarn check:independent-module-topology && yarn build:independent-control-runtimes && yarn build:scheduler && yarn build:operations-plane && yarn build:chat-runtime && yarn build:agent-runtime && yarn build:model-gateway && yarn build:tool-runtime && yarn build:crypto-runtimes && yarn build:key-custody && yarn build:reader-worker && yarn build:background-worker && yarn build:realtime-gateway && cd server && yarn prisma:postgresql:validate && yarn crypto-assets:audit",
     "check:independent-module-topology": "node scripts/verify-independent-module-topology.mjs",
+    "preproduction:micro-modules:preflight": "node server/scripts/verify-micro-module-preproduction-host.js",
     "preproduction:micro-modules:deploy": "bash scripts/preproduction/deploy-micro-modules.sh",
     "preproduction:micro-modules:status": "bash scripts/preproduction/status-micro-modules.sh",
     "preproduction:micro-modules:drill": "bash scripts/preproduction/run-micro-module-drills.sh",

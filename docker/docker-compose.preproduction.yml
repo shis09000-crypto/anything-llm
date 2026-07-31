@@ -87,6 +87,8 @@ volumes:
   preprod-clickhouse:
   preprod-prometheus:
   preprod-grafana:
+  preprod-caddy-data:
+  preprod-caddy-config:
   preprod-tempo:
   preprod-loki:
   preprod-storage:
@@ -353,6 +355,28 @@ services:
       ATHENA_KNOWLEDGE_INGEST_UPSTREAM: https://anything-llm-knowledge-ingest:3027
     networks: [anything-llm]
 
+  athena-preproduction-ingress:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    depends_on:
+      anything-llm-web: { condition: service_started }
+    environment:
+      ATHENA_PREPROD_PUBLIC_HOST: ${ATHENA_PREPROD_PUBLIC_HOST:?required}
+    ports:
+      - "${ATHENA_PREPROD_BIND_ADDRESS:-0.0.0.0}:80:80"
+      - "${ATHENA_PREPROD_BIND_ADDRESS:-0.0.0.0}:443:443"
+      - "${ATHENA_PREPROD_BIND_ADDRESS:-0.0.0.0}:443:443/udp"
+    volumes:
+      - ./preproduction/Caddyfile:/etc/caddy/Caddyfile:ro
+      - preprod-caddy-data:/data
+      - preprod-caddy-config:/config
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks: [anything-llm]
+
   anything-llm-edge-probe:
     build:
       context: ../.
@@ -361,7 +385,7 @@ services:
       args: { ARG_UID: "${UID:-1000}", ARG_GID: "${GID:-1000}" }
     restart: unless-stopped
     depends_on:
-      anything-llm-web: { condition: service_started }
+      athena-preproduction-ingress: { condition: service_healthy }
     volumes:
       - ./preproduction.empty.env:/app/server/.env:ro
       - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
@@ -376,7 +400,7 @@ services:
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/edge-web.key
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/edge-web.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-edge-web
-      ATHENA_EDGE_LOCAL_HEALTH_URL: http://anything-llm-web:3000/health
+      ATHENA_EDGE_LOCAL_HEALTH_URL: http://athena-preproduction-ingress:8080/health
       EDGE_PROBE_PORT: "3025"
     networks: [anything-llm]
 

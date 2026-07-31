@@ -85,6 +85,25 @@ function evidence() {
 }
 
 describe("micro-module cutover gate", () => {
+  test("allows an isolated deployment before authoritative data cutover", () => {
+    const env = distributedEnv();
+    env.ATHENA_MODULE_SCHEMA_CUTOVER = "false";
+    env.ATHENA_SHARED_STORAGE_CUTOVER = "false";
+
+    expect(
+      evaluateCutover({ env, phase: "deployment", strict: false })
+    ).toMatchObject({ ready: true, findings: [] });
+    expect(
+      evaluateCutover({ env, phase: "foundation", strict: false })
+    ).toMatchObject({
+      ready: false,
+      findings: expect.arrayContaining([
+        "logical_schema_cutover_not_authoritative",
+        "shared_storage_cutover_not_authoritative",
+      ]),
+    });
+  });
+
   test("accepts a fully verified distributed foundation", () => {
     expect(
       evaluateCutover({

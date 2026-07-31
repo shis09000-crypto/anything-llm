@@ -201,7 +201,12 @@ async function main() {
   const moduleHealth = moduleHealthResponse.moduleHealth;
   const infrastructureHealth =
     infrastructureHealthResponse.infrastructureHealth;
-  const topology = evaluateCutover({
+  const deploymentTopology = evaluateCutover({
+    env: process.env,
+    phase: "deployment",
+    strict: false,
+  });
+  const productionCutoverTopology = evaluateCutover({
     env: process.env,
     phase: "foundation",
     strict: false,
@@ -222,8 +227,8 @@ async function main() {
       (component) => component.status === "unknown"
     ).length,
   };
-  const ready =
-    topology.ready &&
+  const operationalReady =
+    deploymentTopology.ready &&
     counts.total === 20 &&
     counts.healthy === 20 &&
     counts.degraded === 0 &&
@@ -238,23 +243,33 @@ async function main() {
     prometheus.up === prometheus.expected &&
     database?.ready !== false &&
     objectStore.ready;
+  const productionCutoverReady =
+    operationalReady && productionCutoverTopology.ready;
   const evidence = {
     version: "athena.preproduction-topology-evidence:v1",
     generatedAt: new Date().toISOString(),
     environment: "preproduction",
-    ready,
+    // `ready` deliberately means that the isolated preproduction topology is
+    // operational. It is not permission to cut production over. The formal
+    // cutover evidence generator still requires productionCutoverReady plus
+    // authoritative schema/storage flags and every real drill.
+    ready: operationalReady,
+    operationalReady,
+    productionCutoverReady,
     authoritativePaths: {
-      database: topology.topology.database,
-      broadcast: topology.topology.broadcast,
-      contentStore: topology.topology.contentStore,
-      serviceMtlsRequired: topology.topology.serviceMtlsRequired,
-      durableReaderQueue: topology.topology.durableReaderQueue,
-      logicalSchemaCutover: topology.topology.logicalSchemaCutover,
-      sharedStorageCutover: topology.topology.sharedStorageCutover,
+      database: deploymentTopology.topology.database,
+      broadcast: deploymentTopology.topology.broadcast,
+      contentStore: deploymentTopology.topology.contentStore,
+      serviceMtlsRequired: deploymentTopology.topology.serviceMtlsRequired,
+      durableReaderQueue: deploymentTopology.topology.durableReaderQueue,
+      logicalSchemaCutover:
+        productionCutoverTopology.topology.logicalSchemaCutover,
+      sharedStorageCutover:
+        productionCutoverTopology.topology.sharedStorageCutover,
     },
     manifests: {
       count: loadManifests().length,
-      fingerprints: topology.modules.fingerprints,
+      fingerprints: deploymentTopology.modules.fingerprints,
     },
     operations: {
       status: health.status,
@@ -280,7 +295,7 @@ async function main() {
     },
     objectStore,
     findings: [
-      ...topology.findings,
+      ...deploymentTopology.findings,
       ...(counts.unknown ? ["operations_unknown_nonzero"] : []),
       ...(counts.unmonitored ? ["operations_unmonitored_nonzero"] : []),
       ...(counts.degraded ? ["operations_degraded_nonzero"] : []),
@@ -297,6 +312,7 @@ async function main() {
         (moduleId) => `prometheus_target_missing:${moduleId}`
       ),
     ],
+    productionCutoverFindings: productionCutoverTopology.findings,
   };
   const output = argument("output");
   if (output) {
@@ -307,7 +323,7 @@ async function main() {
     });
   }
   console.log(JSON.stringify(evidence, null, 2));
-  if (!ready) process.exitCode = 2;
+  if (!operationalReady) process.exitCode = 2;
 }
 
 main().catch((error) => {

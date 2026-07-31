@@ -110,6 +110,7 @@ function main() {
     )
   );
   const authority = preproduction["x-authoritative-runtime"] || {};
+  const ingress = preproduction.services?.["athena-preproduction-ingress"] || {};
   const requiredAuthority = {
     ATHENA_RUNTIME_TOPOLOGY: "distributed",
     ATHENA_DATABASE_PROVIDER: "postgresql",
@@ -131,6 +132,26 @@ function main() {
     warnings.push("logical_schema_cutover_pending_expand_contract_migration");
   const sharedStorageCutover =
     String(authority.ATHENA_SHARED_STORAGE_CUTOVER || "") === "true";
+
+  if (!String(ingress.image || "").startsWith("caddy:"))
+    findings.push("preproduction_caddy_ingress_missing");
+  if (!ingress.depends_on?.["anything-llm-web"])
+    findings.push("preproduction_caddy_web_dependency_missing");
+  if (!(ingress.volumes || []).some((mount) =>
+    String(mount).includes("preproduction/Caddyfile:/etc/caddy/Caddyfile:ro")
+  ))
+    findings.push("preproduction_caddy_config_missing");
+  for (const port of ["80:80", "443:443"]) {
+    if (!(ingress.ports || []).some((mapping) => String(mapping).includes(port)))
+      findings.push(`preproduction_caddy_port_missing:${port}`);
+  }
+  if (
+    String(
+      preproduction.services?.["anything-llm-edge-probe"]?.environment
+        ?.ATHENA_EDGE_LOCAL_HEALTH_URL || ""
+    ) !== "http://athena-preproduction-ingress:8080/health"
+  )
+    findings.push("edge_probe_does_not_traverse_caddy");
 
   for (const manifest of manifests) {
     const [serviceName, target] = RUNTIME_BINDINGS[manifest.id] || [];
@@ -266,6 +287,16 @@ function main() {
       findings.filter((finding) =>
         /^(service_identity|service_mtls)/.test(finding)
       ).length,
+    ingress: {
+      provider: String(ingress.image || "").split(":")[0] || null,
+      publicHttps: (ingress.ports || []).some((mapping) =>
+        String(mapping).includes("443:443")
+      ),
+      edgeProbeTraversesIngress:
+        preproduction.services?.["anything-llm-edge-probe"]?.environment
+          ?.ATHENA_EDGE_LOCAL_HEALTH_URL ===
+        "http://athena-preproduction-ingress:8080/health",
+    },
     authoritativePaths: {
       postgresql: authority.ATHENA_DATABASE_PROVIDER === "postgresql",
       nats: authority.ATHENA_BROADCAST_TRANSPORT === "nats",

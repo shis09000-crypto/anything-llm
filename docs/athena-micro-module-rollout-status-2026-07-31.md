@@ -87,6 +87,17 @@ Athena 已完成微模块架构的代码级底座和本地自动化验收。当�
 
 API 不再为 Authentication、Knowledge Ingest 或 RAG 伪造本地探针。Edge、Collector、Reader、Realtime 及上述运行时均拥有独立 `/ready`、`/metrics`、服务身份和 Prometheus mTLS target。
 
+### 独立预生产部署门禁与 Edge 入口
+
+状态：部署包已完成，等待合格的独立预生产主机。
+
+- 部署前新增 `athena.preproduction-host-admission:v1`，在生成密钥或构建镜像前验证独立 HTTPS 域名、Docker Engine、Compose v2、Buildx、amd64、最低 4 vCPU/12 GiB/40 GiB，以及生产容器和生产数据目录未与预生产共址。
+- Compose 内置独立 Caddy Edge，监听 80/443，并使用预生产专属证书状态卷；`edge-web` readiness 会穿过 Caddy → Web，而非仅检查容器内部页面。
+- 预生产资格拆成两个状态：`operationalReady` 表示隔离拓扑可以运行；`productionCutoverReady` 仍要求逻辑 Schema 和共享存储均已成为权威路径。
+- 正式 cutover evidence 继续严格拒绝 `ATHENA_MODULE_SCHEMA_CUTOVER=false` 或 `ATHENA_SHARED_STORAGE_CUTOVER=false`，运行就绪不会被误当成生产切换授权。
+
+当前开发机准入实测为 fail-closed：无 Docker Engine/Compose/Buildx，且目标文件系统只有约 7.3 GiB 可用空间，未达到 40 GiB 门槛。因此本轮没有在开发机伪造容器或真实预生产通过结论，也没有使用现有生产主机承载该拓扑。
+
 ### 统一 AI 运维中心兼容性
 
 状态：微模块运行观测链路已完成代码级收口，真实分布式基础设施验收待预生产执行。
@@ -162,6 +173,12 @@ API 不再为 Authentication、Knowledge Ingest 或 RAG 伪造本地探针。Edg
 
 ```bash
 yarn check:micro-module-runtimes
+```
+
+预生产主机准入命令为：
+
+```bash
+yarn preproduction:micro-modules:preflight
 ```
 
 该命令覆盖：

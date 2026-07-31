@@ -50,10 +50,16 @@ Operations 每 15 秒通过 mTLS 探测一次，并为健康模块写入
 
 ## 部署前条件
 
-- 使用独立预生产主机，不与生产 Compose 项目、网络、卷或域名共用。
+- 使用独立预生产主机，不与生产 Compose 项目、网络、卷或域名共用；部署器会
+  检测生产容器和 Compose project，发现共址时 fail-closed。
 - 主机安装支持 Compose v2、BuildKit 的 Docker。
+- Docker Engine 必须为 amd64，至少 4 vCPU、12 GiB 内存，并在预生产状态
+  目录所在文件系统保留至少 40 GiB 可用空间。
 - 仓库已同步到要验收的不可变提交。
 - DNS 指向独立预生产入口；不得指向生产反向代理。
+- 公网入口由预生产 Compose 内的 Caddy 承担，只接受无路径、标准 443 端口
+  的独立 HTTPS 域名。Caddy 的证书和配置状态使用专属 volume，不与生产
+  入口共用。
 - 预生产模型 Provider、两个测试账户及只读 Crypto 测试连接已准备。
 - 主机目录 `/data/athena-preproduction` 可写且只供本环境使用。
 
@@ -68,17 +74,19 @@ cd /path/to/anything-llm
 export ATHENA_PREPROD_CONFIRM=athena-preproduction
 export ATHENA_PREPROD_STATE_DIR=/data/athena-preproduction
 export ATHENA_PREPROD_PUBLIC_URL=https://preproduction.example.com
+yarn preproduction:micro-modules:preflight
 yarn preproduction:micro-modules:deploy
 ```
 
 部署脚本依次执行：
 
-1. 生成或复用预生产专属密钥材料。
-2. 构建微模块镜像。
-3. 启动 PostgreSQL、NATS、MinIO、Operations 与全部运行模块。
-4. 执行 PostgreSQL migration。
-5. 等待容器健康。
-6. 验证 Operations 模块 20/20、基础设施 9/9、heartbeat 20/20、
+1. 验证独立主机、专属 HTTPS 域名、Docker/Buildx、容量和状态目录。
+2. 生成或复用预生产专属密钥材料。
+3. 构建微模块镜像。
+4. 启动 PostgreSQL、NATS、MinIO、Operations 与全部运行模块。
+5. 执行 PostgreSQL migration。
+6. 等待容器健康。
+7. 验证 Operations 模块 20/20、基础设施 9/9、heartbeat 20/20、
    Prometheus 20/20 和权威路径。
 
 检查状态：
@@ -100,6 +108,11 @@ yarn preproduction:micro-modules:status
 - Content store 为 `s3`，写入/删除探针通过。
 - `serviceMtlsRequired=true`。
 - Reader durable queue 已开启，进程内 fallback 已关闭。
+- Caddy 公网入口健康，`edge-web` readiness 已穿过 Caddy → Web 链路。
+
+这里的 `ready=true` 仅表示隔离预生产拓扑可运行。首次部署保持
+`productionCutoverReady=false` 是预期状态；只有 Schema、共享存储迁移和
+全部真实演练完成后，正式 cutover evidence 才可能通过。
 
 ## 演练
 

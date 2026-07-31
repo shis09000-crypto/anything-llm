@@ -20,6 +20,11 @@ if [[ "${APP_ENV:-preproduction}" == "production" ]]; then
   exit 2
 fi
 
+node "${repo_root}/server/scripts/verify-micro-module-preproduction-host.js"
+export ATHENA_PREPROD_PUBLIC_HOST="$(
+  node -e 'process.stdout.write(new URL(process.env.ATHENA_PREPROD_PUBLIC_URL).hostname)'
+)"
+
 mkdir -p "${secret_dir}" "${evidence_dir}"
 chmod 700 "${secret_dir}" "${evidence_dir}"
 
@@ -31,6 +36,8 @@ docker build \
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
+  --env ATHENA_PREPROD_PUBLIC_URL \
+  --env ATHENA_PREPROD_PUBLIC_HOST \
   --volume "${secret_dir}:/run/preproduction-secrets" \
   --entrypoint node \
   "${bootstrap_image}" \

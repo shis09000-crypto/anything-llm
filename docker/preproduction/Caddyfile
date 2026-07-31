@@ -1,0 +1,19 @@
+{
+	admin 0.0.0.0:2019
+	grace_period 30s
+}
+
+{$ATHENA_PREPROD_PUBLIC_HOST} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	reverse_proxy anything-llm-web:3000
+}
+
+# Internal end-to-end Edge probe. It intentionally traverses Caddy and the Web
+# gateway while remaining unreachable from the host network.
+:8080 {
+	reverse_proxy anything-llm-web:3000
+}
