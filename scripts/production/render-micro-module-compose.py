@@ -249,6 +249,14 @@ def render(source: Path) -> dict:
                 for volume in service.get("volumes", [])
             ]
 
+        if name == "anything-llm-crypto-forecast":
+            # Forecast's historical online feature store is embedded SQLite.
+            # Keep the independently deployed service present but dormant
+            # after training-data retirement; it may only be re-enabled once
+            # its feature store is backed by the authoritative PostgreSQL/S3
+            # path. Market and account services remain fully available.
+            environment["ATHENA_CRYPTO_FORECASTING_ENABLED"] = "false"
+
         port = service_port(name, environment)
         if port:
             service["healthcheck"] = healthcheck(

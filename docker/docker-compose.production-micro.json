@@ -1949,7 +1949,8 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
         "ATHENA_KEY_PROVIDER": "secret-file",
-        "ATHENA_MASTER_KEY_FILE": "/run/secrets/athena_master_key"
+        "ATHENA_MASTER_KEY_FILE": "/run/secrets/athena_master_key",
+        "ATHENA_CRYPTO_FORECASTING_ENABLED": "false"
       },
       "networks": [
         "production"
