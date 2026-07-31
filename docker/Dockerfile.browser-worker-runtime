@@ -1,0 +1,29 @@
+# Build the Browser Worker as an additive runtime layer on top of an already
+# verified Athena backend image. This keeps Browser releases independent from
+# backend compilation and avoids duplicating the full server dependency build.
+ARG ATHENA_BACKEND_BASE_IMAGE=anythingllm-v2-anythingllm:latest
+FROM ${ATHENA_BACKEND_BASE_IMAGE}
+
+USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright
+RUN mkdir -p "${PLAYWRIGHT_BROWSERS_PATH}" \
+    && ./server/node_modules/.bin/playwright install --with-deps chromium \
+    && chown -R anythingllm:anythingllm "${PLAYWRIGHT_BROWSERS_PATH}"
+
+USER anythingllm
+ENV NODE_ENV=production \
+    ANYTHING_LLM_RUNTIME=docker \
+    ATHENA_RUNTIME_ROLE=browser-worker \
+    ATHENA_API_ONLY=true \
+    ATHENA_COLLECTOR_INLINE=false \
+    ATHENA_BACKGROUND_INLINE=false \
+    BROWSER_WORKER_PORT=3031 \
+    BROWSER_WORKER_MAX_SESSIONS=1 \
+    BROWSER_WORKER_MAX_TABS=8 \
+    BROWSER_WORKER_IDLE_TIMEOUT_MS=900000 \
+    BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES=1073741824 \
+    DEPLOYMENT_VERSION=2.1.1
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=45s \
+  CMD curl --silent --fail --insecure "https://localhost:${BROWSER_WORKER_PORT}/ready" || exit 1
+
