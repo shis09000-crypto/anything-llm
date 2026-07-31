@@ -21,6 +21,8 @@ describe("remote Key Custody lifecycle cutover", () => {
     jest.clearAllMocks();
     resetSecurityStateForTests();
     mockRemoteKeyCustodyEnabled.mockReturnValue(true);
+    delete process.env.ATHENA_KEY_CUSTODY_BOOTSTRAP_ATTEMPTS;
+    delete process.env.ATHENA_KEY_CUSTODY_BOOTSTRAP_RETRY_MS;
   });
 
   test("marks the remote service authoritative without local key material", async () => {
@@ -65,5 +67,30 @@ describe("remote Key Custody lifecycle cutover", () => {
       reason: "REMOTE_KEY_CUSTODY_UNHEALTHY",
       provider: { remote: true },
     });
+  });
+
+  test("recovers from a transient remote authority startup race", async () => {
+    process.env.ATHENA_KEY_CUSTODY_BOOTSTRAP_ATTEMPTS = "3";
+    process.env.ATHENA_KEY_CUSTODY_BOOTSTRAP_RETRY_MS = "10";
+    mockRemoteCustodyStatus
+      .mockRejectedValueOnce(
+        Object.assign(new Error("dns_not_ready"), { code: "ENOTFOUND" })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        providerType: "secret-file",
+        mutable: false,
+        attested: false,
+        decryptOnlyKeyCount: 0,
+      });
+
+    await expect(
+      bootstrapSecurityContext({ runtimeRole: "api" })
+    ).resolves.toMatchObject({
+      status: "ready",
+      quarantined: false,
+      provider: { remote: true, providerType: "secret-file" },
+    });
+    expect(mockRemoteCustodyStatus).toHaveBeenCalledTimes(2);
   });
 });

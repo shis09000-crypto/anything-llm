@@ -582,7 +582,36 @@ async function bootstrapSecurityContext(options = {}) {
       domains: [],
     });
     try {
-      const remote = await remoteCustodyStatus(process.env);
+      const configuredAttempts = Number(
+        process.env.ATHENA_KEY_CUSTODY_BOOTSTRAP_ATTEMPTS
+      );
+      const attempts = Number.isSafeInteger(configuredAttempts)
+        ? Math.max(1, Math.min(configuredAttempts, 30))
+        : process.env.NODE_ENV === "test"
+          ? 1
+          : 12;
+      const configuredDelayMs = Number(
+        process.env.ATHENA_KEY_CUSTODY_BOOTSTRAP_RETRY_MS
+      );
+      const retryDelayMs = Number.isFinite(configuredDelayMs)
+        ? Math.max(10, Math.min(configuredDelayMs, 5_000))
+        : 500;
+      let remote = null;
+      let lastError = null;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        try {
+          remote = await remoteCustodyStatus(process.env);
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt >= attempts) break;
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(retryDelayMs * attempt, 5_000))
+          );
+        }
+      }
+      if (lastError) throw lastError;
       return setSecurityState({
         status: "ready",
         quarantined: false,
@@ -606,6 +635,17 @@ async function bootstrapSecurityContext(options = {}) {
         ],
       });
     } catch (error) {
+      // This event intentionally contains only a bounded reason code. URLs,
+      // certificate details and key material must never enter application logs.
+      console.error(
+        "[KeyCustody] Remote authority bootstrap failed after bounded retries.",
+        {
+          runtimeRole: options.runtimeRole || null,
+          reasonCode: String(
+            error?.code || error?.message || "remote_key_custody_unavailable"
+          ).slice(0, 160),
+        }
+      );
       return setSecurityState({
         status: mode === "shadow" ? "degraded" : "quarantined",
         quarantined: mode !== "shadow",
