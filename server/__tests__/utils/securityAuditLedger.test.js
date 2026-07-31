@@ -31,7 +31,7 @@ const mockLedgerApi = {
       .filter(
         (row) =>
           row.chainId === where.chainId &&
-          row.sequence > Number(where.sequence.gt)
+          (!where.sequence || row.sequence > Number(where.sequence.gt))
       )
       .sort((left, right) => left.sequence - right.sequence)
       .slice(0, take)
@@ -139,6 +139,9 @@ describe("security audit ledger", () => {
       failures: [],
     });
     expect(mockLedger[1].previousHash).toBe(mockLedger[0].entryHash);
+    expect(mockLedgerApi.findMany.mock.calls[0][0].where).toEqual({
+      chainId: "security-v1",
+    });
     expect(mockCheckpoints[0].algorithm).toBe("audit-ed25519-v1");
     expect(mockCheckpoints[0]).toMatchObject({
       parameterSet: "Ed25519",

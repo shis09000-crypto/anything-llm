@@ -622,11 +622,16 @@ async function verifySecurityAudit({
   };
   let previousHash = GENESIS_HASH;
   let entryCount = 0;
-  let afterSequence = Number.MIN_SAFE_INTEGER;
+  let afterSequence = null;
   const take = Math.min(Math.max(Number(pageSize) || 500, 50), 2_000);
   while (true) {
     const rows = await client.security_audit_ledger.findMany({
-      where: { chainId, sequence: { gt: afterSequence } },
+      where: {
+        chainId,
+        ...(afterSequence === null
+          ? {}
+          : { sequence: { gt: afterSequence } }),
+      },
       orderBy: { sequence: "asc" },
       take,
     });
