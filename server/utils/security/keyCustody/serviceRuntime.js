@@ -149,15 +149,23 @@ function signAuditCheckpoint(
     const normalized = normalizedContext(context);
     authorizePurpose(caller, normalized, env);
     const payload = auditPayload(payloadBase64);
-    const { classicalCheckpointSignature, signingKey } =
-      require("../auditLedger")._internals;
+    const {
+      auditHybridMode,
+      classicalCheckpointSignature,
+      postQuantumCheckpointSignature,
+      signingKey,
+    } = require("../auditLedger")._internals;
+    const signedAt = new Date();
     const signature = classicalCheckpointSignature({
       key: signingKey(keyId || null),
       payload,
-      signedAt: new Date(),
+      signedAt,
     });
+    const signatures = [signature];
+    if (auditHybridMode(env) !== "off")
+      signatures.push(postQuantumCheckpointSignature({ payload, signedAt }));
     observe("audit_sign", "success");
-    return { version: RPC_VERSION, signature };
+    return { version: RPC_VERSION, signature, signatures };
   } catch (error) {
     observe("audit_sign", error?.httpStatus === 403 ? "denied" : "failed");
     throw error;

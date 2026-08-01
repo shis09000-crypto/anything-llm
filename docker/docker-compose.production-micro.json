@@ -2457,7 +2457,9 @@
         "${ATHENA_PROD_STORAGE_DIR:?required}:/app/server/storage:ro",
         "${ATHENA_PROD_SECRETS_DIR:?required}/nats:/run/secrets/athena-nats:ro",
         "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/nats-subject-key:/run/secrets/athena_nats_subject_key:ro",
-        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/metrics-token:/run/secrets/athena_metrics_token:ro"
+        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/metrics-token:/run/secrets/athena_metrics_token:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-private.pem:/run/secrets/audit-mldsa65-private.pem:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-public.pem:/run/secrets/audit-mldsa65-public.pem:ro"
       ],
       "environment": {
         "APP_ENV": "production",
@@ -2569,7 +2571,12 @@
         "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
-        "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
+        "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
+        "ATHENA_AUDIT_HYBRID_SIGNATURES": "required",
+        "ATHENA_AUDIT_MLDSA65_KEY_ID": "${ATHENA_PROD_AUDIT_MLDSA65_KEY_ID:?required}",
+        "ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE": "/run/secrets/audit-mldsa65-private.pem",
+        "ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE": "/run/secrets/audit-mldsa65-public.pem",
+        "ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION": "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:?required}"
       },
       "networks": [
         "production"

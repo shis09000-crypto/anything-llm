@@ -218,7 +218,22 @@ async function remoteSignAuditCheckpoint(
     error.code = "key_custody_audit_signature_invalid";
     throw error;
   }
-  return signature;
+  const additionalSignatures = Array.isArray(response?.signatures)
+    ? response.signatures.filter(
+        (entry) =>
+          entry?.suiteId &&
+          entry?.keyId &&
+          entry?.publicKey &&
+          entry?.signature &&
+          entry?.postQuantum === true
+      )
+    : [];
+  if (additionalSignatures.length > 1) {
+    const error = new Error("key_custody_audit_signature_bundle_invalid");
+    error.code = "key_custody_audit_signature_bundle_invalid";
+    throw error;
+  }
+  return { ...signature, additionalSignatures };
 }
 
 module.exports = {

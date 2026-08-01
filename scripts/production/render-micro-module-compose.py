@@ -259,8 +259,27 @@ def render(source: Path) -> dict:
         if name in LOCAL_KEY_SERVICES:
             environment["ATHENA_KEY_PROVIDER"] = "secret-file"
             environment["ATHENA_MASTER_KEY_FILE"] = "/run/secrets/athena_master_key"
+            environment["ATHENA_AUDIT_HYBRID_SIGNATURES"] = "required"
+            environment["ATHENA_AUDIT_MLDSA65_KEY_ID"] = (
+                "${ATHENA_PROD_AUDIT_MLDSA65_KEY_ID:?required}"
+            )
+            environment["ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE"] = (
+                "/run/secrets/audit-mldsa65-private.pem"
+            )
+            environment["ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE"] = (
+                "/run/secrets/audit-mldsa65-public.pem"
+            )
+            environment["ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION"] = (
+                "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:?required}"
+            )
             service.setdefault("volumes", []).append(
                 "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/master-key:/run/secrets/athena_master_key:ro"
+            )
+            service.setdefault("volumes", []).extend(
+                [
+                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-private.pem:/run/secrets/audit-mldsa65-private.pem:ro",
+                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-public.pem:/run/secrets/audit-mldsa65-public.pem:ro",
+                ]
             )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
 

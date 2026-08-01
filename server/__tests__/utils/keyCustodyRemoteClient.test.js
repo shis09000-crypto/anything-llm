@@ -87,6 +87,22 @@ describe("remote Key Custody client", () => {
           signature: "signature",
           postQuantum: false,
         },
+        signatures: [
+          {
+            suiteId: "audit-ed25519-v1",
+            keyId: "key-1",
+            publicKey: "public-key",
+            signature: "signature",
+            postQuantum: false,
+          },
+          {
+            suiteId: "audit-mldsa65-v1",
+            keyId: "pq-key-1",
+            publicKey: "pq-public-key",
+            signature: "pq-signature",
+            postQuantum: true,
+          },
+        ],
       });
 
     await expect(
@@ -105,7 +121,16 @@ describe("remote Key Custody client", () => {
         },
         apiEnv
       )
-    ).resolves.toMatchObject({ keyId: "key-1", postQuantum: false });
+    ).resolves.toMatchObject({
+      keyId: "key-1",
+      postQuantum: false,
+      additionalSignatures: [
+        expect.objectContaining({
+          keyId: "pq-key-1",
+          postQuantum: true,
+        }),
+      ],
+    });
     expect(mockRequestInternalService).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({

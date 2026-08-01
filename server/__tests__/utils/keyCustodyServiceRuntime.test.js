@@ -96,11 +96,23 @@ describe("Key Custody isolated service runtime", () => {
       );
       const descriptor = auditKeyDescriptor(
         { context },
-        { caller, env: { NODE_ENV: "production" } }
+        {
+          caller,
+          env: {
+            NODE_ENV: "production",
+            ATHENA_AUDIT_HYBRID_SIGNATURES: "off",
+          },
+        }
       );
       const signed = signAuditCheckpoint(
         { payloadBase64: payload.toString("base64"), context },
-        { caller, env: { NODE_ENV: "production" } }
+        {
+          caller,
+          env: {
+            NODE_ENV: "production",
+            ATHENA_AUDIT_HYBRID_SIGNATURES: "off",
+          },
+        }
       );
       expect(descriptor.key).toMatchObject({
         keyId: signed.signature.keyId,
@@ -111,13 +123,25 @@ describe("Key Custody isolated service runtime", () => {
         postQuantum: false,
         signature: expect.any(String),
       });
+      expect(signed.signatures).toEqual([
+        expect.objectContaining({
+          suiteId: "audit-ed25519-v1",
+          postQuantum: false,
+        }),
+      ]);
       expect(signed).not.toHaveProperty("material");
       expect(signed.signature).not.toHaveProperty("privateKey");
 
       expect(() =>
         signAuditCheckpoint(
           { payloadBase64: Buffer.from("{}").toString("base64"), context },
-          { caller, env: { NODE_ENV: "production" } }
+          {
+            caller,
+            env: {
+              NODE_ENV: "production",
+              ATHENA_AUDIT_HYBRID_SIGNATURES: "off",
+            },
+          }
         )
       ).toThrow("key_custody_audit_payload_invalid");
     }

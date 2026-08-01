@@ -401,24 +401,27 @@ async function maybeCreateCheckpoint(tx, row, now = new Date()) {
     policy,
   });
   const signingPayload = Buffer.from(ledgerCanonical(payload), "utf8");
-  const signatureRecord = await signClassicalCheckpoint({
+  const signedCheckpoint = await signClassicalCheckpoint({
     payload: signingPayload,
     signedAt: now,
     chainId: row.chainId,
     throughSequence: row.sequence,
   });
+  const { additionalSignatures = [], ...signatureRecord } = signedCheckpoint;
   const signature = signatureRecord.signature;
-  const signatures = [signatureRecord];
+  const signatures = [signatureRecord, ...additionalSignatures];
   if (auditHybridMode() !== "off") {
-    try {
-      signatures.push(
-        postQuantumCheckpointSignature({
-          payload: signingPayload,
-          signedAt: now,
-        })
-      );
-    } catch (error) {
-      if (policy.pqRequired) throw error;
+    if (!signatures.some((entry) => entry?.postQuantum === true)) {
+      try {
+        signatures.push(
+          postQuantumCheckpointSignature({
+            payload: signingPayload,
+            signedAt: now,
+          })
+        );
+      } catch (error) {
+        if (policy.pqRequired) throw error;
+      }
     }
   }
   const signatureEnvelope = {
@@ -1449,6 +1452,7 @@ module.exports = {
     checkpointEnvelope,
     checkpointSigningPayload,
     classicalCheckpointSignature,
+    postQuantumCheckpointSignature,
     parseCheckpointSignatureEnvelope,
     boundAuditValue,
     entryEnvelope,
