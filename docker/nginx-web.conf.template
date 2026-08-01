@@ -10,6 +10,32 @@ server {
   index index.html;
   include /etc/nginx/conf.d/athena-proxy-ssl.conf;
 
+  # Docker replaces a module address whenever that module is independently
+  # recreated. Resolve service names per request so an unrelated module
+  # rollout cannot leave Edge pinned to a dead container IP.
+  resolver 127.0.0.11 valid=1s ipv6=off;
+  resolver_timeout 2s;
+  set $athena_api_upstream "${ATHENA_API_UPSTREAM}";
+  set $athena_realtime_upstream "${ATHENA_REALTIME_UPSTREAM}";
+  set $athena_chat_upstream "${ATHENA_CHAT_UPSTREAM}";
+  set $athena_agent_upstream "${ATHENA_AGENT_UPSTREAM}";
+  set $athena_tool_upstream "${ATHENA_TOOL_UPSTREAM}";
+  set $athena_crypto_account_upstream "${ATHENA_CRYPTO_ACCOUNT_UPSTREAM}";
+  set $athena_crypto_forecast_upstream "${ATHENA_CRYPTO_FORECAST_UPSTREAM}";
+  set $athena_identity_upstream "${ATHENA_IDENTITY_UPSTREAM}";
+  set $athena_knowledge_ingest_upstream "${ATHENA_KNOWLEDGE_INGEST_UPSTREAM}";
+  set $athena_browser_stream_upstream "${ATHENA_BROWSER_STREAM_UPSTREAM}";
+
+  proxy_intercept_errors on;
+  error_page 502 503 504 = @athena_module_unavailable;
+
+  location @athena_module_unavailable {
+    internal;
+    default_type application/json;
+    add_header Cache-Control "no-store" always;
+    return 503 '{"success":false,"error":"service_temporarily_unavailable","reasonCode":"module_upstream_unavailable"}';
+  }
+
   location = /health {
     access_log off;
     add_header Cache-Control "no-store";
@@ -18,7 +44,8 @@ server {
   }
 
   location /api/realtime/ {
-    proxy_pass ${ATHENA_REALTIME_UPSTREAM};
+    proxy_ssl_name anything-llm-realtime-gateway;
+    proxy_pass $athena_realtime_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -31,7 +58,8 @@ server {
   }
 
   location ~ ^/api/(request-token(?:/.*)?|auth(?:/.*)?|vault(?:/.*)?|client-identity(?:/.*)?|sensitive-sessions(?:/.*)?|realtime/ticket|admin/security/keys(?:/.*)?|system/(?:check-token|logout|sessions(?:/.*)?|user-action|refresh-user|recover-account(?:/.*)?|reset-password|update-password|transport-security/status|user(?:/(?:delete.*|email-verification.*|memory/reauth/passkey.*))?))$ {
-    proxy_pass ${ATHENA_IDENTITY_UPSTREAM};
+    proxy_ssl_name anything-llm-identity;
+    proxy_pass $athena_identity_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -42,7 +70,8 @@ server {
   }
 
   location /api/document/ {
-    proxy_pass ${ATHENA_KNOWLEDGE_INGEST_UPSTREAM};
+    proxy_ssl_name anything-llm-knowledge-ingest;
+    proxy_pass $athena_knowledge_ingest_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -53,7 +82,8 @@ server {
   }
 
   location ~ ^/api/workspace/[^/]+/(upload|upload-link|update-embeddings|embed-progress|embed-queue|remove-and-unembed|reset-vector-db)$ {
-    proxy_pass ${ATHENA_KNOWLEDGE_INGEST_UPSTREAM};
+    proxy_ssl_name anything-llm-knowledge-ingest;
+    proxy_pass $athena_knowledge_ingest_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -65,7 +95,8 @@ server {
   }
 
   location /api/sync/ {
-    proxy_pass ${ATHENA_REALTIME_UPSTREAM};
+    proxy_ssl_name anything-llm-realtime-gateway;
+    proxy_pass $athena_realtime_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -76,7 +107,8 @@ server {
   }
 
   location ~ ^/api/workspace/[^/]+/(stream-chat|tool-approval|chat-runs/) {
-    proxy_pass ${ATHENA_CHAT_UPSTREAM};
+    proxy_ssl_name anything-llm-chat-runtime;
+    proxy_pass $athena_chat_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -90,7 +122,8 @@ server {
   }
 
   location ~ ^/api/workspace/[^/]+/thread/[^/]+/(stream-chat|chat-runs/) {
-    proxy_pass ${ATHENA_CHAT_UPSTREAM};
+    proxy_ssl_name anything-llm-chat-runtime;
+    proxy_pass $athena_chat_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -104,7 +137,8 @@ server {
   }
 
   location /api/agent-invocation/ {
-    proxy_pass ${ATHENA_AGENT_UPSTREAM};
+    proxy_ssl_name anything-llm-agent-runtime;
+    proxy_pass $athena_agent_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -118,7 +152,8 @@ server {
   }
 
   location = /browser-stream {
-    proxy_pass ${ATHENA_BROWSER_STREAM_UPSTREAM};
+    proxy_ssl_name anything-llm-browser-worker;
+    proxy_pass $athena_browser_stream_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -132,7 +167,8 @@ server {
   }
 
   location /api/agent-skills/ {
-    proxy_pass ${ATHENA_TOOL_UPSTREAM};
+    proxy_ssl_name anything-llm-tool-broker;
+    proxy_pass $athena_tool_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -143,7 +179,8 @@ server {
   }
 
   location /api/crypto-hub/ {
-    proxy_pass ${ATHENA_CRYPTO_ACCOUNT_UPSTREAM};
+    proxy_ssl_name anything-llm-crypto-account;
+    proxy_pass $athena_crypto_account_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -154,7 +191,8 @@ server {
   }
 
   location /api/crypto-forecasting/ {
-    proxy_pass ${ATHENA_CRYPTO_FORECAST_UPSTREAM};
+    proxy_ssl_name anything-llm-crypto-forecast;
+    proxy_pass $athena_crypto_forecast_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
@@ -165,7 +203,8 @@ server {
   }
 
   location /api/ {
-    proxy_pass ${ATHENA_API_UPSTREAM};
+    proxy_ssl_name anything-llm-api-tls;
+    proxy_pass $athena_api_upstream$request_uri;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;

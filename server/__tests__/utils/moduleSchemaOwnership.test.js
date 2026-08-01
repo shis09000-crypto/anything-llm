@@ -4,6 +4,7 @@ const {
   ownershipRegistry,
   roleRegistry,
   runtimeSchemaForRole,
+  crossSchemaCapabilityFor,
   verifyClientOwnership,
 } = require("../../utils/database/moduleSchemaOwnership");
 
@@ -20,8 +21,7 @@ describe("module schema ownership", () => {
       expect(registry).toHaveLength(167);
       expect(new Set(registry.map(({ table }) => table)).size).toBe(167);
       const roles = roleRegistry(database);
-      for (const entry of registry)
-        expect(roles[entry.schema]).toBeTruthy();
+      for (const entry of registry) expect(roles[entry.schema]).toBeTruthy();
     }
   );
 
@@ -35,9 +35,7 @@ describe("module schema ownership", () => {
     expect(ownerForTable("browser_sessions", "main")).toBe("browser_plane");
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
-    expect(ownerForTable("security_key_registry", "main")).toBe(
-      "key_custody"
-    );
+    expect(ownerForTable("security_key_registry", "main")).toBe("key_custody");
     expect(ownerForTable("user_root_key_envelopes", "auth")).toBe("identity");
     expect(ownerForTable("auth_sessions", "auth")).toBe("identity");
   });
@@ -54,6 +52,49 @@ describe("module schema ownership", () => {
     expect(runtimeSchemaForRole("identity", "auth")).toBe("identity");
     expect(runtimeSchemaForRole("key-custody", "main")).toBe("key_custody");
     expect(runtimeSchemaForRole("key-custody", "auth")).toBe("key_custody");
+  });
+
+  test("Identity receives only the declared append-only audit capability", () => {
+    expect(
+      crossSchemaCapabilityFor({
+        database: "main",
+        role: "identity",
+        table: "security_audit_ledger",
+      })
+    ).toMatchObject({
+      capability: "security-audit-append",
+      privileges: ["SELECT", "INSERT"],
+    });
+    expect(
+      crossSchemaCapabilityFor({
+        database: "main",
+        role: "identity",
+        table: "workspaces",
+      })
+    ).toBeNull();
+  });
+
+  test("accepts the exact Identity audit append capability", async () => {
+    const client = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([
+        {
+          tablename: "security_audit_ledger",
+          can_select: true,
+          can_insert: true,
+          can_update: false,
+          can_delete: false,
+        },
+      ]),
+    };
+    await expect(
+      verifyClientOwnership(client, {
+        database: "main",
+        role: "identity",
+      })
+    ).resolves.toMatchObject({
+      crossSchemaWriteViolations: 0,
+      capabilityWrites: 1,
+    });
   });
 
   test("requires complete owner access without requiring cross-domain reads", async () => {

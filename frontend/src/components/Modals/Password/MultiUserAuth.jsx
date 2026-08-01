@@ -701,7 +701,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     persistRememberedAccount(normalizedIdentifier, rememberAccount);
 
     try {
-      const { valid, user, token, recoveryCodes, message } =
+      const { valid, user, token, recoveryCodes, message, serviceUnavailable } =
         await System.requestToken({
           identifier: normalizedIdentifier,
           password,
@@ -718,14 +718,18 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
           completeAuthenticatedLogin(user, token);
         }
       } else {
-        const errorMessage =
-          message === "账号已被禁用" ? message : "账号或密码不正确";
+        const errorMessage = serviceUnavailable
+          ? message || "登录服务暂时不可用，请稍后重试。"
+          : message === "账号已被禁用"
+            ? message
+            : "账号或密码不正确";
         setError(errorMessage);
         showToast(errorMessage, "error", { clear: true });
       }
     } catch {
-      setError("账号或密码不正确");
-      showToast("账号或密码不正确", "error", { clear: true });
+      const errorMessage = "登录服务暂时不可用，请稍后重试。";
+      setError(errorMessage);
+      showToast(errorMessage, "error", { clear: true });
     } finally {
       setLoading(false);
     }

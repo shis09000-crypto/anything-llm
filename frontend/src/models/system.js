@@ -386,9 +386,16 @@ const System = {
     )
       .then(({ data }) => data)
       .catch((e) => {
+        const status = Number(e?.status || 0);
+        const serviceUnavailable = status === 0 || status >= 500;
         return {
           valid: false,
-          message: responseError(e, "Could not validate login."),
+          status,
+          serviceUnavailable,
+          errorCode: e?.code || null,
+          message: serviceUnavailable
+            ? "登录服务暂时不可用，请稍后重试。"
+            : responseError(e, "Could not validate login."),
         };
       });
   },

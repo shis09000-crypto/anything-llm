@@ -3,16 +3,33 @@
   "schemaVersion": "1.0",
   "id": "edge-web",
   "name": "Edge and Web Gateway",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "gateway",
   "owner": "platform",
   "criticality": "critical",
   "runtimeRole": "edge-web",
-  "sourcePaths": ["frontend/src/", "docker/nginx-web.conf.template"],
-  "capabilities": ["static-web", "compatibility-routing", "blue-green"],
+  "sourcePaths": [
+    "frontend/src/",
+    "docker/nginx-web.conf.template",
+    "server/edge-probe.js",
+    "server/utils/microModules/edgeRouteProbes.js"
+  ],
+  "capabilities": [
+    "static-web",
+    "compatibility-routing",
+    "dynamic-service-discovery",
+    "public-route-readiness",
+    "blue-green"
+  ],
   "routes": { "public": ["/", "/api/"], "internal": ["/health", "/ready"] },
-  "rpc": { "provides": [], "consumes": ["identity.assert", "control.dispatch"] },
-  "events": { "publishes": ["edge.route.*"], "subscribes": ["deployment.slot.*"] },
+  "rpc": {
+    "provides": [],
+    "consumes": ["identity.assert", "control.dispatch"]
+  },
+  "events": {
+    "publishes": ["edge.route.*"],
+    "subscribes": ["deployment.slot.*"]
+  },
   "data": { "schemas": [], "objectPrefixes": ["web/releases"] },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/edge-web",

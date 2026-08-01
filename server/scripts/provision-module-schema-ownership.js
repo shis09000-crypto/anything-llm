@@ -6,6 +6,7 @@ const {
 const {
   ownershipRegistry,
   roleRegistry,
+  crossSchemaCapabilities,
 } = require("../utils/database/moduleSchemaOwnership");
 
 function argument(name, fallback = null) {
@@ -51,7 +52,9 @@ async function applyOwnership({ client, database, registry, roles }) {
     const observer =
       database === "auth" ? "athena_auth_observer" : "athena_main_observer";
     for (const role of [...Object.values(roles), observer]) {
-      await client.query(`GRANT USAGE ON SCHEMA public TO ${quoteIdentifier(role)}`);
+      await client.query(
+        `GRANT USAGE ON SCHEMA public TO ${quoteIdentifier(role)}`
+      );
       await client.query(
         `REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM ${quoteIdentifier(role)}`
       );
@@ -75,6 +78,32 @@ async function applyOwnership({ client, database, registry, roles }) {
            FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = $2`,
         [`public.${quoteIdentifier(table)}`, table]
+      );
+      for (const row of sequences.rows) {
+        if (!row.sequence_name) continue;
+        await client.query(
+          `GRANT USAGE, SELECT ON SEQUENCE ${row.sequence_name} TO ${quoteIdentifier(role)}`
+        );
+      }
+    }
+
+    for (const capability of crossSchemaCapabilities(database)) {
+      if (!tables.has(capability.table)) continue;
+      const role = roles[capability.schema];
+      if (!role)
+        throw new Error(
+          `module_schema_capability_role_missing:${capability.schema}`
+        );
+      const target = `public.${quoteIdentifier(capability.table)}`;
+      await client.query(
+        `GRANT ${capability.privileges.join(", ")} ON TABLE ${target} TO ${quoteIdentifier(role)}`
+      );
+      if (!capability.privileges.includes("INSERT")) continue;
+      const sequences = await client.query(
+        `SELECT pg_get_serial_sequence($1, column_name) AS sequence_name
+           FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = $2`,
+        [target, capability.table]
       );
       for (const row of sequences.rows) {
         if (!row.sequence_name) continue;

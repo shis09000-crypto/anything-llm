@@ -648,6 +648,20 @@ async function passkeyJson(request, fallbackMessage) {
     return data ?? { success: true };
   } catch (error) {
     const raw = apiErrorRaw(error);
+    const rawMessage = String(raw?.error || raw?.message || "").trim();
+    const serviceUnavailable =
+      Number(error?.status || 0) >= 500 ||
+      /^\s*<(?:!doctype|html|head|body)\b/i.test(rawMessage);
+    if (serviceUnavailable) {
+      return {
+        success: false,
+        valid: false,
+        serviceUnavailable: true,
+        status: Number(error?.status || 0),
+        error: fallbackMessage,
+        message: fallbackMessage,
+      };
+    }
     if (raw) return raw;
     return {
       success: false,

@@ -3,19 +3,15 @@
 const {
   EnvironmentKeyProvider,
 } = require("../../utils/security/keyCustody/providers");
-const {
-  resetKeyProviderForTests,
-} = require("../../utils/security/keyCustody");
+const { resetKeyProviderForTests } = require("../../utils/security/keyCustody");
 const {
   auditKeyDescriptor,
   signAuditCheckpoint,
   unwrapMaterial,
   wrapMaterial,
 } = require("../../utils/security/keyCustody/serviceRuntime");
-const {
-  checkpointSigningPayload,
-  ledgerCanonical,
-} = require("../../utils/security/auditLedger")._internals;
+const { checkpointSigningPayload, ledgerCanonical } =
+  require("../../utils/security/auditLedger")._internals;
 
 describe("Key Custody isolated service runtime", () => {
   beforeAll(() => {
@@ -75,52 +71,55 @@ describe("Key Custody isolated service runtime", () => {
     ).toThrow("key_custody_purpose_denied");
   });
 
-  test("signs only canonical security-audit checkpoint payloads for the API", () => {
-    const caller = "spiffe://athena/production/api";
-    const context = {
-      purpose: "security-audit-checkpoint",
-      domain: "security-audit",
-      resource: "security-v1:1",
-    };
-    const payload = Buffer.from(
-      ledgerCanonical(
-        checkpointSigningPayload({
-          chainId: "security-v1",
-          throughSequence: 1,
-          throughHash: "a".repeat(64),
-          policy: {
-            threshold: 2,
-            classicalRequired: true,
-            pqRequired: true,
-          },
-        })
-      )
-    );
-    const descriptor = auditKeyDescriptor(
-      { context },
-      { caller, env: { NODE_ENV: "production" } }
-    );
-    const signed = signAuditCheckpoint(
-      { payloadBase64: payload.toString("base64"), context },
-      { caller, env: { NODE_ENV: "production" } }
-    );
-    expect(descriptor.key).toMatchObject({
-      keyId: signed.signature.keyId,
-      publicKey: signed.signature.publicKey,
-    });
-    expect(signed.signature).toMatchObject({
-      suiteId: "audit-ed25519-v1",
-      postQuantum: false,
-      signature: expect.any(String),
-    });
-    expect(signed).not.toHaveProperty("material");
-    expect(signed.signature).not.toHaveProperty("privateKey");
-
-    expect(() =>
-      signAuditCheckpoint(
-        { payloadBase64: Buffer.from("{}").toString("base64"), context },
+  test.each(["api", "identity"])(
+    "signs only canonical security-audit checkpoint payloads for %s",
+    (callerRole) => {
+      const caller = `spiffe://athena/production/${callerRole}`;
+      const context = {
+        purpose: "security-audit-checkpoint",
+        domain: "security-audit",
+        resource: "security-v1:1",
+      };
+      const payload = Buffer.from(
+        ledgerCanonical(
+          checkpointSigningPayload({
+            chainId: "security-v1",
+            throughSequence: 1,
+            throughHash: "a".repeat(64),
+            policy: {
+              threshold: 2,
+              classicalRequired: true,
+              pqRequired: true,
+            },
+          })
+        )
+      );
+      const descriptor = auditKeyDescriptor(
+        { context },
         { caller, env: { NODE_ENV: "production" } }
-      )
-    ).toThrow("key_custody_audit_payload_invalid");
-  });
+      );
+      const signed = signAuditCheckpoint(
+        { payloadBase64: payload.toString("base64"), context },
+        { caller, env: { NODE_ENV: "production" } }
+      );
+      expect(descriptor.key).toMatchObject({
+        keyId: signed.signature.keyId,
+        publicKey: signed.signature.publicKey,
+      });
+      expect(signed.signature).toMatchObject({
+        suiteId: "audit-ed25519-v1",
+        postQuantum: false,
+        signature: expect.any(String),
+      });
+      expect(signed).not.toHaveProperty("material");
+      expect(signed.signature).not.toHaveProperty("privateKey");
+
+      expect(() =>
+        signAuditCheckpoint(
+          { payloadBase64: Buffer.from("{}").toString("base64"), context },
+          { caller, env: { NODE_ENV: "production" } }
+        )
+      ).toThrow("key_custody_audit_payload_invalid");
+    }
+  );
 });

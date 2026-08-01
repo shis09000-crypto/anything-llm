@@ -10,6 +10,7 @@ const MAX_MATERIAL_BYTES = 64 * 1024;
 const CALLER_PURPOSES = Object.freeze({
   "crypto-account": new Set(["crypto-account-dek"]),
   "athena-api": new Set(["crypto-account-dek", "security-audit-checkpoint"]),
+  identity: new Set(["security-audit-checkpoint"]),
   "browser-worker": new Set(["browser-profile-dek"]),
 });
 
