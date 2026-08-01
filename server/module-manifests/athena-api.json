@@ -8,20 +8,31 @@
   "owner": "platform",
   "criticality": "critical",
   "runtimeRole": "api",
-  "sourcePaths": ["server/index.js", "server/endpoints/", "server/models/workspace.js"],
+  "sourcePaths": [
+    "server/index.js",
+    "server/endpoints/",
+    "server/models/workspace.js"
+  ],
   "capabilities": ["http", "workspace", "account", "compatibility-api"],
-  "routes": { "public": ["/api/system/", "/api/workspace/", "/api/admin/"], "internal": ["/live", "/ready", "/metrics"] },
+  "routes": {
+    "public": ["/api/system/", "/api/workspace/", "/api/admin/"],
+    "internal": ["/live", "/ready", "/metrics"]
+  },
   "rpc": {
     "provides": ["control.dispatch"],
     "consumes": [
       "identity.assert",
+      "identity.client.attach",
       "chat.submit",
       "agent.submit",
       "key-custody.audit-descriptor",
       "key-custody.audit-sign"
     ]
   },
-  "events": { "publishes": ["workspace.*", "account.*"], "subscribes": ["chat.run.*", "agent.run.*"] },
+  "events": {
+    "publishes": ["workspace.*", "account.*"],
+    "subscribes": ["chat.run.*", "agent.run.*"]
+  },
   "data": { "schemas": ["workspace"], "objectPrefixes": [] },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/api",
@@ -38,5 +49,11 @@
     "availabilityTarget": 0.999,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "chat-runtime", "agent-runtime", "rag", "scheduler"]
+  "dependsOn": [
+    "authentication",
+    "chat-runtime",
+    "agent-runtime",
+    "rag",
+    "scheduler"
+  ]
 }

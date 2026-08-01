@@ -386,6 +386,7 @@ async function registerClientUnlocked({
   capabilitySource = "unknown",
   publicKey = null,
   deviceFingerprintVersion = null,
+  projectSync = true,
 } = {}) {
   if (!userId || !clientId || clientId === "legacy") return null;
   const normalizedPlatform = normalizePlatform(platform);
@@ -414,13 +415,15 @@ async function registerClientUnlocked({
     capabilitySource: normalizeCapabilitySource(capabilitySource),
   };
 
-  const syncReady = await clientSecuritySyncReady({
-    userId,
-    // Initial device-key enrollment is a security transition. If a shadow
-    // node already exists, keep it authoritative even while client rollout is
-    // disabled; ordinary request metadata keeps the zero-extra-query path.
-    maintainShadow: Boolean(publicKey),
-  });
+  const syncReady = projectSync
+    ? await clientSecuritySyncReady({
+        userId,
+        // Initial device-key enrollment is a security transition. If a shadow
+        // node already exists, keep it authoritative even while client rollout is
+        // disabled; ordinary request metadata keeps the zero-extra-query path.
+        maintainShadow: Boolean(publicKey),
+      })
+    : false;
   if (!syncReady) {
     const existing = await clientIdentityDb.athena_clients.findUnique({
       where,
@@ -918,21 +921,26 @@ async function attachAuthenticatedClientContext({ request, user } = {}) {
   if (!context.userId || context.legacy) return context;
 
   try {
-    await registerClient({
-      userId: context.userId,
-      clientId: context.clientId,
-      platform: context.platform,
-      appVersion: context.appVersion,
-      trustLevel: context.trustLevel,
-      capabilities: context.capabilities,
-      capabilitySource: context.capabilitySource,
-      publicKey: null,
-      deviceFingerprintVersion: null,
-    });
-    await updateLastSeen({
-      userId: context.userId,
-      clientId: context.clientId,
-    });
+    const identityClient = require("../authz/identityOperationsClient");
+    if (identityClient.remoteIdentityOperationsEnabled()) {
+      await identityClient.attachClientContextViaIdentity({ request, context });
+    } else {
+      await registerClient({
+        userId: context.userId,
+        clientId: context.clientId,
+        platform: context.platform,
+        appVersion: context.appVersion,
+        trustLevel: context.trustLevel,
+        capabilities: context.capabilities,
+        capabilitySource: context.capabilitySource,
+        publicKey: null,
+        deviceFingerprintVersion: null,
+      });
+      await updateLastSeen({
+        userId: context.userId,
+        clientId: context.clientId,
+      });
+    }
   } catch (error) {
     console.warn("[client-identity] Failed to register client", error.message);
   }

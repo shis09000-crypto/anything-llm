@@ -8,16 +8,41 @@
   "owner": "platform",
   "criticality": "critical",
   "runtimeRole": "realtime-gateway",
-  "sourcePaths": ["server/realtime-gateway.js", "server/endpoints/syncCenter.js", "server/utils/broadcast/", "server/utils/syncV2/"],
+  "sourcePaths": [
+    "server/realtime-gateway.js",
+    "server/endpoints/syncCenter.js",
+    "server/utils/broadcast/",
+    "server/utils/syncV2/"
+  ],
   "capabilities": ["sse", "websocket", "replay", "cursor", "outbox"],
-  "routes": { "public": ["/api/sync/", "/api/realtime/"], "internal": ["/internal/v1/streams/publish"] },
-  "rpc": { "provides": ["stream.subscribe", "stream.replay"], "consumes": ["identity.assert"] },
-  "events": { "publishes": ["stream.connection.*"], "subscribes": ["chat.run.*", "agent.run.*", "tool.invocation.*", "crypto.market.*", "workspace.*"] },
+  "routes": {
+    "public": ["/api/sync/", "/api/realtime/"],
+    "internal": ["/internal/v1/streams/publish"]
+  },
+  "rpc": {
+    "provides": ["stream.subscribe", "stream.replay"],
+    "consumes": ["identity.assert", "identity.realtime-ticket.consume"]
+  },
+  "events": {
+    "publishes": ["stream.connection.*"],
+    "subscribes": [
+      "chat.run.*",
+      "agent.run.*",
+      "tool.invocation.*",
+      "crypto.market.*",
+      "workspace.*"
+    ]
+  },
   "data": { "schemas": ["sync"], "objectPrefixes": [] },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/realtime-gateway",
     "keyDomains": [],
-    "allowedCallers": ["edge-web", "athena-api", "chat-runtime", "agent-runtime"],
+    "allowedCallers": [
+      "edge-web",
+      "athena-api",
+      "chat-runtime",
+      "agent-runtime"
+    ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 30000
   },

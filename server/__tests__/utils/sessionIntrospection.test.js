@@ -106,6 +106,31 @@ describe("authoritative session introspection", () => {
     });
   });
 
+  test("can validate a session before the Identity owner enrolls its client", async () => {
+    const { data, findClient } = fixture();
+    const token = makeJWT({
+      id: 10,
+      authUserId: 17,
+      sid: "sess-1",
+      clientId: "browser-1",
+      tokenVersion: 1,
+      lastUserActionAt: Date.now(),
+    });
+
+    await expect(
+      introspectSessionToken(token, {
+        data,
+        findClient,
+        requireClient: false,
+      })
+    ).resolves.toMatchObject({
+      success: true,
+      active: true,
+      principal: { userId: 10, clientId: "browser-1" },
+    });
+    expect(findClient).not.toHaveBeenCalled();
+  });
+
   test("rejects tokens without a persisted session", async () => {
     const { data, findClient } = fixture();
     const token = makeJWT({ id: 10, lastUserActionAt: Date.now() });

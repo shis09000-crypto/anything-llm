@@ -106,7 +106,7 @@ const RealtimeTicket = {
     return publicEntry(created);
   },
 
-  consume: async function (ticket) {
+  consumeLocal: async function (ticket) {
     const hash = ticketHash(ticket);
     if (storeName() === "memory") {
       cleanupMemory();
@@ -129,6 +129,13 @@ const RealtimeTicket = {
       data: { consumedAt: new Date() },
     });
     return claimed.count === 1 ? publicEntry(row) : null;
+  },
+
+  consume: async function (ticket) {
+    const identityClient = require("../utils/authz/identityOperationsClient");
+    if (identityClient.remoteIdentityOperationsEnabled())
+      return identityClient.consumeRealtimeTicketViaIdentity(ticket);
+    return RealtimeTicket.consumeLocal(ticket);
   },
 
   _internals: { cleanupMemory, memoryTickets, storeName, ticketHash },

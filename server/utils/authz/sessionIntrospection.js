@@ -35,7 +35,11 @@ function safePrincipal({ claims, session, subjectType, authUserId = null }) {
 
 async function introspectSessionToken(
   token,
-  { data = DataAccessCenter, findClient = getClientRecord } = {}
+  {
+    data = DataAccessCenter,
+    findClient = getClientRecord,
+    requireClient = true,
+  } = {}
 ) {
   const claims = decodeJWT(compact(token, 16_384));
   if (!claims?.sid) return inactive("session_missing");
@@ -96,13 +100,15 @@ async function introspectSessionToken(
   if (tokenClientId) {
     if (session?.clientId && String(session.clientId) !== tokenClientId)
       return inactive("session_client_mismatch");
-    const client = await findClient({
-      userId: Number(claims.id),
-      clientId: tokenClientId,
-      includeRevoked: true,
-    });
-    if (!client) return inactive("client_unavailable");
-    if (client.revokedAt) return inactive("client_revoked");
+    if (requireClient) {
+      const client = await findClient({
+        userId: Number(claims.id),
+        clientId: tokenClientId,
+        includeRevoked: true,
+      });
+      if (!client) return inactive("client_unavailable");
+      if (client.revokedAt) return inactive("client_revoked");
+    }
   }
 
   return {

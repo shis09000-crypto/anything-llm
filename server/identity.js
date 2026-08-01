@@ -43,6 +43,10 @@ const { createApiScope } = require("./utils/microModules/scopedApi");
 const {
   introspectSessionToken,
 } = require("./utils/authz/sessionIntrospection");
+const {
+  attachClientFromSession,
+  consumeRealtimeTicketAsOwner,
+} = require("./utils/authz/identityOwnerOperations");
 
 const role = "identity";
 const state = {
@@ -128,6 +132,23 @@ const host = new MicroModuleServiceHost({
       const result = await introspectSessionToken(token);
       return response.status(result.active ? 200 : 401).json(result);
     });
+    app.post(
+      "/internal/v1/client-identity/attach",
+      async (request, response) => {
+        const result = await attachClientFromSession({
+          token: request.body?.token,
+          client: request.body?.client,
+        });
+        return response.status(200).json({ success: true, ...result });
+      }
+    );
+    app.post(
+      "/internal/v1/realtime/tickets/consume",
+      async (request, response) => {
+        const entry = await consumeRealtimeTicketAsOwner(request.body?.ticket);
+        return response.status(200).json({ success: true, entry });
+      }
+    );
   },
 });
 
