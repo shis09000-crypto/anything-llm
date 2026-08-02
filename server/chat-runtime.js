@@ -27,6 +27,11 @@ const {
   secureDatabaseStart,
 } = require("./utils/microModules");
 const { chatStreamRunManager } = require("./utils/chats/chatStreamRuns");
+const {
+  publicReadiness: threadMemoryReadiness,
+  registerThreadMemoryRoutes,
+  threadMemoryKeyCustodySelfTest,
+} = require("./utils/chats/threadMemoryRuntime");
 
 const role = "chat-runtime";
 const port = Number(process.env.CHAT_RUNTIME_PORT || 3016);
@@ -39,14 +44,23 @@ const host = new MicroModuleServiceHost({
   role,
   port,
   parseJson: false,
-  readiness: () => chatStreamRunManager.snapshot(),
-  onStart: () => secureDatabaseStart(role),
+  readiness: () => {
+    const streams = chatStreamRunManager.snapshot();
+    const threadMemory = threadMemoryReadiness();
+    return {
+      ...streams,
+      ready: streams.ready !== false && threadMemory.ready === true,
+      threadMemory,
+    };
+  },
+  onStart: () => secureDatabaseStart(role, threadMemoryKeyCustodySelfTest),
   onDrain: () =>
     chatStreamRunManager.drain({
       timeoutMs: drainTimeoutMs,
     }),
   registerRoutes: (app) => {
     registerCompatibleApi(app, chatEndpoints);
+    registerThreadMemoryRoutes(app);
     app.get(
       "/internal/v1/chat/runs/:clientTurnId",
       async (request, response) => {
@@ -65,6 +79,11 @@ const host = new MicroModuleServiceHost({
         });
       }
     );
+  },
+  internalRouteCapabilities: {
+    "/internal/v1/chat/memory/status": "chat.memory.status",
+    "/internal/v1/chat/memory/compact": "chat.memory.compact",
+    "/internal/v1/chat/memory/context/resolve": "chat.memory.context.resolve",
   },
 });
 

@@ -5,6 +5,8 @@ const { TokenManager } = require("../helpers/tiktoken");
 const { convertToPromptHistory } = require("../helpers/chat/responses");
 const { recentChatHistory } = require("./index");
 const { jsonrepair } = require("jsonrepair");
+const crypto = require("crypto");
+const { emitSemanticEvent } = require("../observability/semanticEvents");
 
 const DEFAULT_KEEP_RECENT_MESSAGES = 10;
 const DEFAULT_TRIGGER_RATIO = 0.65;
@@ -28,6 +30,13 @@ const inFlightCompactions = new Set();
 const recentAutoCompactions = new Map();
 const recentTargetFailures = new Map();
 const compactionStatusCache = new Map();
+const threadMemoryReadFailures = new Map();
+
+const THREAD_MEMORY_ERROR_CODES = new Set([
+  "thread_memory_store_unavailable",
+  "thread_memory_decryption_unavailable",
+  "thread_memory_contract_incompatible",
+]);
 
 function envBool(name, defaultValue = false) {
   if (process.env[name] === undefined) return defaultValue;
@@ -479,11 +488,107 @@ function normalizeCompactionSummary(summary = "") {
 }
 
 async function latestCompaction(scope = {}) {
+  const startedAt = Date.now();
+  const threadHash = crypto
+    .createHash("sha256")
+    .update(scopeKey(scope))
+    .digest("hex")
+    .slice(0, 24);
   try {
-    return await WorkspaceChatCompaction.latest(scope);
+    const compaction = await WorkspaceChatCompaction.latest(scope);
+    const previousFailure = threadMemoryReadFailures.get(threadHash);
+    if (previousFailure) {
+      threadMemoryReadFailures.delete(threadHash);
+      emitThreadMemoryEvent("thread.memory.read_recovered", {
+        threadHash,
+        outcome: "recovered",
+        durationMs: Date.now() - startedAt,
+        compactionId: compaction?.id || null,
+      });
+    }
+    return compaction;
   } catch (error) {
-    console.warn("[ThreadCompaction] latest lookup failed", error.message);
-    return null;
+    const normalized = normalizeThreadMemoryError(error);
+    threadMemoryReadFailures.set(threadHash, normalized.code);
+    emitThreadMemoryEvent("thread.memory.read_failed", {
+      threadHash,
+      outcome: "failed",
+      severity: "warning",
+      errorCode: normalized.code,
+      durationMs: Date.now() - startedAt,
+    });
+    if (normalized.code === "thread_memory_decryption_unavailable")
+      emitThreadMemoryEvent("thread.memory.key_custody_failed", {
+        threadHash,
+        outcome: "failed",
+        severity: "warning",
+        errorCode: normalized.code,
+      });
+    if (normalized.code === "thread_memory_contract_incompatible")
+      emitThreadMemoryEvent("thread.memory.contract_drift", {
+        threadHash,
+        outcome: "failed",
+        severity: "warning",
+        errorCode: normalized.code,
+      });
+    console.warn("[ThreadCompaction] latest lookup failed", normalized.code);
+    throw normalized;
+  }
+}
+
+function normalizeThreadMemoryError(error, fallbackCode = null) {
+  if (THREAD_MEMORY_ERROR_CODES.has(error?.code)) return error;
+  const value = [error?.code, error?.reasonCode, error?.message]
+    .filter(Boolean)
+    .join(":")
+    .toLowerCase();
+  let code = fallbackCode || "thread_memory_store_unavailable";
+  if (
+    value.includes("aicp_contract_fingerprint_mismatch") ||
+    value.includes("contract_fingerprint_mismatch")
+  )
+    code = "thread_memory_contract_incompatible";
+  const normalized = new Error(code, error ? { cause: error } : undefined);
+  normalized.name = "ThreadMemoryError";
+  normalized.code = code;
+  normalized.httpStatus = 503;
+  return normalized;
+}
+
+function emitThreadMemoryEvent(
+  eventType,
+  {
+    threadHash,
+    outcome,
+    severity = "info",
+    errorCode = null,
+    durationMs = null,
+    compactionId = null,
+  } = {}
+) {
+  try {
+    emitSemanticEvent({
+      eventType,
+      category: "thread_memory",
+      severity,
+      outcome,
+      subject: {
+        type: "thread-hash",
+        id: threadHash,
+        component: "chat-runtime",
+        operation: "thread_compaction_read",
+      },
+      metadata: {
+        errorCode,
+        durationMs,
+      },
+      evidence: compactionId
+        ? [{ type: "compaction", ref: `capsule:${compactionId}` }]
+        : [],
+      sensitivity: "metadata_only",
+    });
+  } catch {
+    // Operations visibility must not change thread-memory availability.
   }
 }
 
@@ -525,49 +630,39 @@ async function recentChatHistoryWithCompaction({
     });
   }
 
-  try {
-    if (historyStrategy) {
-      const history = await recentChatHistory({
-        user,
-        workspace,
-        thread,
-        messageLimit,
-        apiSessionId,
-        afterChatId: compaction.covered_to_chat_id,
-        historyStrategy,
-      });
-      return {
-        compaction,
-        ...history,
-      };
-    }
+  if (historyStrategy) {
+    const history = await recentChatHistory({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+      apiSessionId,
+      afterChatId: compaction.covered_to_chat_id,
+      historyStrategy,
+    });
+    return {
+      compaction,
+      ...history,
+    };
+  }
 
-    const rawHistory = (
+  let rawHistory;
+  try {
+    rawHistory = (
       await WorkspaceChatCompaction.where(scope, {
         afterChatId: compaction.covered_to_chat_id,
         limit: messageLimit,
         orderBy: "desc",
       })
     ).reverse();
-    return {
-      compaction,
-      rawHistory,
-      chatHistory: convertToPromptHistory(rawHistory),
-    };
   } catch (error) {
-    console.warn(
-      "[ThreadCompaction] compaction-aware history failed",
-      error.message
-    );
-    return await recentChatHistory({
-      user,
-      workspace,
-      thread,
-      messageLimit,
-      apiSessionId,
-      historyStrategy,
-    });
+    throw normalizeThreadMemoryError(error);
   }
+  return {
+    compaction,
+    rawHistory,
+    chatHistory: convertToPromptHistory(rawHistory),
+  };
 }
 
 async function compactionCandidates(scope = {}, keepRecentMessages = 10) {
@@ -1488,10 +1583,19 @@ async function compactThread({
       ...metadata,
     };
   } catch (error) {
-    console.warn("[ThreadCompaction] compaction failed", error.message);
+    const memoryFailure = THREAD_MEMORY_ERROR_CODES.has(error?.code);
+    const normalized = memoryFailure
+      ? normalizeThreadMemoryError(error)
+      : error;
+    const errorCode = memoryFailure
+      ? normalized.code
+      : String(error?.code || error?.message || "thread_compaction_failed");
+    console.warn("[ThreadCompaction] compaction failed", errorCode);
     return {
       success: false,
-      error: error.message,
+      error: errorCode,
+      errorCode,
+      recoverable: memoryFailure,
       compactionId: null,
       coveredMessageCount: 0,
       tokenBefore: 0,
@@ -1601,6 +1705,7 @@ async function computeThreadCompactionStatus({ workspace, scope } = {}) {
     limitTokens > 0 ? projectedUsedTokensAfterCompact / limitTokens : 0;
 
   return {
+    state: latest ? "active" : "not_compacted",
     enabled: config.enabled,
     autoEnabled: config.autoEnabled,
     usedTokens,
@@ -1611,6 +1716,10 @@ async function computeThreadCompactionStatus({ workspace, scope } = {}) {
     summaryTokens,
     recentHistoryTokens,
     compactableMessageCount: compactable.length,
+    compactionId: latest?.id || null,
+    coveredMessageCount: Number(latest?.covered_message_count || 0),
+    coveredToChatId: latest?.covered_to_chat_id || null,
+    newRawMessageCount: rawHistory.length,
     targetRatio: budgets.targetRatio,
     targetTokens: budgets.targetTokens,
     targetBase: budgets.targetBase,

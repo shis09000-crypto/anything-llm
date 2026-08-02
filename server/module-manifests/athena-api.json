@@ -24,6 +24,9 @@
       "identity.assert",
       "identity.client.attach",
       "chat.submit",
+      "chat.memory.status",
+      "chat.memory.compact",
+      "chat.memory.context.resolve",
       "agent.submit",
       "key-custody.audit-descriptor",
       "key-custody.audit-sign"

@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const {
   multiUserMode,
   userFromSession,
@@ -32,6 +33,11 @@ const {
   compactThread,
   getThreadCompactionStatus,
 } = require("../utils/chats/threadCompaction");
+const {
+  remoteThreadMemoryCompact,
+  remoteThreadMemoryEnabled,
+  remoteThreadMemoryStatus,
+} = require("../utils/chats/threadMemoryRemoteClient");
 const {
   subscribeToThreadTitleUpdates,
 } = require("../utils/chats/threadTitleEvents");
@@ -1352,6 +1358,7 @@ function workspaceThreadEndpoints(app) {
           mode = "target",
           targetRatio = undefined,
           compactInstructions = "",
+          sourceActionId = null,
         } = reqBody(request);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
@@ -1367,19 +1374,34 @@ function workspaceThreadEndpoints(app) {
         }
         const user = compactionUser.user;
 
-        const result = await compactThread({
-          workspace,
-          user,
-          thread,
-          apiSessionId,
-          force: Boolean(force),
-          reason: "manual",
-          mode,
-          targetRatio,
-          compactInstructions,
-        });
+        const result = remoteThreadMemoryEnabled()
+          ? (
+              await remoteThreadMemoryCompact({
+                workspaceId: workspace.id,
+                threadId: thread.id,
+                userId: user?.id ?? null,
+                apiSessionId,
+                force: Boolean(force),
+                mode,
+                targetRatio,
+                compactInstructions,
+                sourceActionId:
+                  compactActionId(sourceActionId) || crypto.randomUUID(),
+              })
+            ).result
+          : await compactThread({
+              workspace,
+              user,
+              thread,
+              apiSessionId,
+              force: Boolean(force),
+              reason: "manual",
+              mode,
+              targetRatio,
+              compactInstructions,
+            });
 
-        response.status(200).json({
+        response.status(result?.recoverable ? 503 : 200).json({
           success: !!result.success,
           compactionId: result.compactionId || null,
           coveredMessageCount: result.coveredMessageCount || 0,
@@ -1408,7 +1430,14 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(e.httpStatus || 500).end();
+        response.status(e.httpStatus || 500).json({
+          success: false,
+          error: e.code || e.message,
+          status: {
+            state: "degraded",
+            reasonCode: e.code || e.message,
+          },
+        });
       }
     }
   );
@@ -1446,13 +1475,23 @@ function workspaceThreadEndpoints(app) {
           });
         }
         const user = compactionUser.user;
-        const status = await getThreadCompactionStatus({
-          workspace,
-          user,
-          thread,
-          apiSessionId,
-          historyRevision: thread.historyRevision,
-        });
+        const status = remoteThreadMemoryEnabled()
+          ? (
+              await remoteThreadMemoryStatus({
+                workspaceId: workspace.id,
+                threadId: thread.id,
+                userId: user?.id ?? null,
+                apiSessionId,
+                historyRevision: thread.historyRevision,
+              })
+            ).status
+          : await getThreadCompactionStatus({
+              workspace,
+              user,
+              thread,
+              apiSessionId,
+              historyRevision: thread.historyRevision,
+            });
 
         response.status(200).json({
           success: true,
@@ -1462,7 +1501,11 @@ function workspaceThreadEndpoints(app) {
         console.error(e.message, e);
         response.status(e.httpStatus || 500).json({
           success: false,
-          error: e.message,
+          error: e.code || e.message,
+          status: {
+            state: "degraded",
+            reasonCode: e.code || e.message,
+          },
         });
       }
     }

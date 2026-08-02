@@ -711,6 +711,9 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
   const pending = !!memoryCompaction?.pending;
   const loading = !!memoryCompaction?.loading;
   const connectionState = memoryCompaction?.connectionState || "loading";
+  const degraded =
+    status?.state === "degraded" ||
+    ["degraded", "retrying"].includes(connectionState);
   const canCompactAtRatio = Number(status?.canCompactAtRatio || 0.8);
   const usedTokens = Number(status?.usedTokens || 0);
   const limitTokens = Number(status?.limitTokens || 0);
@@ -724,8 +727,8 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
     latestTargetResult?.cannotReachTargetReason ||
     status?.cannotReachTargetReason ||
     null;
-  const hasLimit = limitTokens > 0;
-  const ringDegrees = Math.round(safeRatio * 360);
+  const hasLimit = !degraded && limitTokens > 0;
+  const ringDegrees = degraded ? 0 : Math.round(safeRatio * 360);
   const ringTone =
     safeRatio >= 0.9
       ? "rgb(248 113 113)"
@@ -822,8 +825,8 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
 
   const disabledReason = pending
     ? "上下文记忆正在压缩"
-    : connectionState === "retrying" && !status
-      ? "记忆状态正在自动重连"
+    : degraded
+      ? "压缩记忆暂时不可读取"
       : targetCompactableMessageCount <= 0
         ? "暂无可压缩记忆"
         : safeRatio < canCompactAtRatio
@@ -879,13 +882,13 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
                 <p className="m-0 text-sm font-semibold">线程记忆占用</p>
                 <p
                   className={`m-0 mt-1 text-[10px] ${
-                    connectionState === "retrying"
+                    degraded
                       ? "text-amber-300 light:text-amber-600"
                       : "text-emerald-300 light:text-emerald-600"
                   }`}
                 >
-                  {connectionState === "retrying"
-                    ? "连接波动，正在自动恢复"
+                  {degraded
+                    ? "压缩记忆暂时不可读取，正在自动恢复"
                     : connectionState === "connected"
                       ? "已连接"
                       : "正在同步"}
@@ -901,7 +904,10 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
               </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <MemoryStat label="已用" value={nFormatter(usedTokens)} />
+              <MemoryStat
+                label="已用"
+                value={degraded ? "--" : nFormatter(usedTokens)}
+              />
               <MemoryStat
                 label="上限"
                 value={hasLimit ? nFormatter(limitTokens) : "--"}
@@ -909,9 +915,10 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
             </div>
             <div className="mt-3 flex items-center justify-between text-xs text-white/55 light:text-slate-500">
               <span>目标可压缩消息</span>
-              <span>{targetCompactableMessageCount}</span>
+              <span>{degraded ? "--" : targetCompactableMessageCount}</span>
             </div>
-            {latestTargetResult?.targetReached === false &&
+            {!degraded &&
+              latestTargetResult?.targetReached === false &&
               latestTargetResult?.ratioAfterCompact !== undefined && (
                 <p className="m-0 mt-2 text-xs leading-5 text-amber-300 light:text-amber-600">
                   为了保留高质量接力摘要，本次未强行压到目标。当前压缩后占用：
@@ -925,7 +932,7 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
                   %。
                 </p>
               )}
-            {cannotReachTargetReason && (
+            {!degraded && cannotReachTargetReason && (
               <p className="m-0 mt-2 truncate text-xs text-white/45 light:text-slate-500">
                 原因：{cannotReachTargetReason}
               </p>

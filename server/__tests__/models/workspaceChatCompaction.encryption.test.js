@@ -35,7 +35,7 @@ describe("WorkspaceChatCompaction encryption", () => {
     );
 
     mockPrisma.$queryRawUnsafe.mockImplementation(async (sql) => {
-      if (String(sql).includes('PRAGMA table_info')) return [];
+      if (String(sql).includes("PRAGMA table_info")) return [];
       return [];
     });
   });
@@ -48,7 +48,9 @@ describe("WorkspaceChatCompaction encryption", () => {
   });
 
   it("stores summary and capsule encrypted while returning plaintext", async () => {
-    const { WorkspaceChatCompaction } = require("../../models/workspaceChatCompaction");
+    const {
+      WorkspaceChatCompaction,
+    } = require("../../models/workspaceChatCompaction");
     const { isEncryptedSecret } = require("../../utils/security");
 
     const row = await WorkspaceChatCompaction.create({
@@ -70,9 +72,55 @@ describe("WorkspaceChatCompaction encryption", () => {
 
     expect(isEncryptedSecret(inserted.summary)).toBe(true);
     expect(isEncryptedSecret(inserted.capsule_json)).toBe(true);
-    expect(JSON.stringify(inserted)).not.toContain("private compaction summary");
+    expect(JSON.stringify(inserted)).not.toContain(
+      "private compaction summary"
+    );
     expect(JSON.stringify(inserted)).not.toContain('"private":"capsule"');
     expect(row.summary).toBe("private compaction summary");
     expect(JSON.parse(row.capsule_json)).toEqual({ private: "capsule" });
+  });
+
+  it("uses an alias-qualified latest query on SQLite/PostgreSQL-compatible SQL", async () => {
+    const stored = {
+      id: 14,
+      workspace_id: 10,
+      user_id: 20,
+      thread_id: 30,
+      api_session_id: null,
+      summary: "summary",
+      summary_format: "conversation-state-capsule-json-v1",
+      capsule_json: JSON.stringify({ topic: "memory" }),
+      covered_chat_ids: "[1,2]",
+      covered_from_chat_id: 1,
+      covered_to_chat_id: 2,
+      covered_message_count: 2,
+      token_before: 1000,
+      token_after: 100,
+      metadata_json: "{}",
+      reason: "test",
+      created_at: new Date("2026-07-01T00:00:00.000Z"),
+      updated_at: new Date("2026-07-01T00:00:00.000Z"),
+    };
+    mockPrisma.$queryRawUnsafe.mockImplementation(async (sql) =>
+      String(sql).includes("SELECT wcc.*") ? [stored] : []
+    );
+    const {
+      WorkspaceChatCompaction,
+    } = require("../../models/workspaceChatCompaction");
+
+    const row = await WorkspaceChatCompaction.latest({
+      workspace_id: 10,
+      user_id: 20,
+      thread_id: 30,
+      api_session_id: null,
+    });
+    const latestSql = mockPrisma.$queryRawUnsafe.mock.calls
+      .map(([sql]) => String(sql))
+      .find((sql) => sql.includes("SELECT wcc.*"));
+
+    expect(latestSql).toContain('ORDER BY wcc."created_at" DESC');
+    expect(latestSql).toContain('wcc."workspace_id" = ?');
+    expect(latestSql).not.toContain('AS "created_at"');
+    expect(row.id).toBe(14);
   });
 });

@@ -61,9 +61,7 @@ const capsule = (overrides = {}) =>
     confirmedFacts: ["系统采用 Shared Auth DB", "TTL 为 3 次压缩"],
     confirmedDecisions: ["公开注册只能创建 user"],
     openQuestions: ["ZK Login 最终落地方案"],
-    temporaryContext: [
-      { text: "当前测试失败", expiresAfterCompactions: 3 },
-    ],
+    temporaryContext: [{ text: "当前测试失败", expiresAfterCompactions: 3 }],
     recentDirection: "最近在讨论 Thread Compaction 的状态胶囊重构",
     architectureDecisions: ["Owner Hierarchy", "DeepSeek v4 flash"],
     generatedAt: "2026-06-14T00:00:00.000Z",
@@ -250,6 +248,62 @@ describe("Thread compaction memory", () => {
     expect(result.compaction).toBeUndefined();
   });
 
+  it("does not inject full raw history when the compaction store is unavailable", async () => {
+    mockLatest.mockRejectedValue(
+      Object.assign(new Error("database unavailable"), {
+        code: "thread_memory_store_unavailable",
+        httpStatus: 503,
+      })
+    );
+    const {
+      recentChatHistoryWithCompaction,
+    } = require("../../../utils/chats/threadCompaction");
+
+    await expect(
+      recentChatHistoryWithCompaction({ user, workspace, thread })
+    ).rejects.toMatchObject({
+      code: "thread_memory_store_unavailable",
+      httpStatus: 503,
+    });
+    expect(mockWorkspaceChatsWhere).not.toHaveBeenCalled();
+  });
+
+  it("reports active capsule coverage and only post-compaction raw messages", async () => {
+    mockLatest.mockResolvedValue({
+      id: 14,
+      summary: "summary",
+      capsule_json: capsule({ coveredToChatId: "2253" }),
+      covered_to_chat_id: 2253,
+      covered_message_count: 115,
+      metadata_json: "{}",
+    });
+    mockCompactionWhere.mockResolvedValue(
+      Array.from({ length: 13 }, (_, index) => chat(2254 + index))
+    );
+    const {
+      getThreadCompactionStatus,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const result = await getThreadCompactionStatus({
+      user,
+      workspace,
+      thread,
+      historyRevision: 999,
+    });
+
+    expect(result).toMatchObject({
+      state: "active",
+      compactionId: 14,
+      coveredMessageCount: 115,
+      coveredToChatId: 2253,
+      newRawMessageCount: 13,
+    });
+    expect(mockCompactionWhere).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ afterChatId: 2253 })
+    );
+  });
+
   it("injects compact capsule as context and chats after covered_to_chat_id", async () => {
     mockLatest.mockResolvedValue({
       id: 88,
@@ -297,9 +351,7 @@ describe("Thread compaction memory", () => {
       async (_clause, limit, _orderBy, offset = 0) =>
         Array.from({ length: limit }, (_, index) => chat(41 + offset + index))
     );
-    const {
-      CACHE_STABLE_HISTORY_STRATEGY,
-    } = require("../../../utils/chats");
+    const { CACHE_STABLE_HISTORY_STRATEGY } = require("../../../utils/chats");
     const {
       recentChatHistoryWithCompaction,
     } = require("../../../utils/chats/threadCompaction");

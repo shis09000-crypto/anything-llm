@@ -407,89 +407,95 @@ export default function ChatContainer({
     [memoryCompactionScopeKey]
   );
 
-  const refreshMemoryCompactionStatus = useCallback(
-    async ({ preserveOnError = false } = {}) => {
-      if (!workspace?.slug || !threadSlug) {
-        setMemoryCompactionStatus(null);
-        setMemoryCompactionLoading(false);
-        setMemoryConnectionState("idle");
-        return;
-      }
+  const refreshMemoryCompactionStatus = useCallback(async () => {
+    if (!workspace?.slug || !threadSlug) {
+      setMemoryCompactionStatus(null);
+      setMemoryCompactionLoading(false);
+      setMemoryConnectionState("idle");
+      return;
+    }
 
-      memoryStatusRequestRef.current.controller?.abort();
-      const controller = new AbortController();
-      const requestId = memoryStatusRequestRef.current.id + 1;
-      memoryStatusRequestRef.current = { id: requestId, controller };
-      setMemoryCompactionLoading(true);
+    memoryStatusRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const requestId = memoryStatusRequestRef.current.id + 1;
+    memoryStatusRequestRef.current = { id: requestId, controller };
+    setMemoryCompactionLoading(true);
 
-      try {
-        const result = await Workspace.threads.compactionStatus(
-          workspace.slug,
-          threadSlug,
-          {
-            userId: compactionUserId,
-            apiSessionId: compactionApiSessionId,
-            signal: controller.signal,
-          }
+    try {
+      const result = await Workspace.threads.compactionStatus(
+        workspace.slug,
+        threadSlug,
+        {
+          userId: compactionUserId,
+          apiSessionId: compactionApiSessionId,
+          signal: controller.signal,
+        }
+      );
+      if (memoryStatusRequestRef.current.id !== requestId) return;
+      if (result?.success && result.status) {
+        const wasRetrying = ["retrying", "degraded"].includes(
+          memoryStatusConnectionRef.current
         );
-        if (memoryStatusRequestRef.current.id !== requestId) return;
-        if (result?.success && result.status) {
-          const wasRetrying = memoryStatusConnectionRef.current === "retrying";
-          writeMemoryCompactionStatus(memoryCompactionScopeKey, result.status);
-          setMemoryCompactionStatus(result.status);
-          clearTimeout(memoryStatusRetryRef.current.timer);
-          memoryStatusRetryRef.current = { attempt: 0, timer: null };
-          setMemoryConnectionState("connected");
-          if (wasRetrying) {
-            recordChatStreamObservation({
-              event: "memory_status_recovered",
-              clientTurnId: `memory:${memoryCompactionScopeKey}`,
-              outcome: "recovered",
-            });
-          }
-        } else {
-          if (!preserveOnError) {
-            const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
-            if (cached) setMemoryCompactionStatus(cached);
-          }
-          setMemoryConnectionState("retrying");
+        writeMemoryCompactionStatus(memoryCompactionScopeKey, result.status);
+        setMemoryCompactionStatus(result.status);
+        clearTimeout(memoryStatusRetryRef.current.timer);
+        memoryStatusRetryRef.current = { attempt: 0, timer: null };
+        setMemoryConnectionState("connected");
+        if (wasRetrying) {
           recordChatStreamObservation({
-            event: "memory_status_failed",
+            event: "memory_status_recovered",
             clientTurnId: `memory:${memoryCompactionScopeKey}`,
-            outcome: "failed",
+            outcome: "recovered",
           });
-          scheduleMemoryStatusRetry();
         }
-      } catch (error) {
-        if (error?.name !== "AbortError") {
-          if (!preserveOnError) {
-            const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
-            if (cached) setMemoryCompactionStatus(cached);
-          }
-          setMemoryConnectionState("retrying");
-          recordChatStreamObservation({
-            event: "memory_status_failed",
-            clientTurnId: `memory:${memoryCompactionScopeKey}`,
-            outcome: "failed",
-          });
-          scheduleMemoryStatusRetry();
-        }
-      } finally {
-        if (memoryStatusRequestRef.current.id === requestId) {
-          setMemoryCompactionLoading(false);
-        }
+      } else {
+        const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
+        setMemoryCompactionStatus({
+          ...(cached || {}),
+          state: "degraded",
+          reasonCode:
+            result?.status?.reasonCode ||
+            result?.error ||
+            "thread_memory_store_unavailable",
+        });
+        setMemoryConnectionState("degraded");
+        recordChatStreamObservation({
+          event: "memory_status_failed",
+          clientTurnId: `memory:${memoryCompactionScopeKey}`,
+          outcome: "failed",
+        });
+        scheduleMemoryStatusRetry();
       }
-    },
-    [
-      workspace?.slug,
-      threadSlug,
-      compactionUserId,
-      compactionApiSessionId,
-      memoryCompactionScopeKey,
-      scheduleMemoryStatusRetry,
-      setMemoryConnectionState,
-    ]
-  );
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
+        setMemoryCompactionStatus({
+          ...(cached || {}),
+          state: "degraded",
+          reasonCode: "thread_memory_store_unavailable",
+        });
+        setMemoryConnectionState("degraded");
+        recordChatStreamObservation({
+          event: "memory_status_failed",
+          clientTurnId: `memory:${memoryCompactionScopeKey}`,
+          outcome: "failed",
+        });
+        scheduleMemoryStatusRetry();
+      }
+    } finally {
+      if (memoryStatusRequestRef.current.id === requestId) {
+        setMemoryCompactionLoading(false);
+      }
+    }
+  }, [
+    workspace?.slug,
+    threadSlug,
+    compactionUserId,
+    compactionApiSessionId,
+    memoryCompactionScopeKey,
+    scheduleMemoryStatusRetry,
+    setMemoryConnectionState,
+  ]);
 
   useEffect(() => {
     memoryStatusRefreshRef.current = refreshMemoryCompactionStatus;

@@ -502,7 +502,16 @@ const WorkspaceThread = {
       .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
-        return { success: false, status: null, error: error.message };
+        const raw =
+          error?.raw && typeof error.raw === "object" ? error.raw : null;
+        return {
+          success: false,
+          status: raw?.status || {
+            state: "degraded",
+            reasonCode: raw?.error || error.message,
+          },
+          error: raw?.error || error.message,
+        };
       });
   },
   compact: async function (
@@ -513,6 +522,7 @@ const WorkspaceThread = {
       apiSessionId = undefined,
       mode = undefined,
       targetRatio = undefined,
+      sourceActionId = undefined,
       signal,
       task = undefined,
     } = {}
@@ -524,6 +534,10 @@ const WorkspaceThread = {
     if (apiSessionId !== undefined) body.apiSessionId = apiSessionId;
     if (mode !== undefined) body.mode = mode;
     if (targetRatio !== undefined) body.targetRatio = targetRatio;
+    body.sourceActionId =
+      sourceActionId ||
+      globalThis.crypto?.randomUUID?.() ||
+      `thread-memory-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     return await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/compact`,
       body,
