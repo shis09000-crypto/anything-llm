@@ -21,6 +21,9 @@ assertProductionSecurityConfig();
 
 const { registerCryptoHubRoutes } = require("./modules/crypto/httpAdapter");
 const { accountCryptoHubRegistry } = require("./utils/cryptoAccount");
+const {
+  accountEquityProtectionRuntime,
+} = require("./utils/cryptoAccount/equityProtectionRuntime");
 const { invokeAccountTool } = require("./utils/cryptoAccount/serviceRuntime");
 const {
   MicroModuleServiceHost,
@@ -46,8 +49,10 @@ const host = new MicroModuleServiceHost({
   readiness: () => ({
     ...state,
     privateHubCount: accountCryptoHubRegistry.size(),
+    equityProtection: accountEquityProtectionRuntime.status(),
   }),
-  onStart: () => secureDatabaseStart(role),
+  onStart: () =>
+    secureDatabaseStart(role, () => accountEquityProtectionRuntime.start()),
   onDrain: async () => {
     state.accepting = false;
     const deadline =
@@ -55,6 +60,7 @@ const host = new MicroModuleServiceHost({
       Number(process.env.ATHENA_RUNTIME_DRAIN_TIMEOUT_MS || 120_000);
     while (state.active > 0 && Date.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 25));
+    await accountEquityProtectionRuntime.stop();
     accountCryptoHubRegistry.clear();
   },
   registerRoutes: (app) => {

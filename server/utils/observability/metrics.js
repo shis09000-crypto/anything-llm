@@ -241,6 +241,12 @@ const cryptoAccountReadDuration = new client.Histogram({
   buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
   registers: [registry],
 });
+const cryptoAccountEquitySamples = new client.Counter({
+  name: "athena_crypto_account_equity_samples_total",
+  help: "Protected private-account equity sampling outcomes.",
+  labelNames: ["outcome"],
+  registers: [registry],
+});
 const cryptoForecastEvents = new client.Counter({
   name: "athena_crypto_forecast_events_total",
   help: "Public crypto forecasting lifecycle events.",
@@ -830,6 +836,7 @@ module.exports = {
     contentObjectOperations,
     cryptoCertificateRemaining,
     cryptoAccountApprovals,
+    cryptoAccountEquitySamples,
     cryptoAccountReadDuration,
     cryptoAccountReads,
     cryptoForecastCollectorLag,

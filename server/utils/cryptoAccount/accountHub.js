@@ -1,9 +1,11 @@
 const {
+  GateBtcSpotSummaryService,
   GateOpenFuturesPositionsService,
   GateRestClient,
   GateTopSpotAssetsService,
   GateTradeRecordsFeeSummaryService,
   GateTradeRecordsService,
+  GateTradingPairDetailService,
 } = require("../cryptoGate");
 const {
   AllocationHubService,
@@ -12,6 +14,7 @@ const { CryptoHubCache } = require("../cryptoHub/cache/CryptoHubCache");
 const {
   CryptoHubRateLimitState,
 } = require("../cryptoHub/cache/CryptoHubRateLimitState");
+const { AccountEquityProtectionService } = require("./equityProtection");
 
 const PRIVATE_CACHE_TTL_MS = 15_000;
 
@@ -109,7 +112,7 @@ class InMemoryCycleStore {
 }
 
 class AccountCryptoHub {
-  constructor({ connection, credentials }) {
+  constructor({ connection, credentials, equityProtection = null }) {
     this.connectionId = connection.id;
     this.authUserId = connection.authUserId;
     this.credentialVersion = connection.credentialVersion;
@@ -132,6 +135,12 @@ class AccountCryptoHub {
     this.topAssets = new GateTopSpotAssetsService({
       restClientFactory: this.clientFactory,
     });
+    this.tradingPairDetails = new GateTradingPairDetailService({
+      restClientFactory: this.clientFactory,
+    });
+    this.btcSummary = new GateBtcSpotSummaryService({
+      restClientFactory: this.clientFactory,
+    });
     this.tradeRecords = new GateTradeRecordsService({
       restClientFactory: this.clientFactory,
       wsManager: {
@@ -145,6 +154,12 @@ class AccountCryptoHub {
     this.feeSummary = new GateTradeRecordsFeeSummaryService({
       restClientFactory: this.clientFactory,
     });
+    this.equityProtection =
+      equityProtection ||
+      new AccountEquityProtectionService({
+        connection,
+        restClientFactory: this.clientFactory,
+      });
   }
 
   async cached(key, loader) {
@@ -247,14 +262,18 @@ class AccountCryptoHub {
         publicWs: "disconnected",
       },
       services: {
-        equity: "ready",
+        equity: this.equityProtection.status().running
+          ? "protected"
+          : "initializing",
         allocation: "ready",
         openFuturesPositions: "ready",
         topAssets: "ready",
+        tradingPairDetail: "ready",
         tradeRecords: "ready",
       },
       rateLimits: this.rateLimitState.snapshot(),
       accountScoped: true,
+      equityProtection: this.equityProtection.status(),
     };
   }
 
@@ -265,6 +284,7 @@ class AccountCryptoHub {
       items: {
         privateAccount: { status: "ready" },
         allocation: { status: "ready" },
+        tradingPairDetail: { status: "ready" },
         openFutures: { status: "ready" },
         tradeRecords: { status: "ready" },
       },
@@ -272,6 +292,7 @@ class AccountCryptoHub {
   }
 
   async init() {
+    await this.equityProtection.start();
     await this.overview();
     return {
       success: true,
@@ -281,6 +302,7 @@ class AccountCryptoHub {
   }
 
   start() {
+    void this.equityProtection.start().catch(() => {});
     return this.getStatus();
   }
 
@@ -293,27 +315,17 @@ class AccountCryptoHub {
   }
 
   stopBackgroundRefresh() {
-    return this.stopIfIdle();
-  }
-
-  async getEquityHistory() {
-    const overview = await this.overview();
-    const equity = Number(overview.totalEquityUsd) || 0;
     return {
       success: true,
-      incremental: false,
-      latestEquityUsd: equity,
-      todayPnlUsd: 0,
-      todayPnlPct: 0,
-      points: [
-        {
-          ts: Date.now(),
-          equityUsd: equity,
-          source: "account_scoped_snapshot",
-        },
-      ],
-      accountScoped: true,
+      stoppedPrivateWs: true,
+      protectedEquityRecorderRunning: this.equityProtection.status().running,
+      reason:
+        "Private streams may stop when idle; protected equity recording remains active.",
     };
+  }
+
+  async getEquityHistory(params = {}) {
+    return this.equityProtection.today(params);
   }
 
   getAllocation(params = {}) {
@@ -326,6 +338,14 @@ class AccountCryptoHub {
 
   getTopAssets(params = {}) {
     return this.topAssets.topAssets(params);
+  }
+
+  getTradingPairDetail(params = {}) {
+    return this.tradingPairDetails.detail(params);
+  }
+
+  getBtcSummary(params = {}) {
+    return this.btcSummary.summary(params);
   }
 
   getTradeRecords(params = {}) {
@@ -497,6 +517,7 @@ class AccountCryptoHub {
   }
 
   clear() {
+    void this.equityProtection.stop();
     this.cache.clear();
     this.credentials = Object.freeze({
       apiKey: "",
@@ -507,8 +528,9 @@ class AccountCryptoHub {
 }
 
 class AccountCryptoHubRegistry {
-  constructor() {
+  constructor({ equityProtectionFactory = null } = {}) {
     this.hubs = new Map();
+    this.equityProtectionFactory = equityProtectionFactory;
   }
 
   key(connection) {
@@ -526,7 +548,14 @@ class AccountCryptoHubRegistry {
       return existing;
     }
     if (existing) existing.clear();
-    const hub = new AccountCryptoHub({ connection, credentials });
+    const hub = new AccountCryptoHub({
+      connection,
+      credentials,
+      equityProtection: this.equityProtectionFactory?.({
+        connection,
+        credentials,
+      }),
+    });
     this.hubs.set(key, hub);
     return hub;
   }
@@ -549,6 +578,18 @@ class AccountCryptoHubRegistry {
 
   size() {
     return this.hubs.size;
+  }
+
+  protectedCount() {
+    return [...this.hubs.values()].filter(
+      (hub) => hub.equityProtection.status().running
+    ).length;
+  }
+
+  async stopProtectedRecorders() {
+    await Promise.allSettled(
+      [...this.hubs.values()].map((hub) => hub.equityProtection.stop())
+    );
   }
 
   clear() {

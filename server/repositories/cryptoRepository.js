@@ -99,6 +99,22 @@ const CryptoRepository = {
     return prisma.crypto_account_connections.updateMany({ where, data });
   },
 
+  listAccountEquitySnapshots({ where, orderBy = undefined, take = undefined }) {
+    return prisma.crypto_account_equity_snapshots.findMany({
+      where,
+      ...(orderBy ? { orderBy } : {}),
+      ...(take ? { take } : {}),
+    });
+  },
+
+  upsertAccountEquitySnapshot({ where, create, update }) {
+    return prisma.crypto_account_equity_snapshots.upsert({
+      where,
+      create,
+      update,
+    });
+  },
+
   findUserDomainWrap({ where, orderBy = undefined }) {
     return prisma.user_domain_key_wraps.findFirst({
       where,

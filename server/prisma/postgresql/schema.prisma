@@ -724,6 +724,28 @@ model crypto_account_connections {
   @@index([rootKeyId, domainKeyVersion])
 }
 
+model crypto_account_equity_snapshots {
+  id               String   @id
+  connectionId     String
+  userId           Int
+  authUserId       Int
+  sampleBucket     Int
+  sampledAt        DateTime
+  apiTotalUsd      String
+  unrealizedPnlUsd String
+  netEquityUsd     String
+  accountSumUsd    String
+  breakdownJson    String   @default("{}")
+  source           String   @default("protected_sampler")
+  quality          String   @default("observed")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([connectionId, sampleBucket])
+  @@index([connectionId, sampledAt])
+  @@index([authUserId, sampledAt])
+}
+
 model memory_candidates {
   id          Int      @id @default(autoincrement())
   userId      Int

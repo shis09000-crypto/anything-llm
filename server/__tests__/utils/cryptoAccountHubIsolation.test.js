@@ -6,6 +6,7 @@ function binding(authUserId, connectionId, credentialVersion, apiKey) {
   return {
     connection: {
       id: connectionId,
+      userId: authUserId,
       authUserId,
       credentialVersion,
     },
@@ -14,6 +15,15 @@ function binding(authUserId, connectionId, credentialVersion, apiKey) {
       apiSecret: `${apiKey}-secret`,
       env: "production",
     },
+  };
+}
+
+function equityProtection(payload = null) {
+  return {
+    status: jest.fn(() => ({ running: true, protected: true })),
+    start: jest.fn(async () => ({ running: true, protected: true })),
+    stop: jest.fn(async () => ({ running: false, protected: true })),
+    today: jest.fn(async () => payload),
   };
 }
 
@@ -43,6 +53,76 @@ describe("account crypto hub isolation", () => {
     expect(rotated.credentials.apiKey).toBe("key-a-rotated");
     expect(rotated.cache.get("private")).toBeNull();
     expect(first.credentials.apiKey).toBe("");
+  });
+
+  test("serves account-scoped equity history with the page contract", async () => {
+    const payload = {
+      success: true,
+      accountScoped: true,
+      history: {
+        incremental: false,
+        latestEquityUsd: 57693.4,
+        yesterdayBaselineUsd: 57693.4,
+        accountScoped: true,
+        pnlStatus: "initializing_protected_history",
+        points: [
+          {
+            value: 57693.4,
+            totalEquityUsd: 57693.4,
+            source: "protected_sampler",
+            equityMode: "api_total",
+          },
+        ],
+      },
+    };
+    const protection = equityProtection(payload);
+    const registry = new AccountCryptoHubRegistry({
+      equityProtectionFactory: () => protection,
+    });
+    const hub = registry.get(binding(10, "connection-a", 1, "key-a"));
+
+    const result = await hub.getEquityHistory();
+
+    expect(result).toMatchObject({
+      success: true,
+      accountScoped: true,
+      history: {
+        incremental: false,
+        latestEquityUsd: 57693.4,
+        yesterdayBaselineUsd: 57693.4,
+        accountScoped: true,
+        pnlStatus: "initializing_protected_history",
+      },
+    });
+    expect(result.history.points).toHaveLength(1);
+    expect(result.history.points[0]).toMatchObject({
+      value: 57693.4,
+      totalEquityUsd: 57693.4,
+      source: "protected_sampler",
+      equityMode: "api_total",
+    });
+    expect(protection.today).toHaveBeenCalledWith({});
+  });
+
+  test("uses the account credential-bound service for pair detail", async () => {
+    const registry = new AccountCryptoHubRegistry();
+    const hub = registry.get(binding(10, "connection-a", 1, "key-a"));
+    hub.tradingPairDetails.detail = jest.fn().mockResolvedValue({
+      success: true,
+      gateCurrencyPair: "BTC_USDT",
+      holdingValueUsd: "15860.23",
+    });
+
+    await expect(
+      hub.getTradingPairDetail({ pair: "BTC_USDT", market: "spot" })
+    ).resolves.toMatchObject({
+      success: true,
+      holdingValueUsd: "15860.23",
+    });
+    expect(hub.tradingPairDetails.detail).toHaveBeenCalledWith({
+      pair: "BTC_USDT",
+      market: "spot",
+    });
   });
 
   test("projects agent results without misleading legacy aliases", async () => {
