@@ -377,6 +377,35 @@ const browserApprovals = new client.Counter({
   labelNames: ["risk", "outcome"],
   registers: [registry],
 });
+const browserEgressGrants = new client.Counter({
+  name: "athena_browser_egress_grants_total",
+  help: "Browser egress grant lifecycle outcomes.",
+  labelNames: ["action", "outcome"],
+  registers: [registry],
+});
+const browserEgressGatewayReady = new client.Gauge({
+  name: "athena_browser_egress_gateway_ready",
+  help: "Whether the Browser Egress Gateway passed its bounded health contract.",
+  registers: [registry],
+});
+const browserEgressEnabled = new client.Gauge({
+  name: "athena_browser_egress_enabled",
+  help: "Whether Browser Egress is explicitly enabled for production grants.",
+  registers: [registry],
+});
+const browserEgressHandshakeLatency = new client.Histogram({
+  name: "athena_browser_egress_handshake_duration_seconds",
+  help: "Last observed Browser Egress handshake duration.",
+  labelNames: ["outcome"],
+  buckets: [0.01, 0.03, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
+  registers: [registry],
+});
+const browserEgressFailures = new client.Counter({
+  name: "athena_browser_egress_failures_total",
+  help: "Browser Egress failures by bounded operation and error code.",
+  labelNames: ["operation", "code"],
+  registers: [registry],
+});
 const browserCrashes = new client.Counter({
   name: "athena_browser_crashes_total",
   help: "Unexpected Browser driver exits by bounded driver and failure class.",
@@ -824,6 +853,11 @@ module.exports = {
     browserActions,
     browserActiveSessions,
     browserApprovals,
+    browserEgressEnabled,
+    browserEgressFailures,
+    browserEgressGatewayReady,
+    browserEgressGrants,
+    browserEgressHandshakeLatency,
     browserCrashes,
     browserSessions,
     browserWorkerAvailableMemory,
