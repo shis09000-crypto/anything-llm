@@ -359,6 +359,119 @@ model operations_action_approvals {
   @@index([approverUserId, createdAt])
 }
 
+model module_instances {
+  id                  String    @id
+  moduleId            String
+  runtimeRole         String
+  version             String
+  manifestFingerprint String
+  state               String    @default("registered")
+  sequence            Int       @default(0)
+  heartbeatAt         DateTime?
+  leaseExpiresAt      DateTime?
+  lastReasonCode      String?
+  metadataJson        String    @default("{}")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([moduleId, state])
+  @@index([leaseExpiresAt])
+  @@index([runtimeRole, state])
+}
+
+model module_lifecycle_events {
+  id           String   @id
+  moduleId     String
+  instanceId   String
+  sequence     Int
+  fromState    String
+  toState      String
+  reasonCode   String
+  metadataJson String   @default("{}")
+  occurredAt   DateTime
+  createdAt    DateTime @default(now())
+
+  @@unique([instanceId, sequence])
+  @@index([moduleId, occurredAt])
+  @@index([instanceId, occurredAt])
+}
+
+model coordination_runs {
+  id                  String               @id
+  idempotencyKey      String?              @unique
+  center              String
+  type                String
+  status              String               @default("proposed")
+  priority            String               @default("P2")
+  correlationId       String
+  causationId         String?
+  ownerUserId         Int?
+  ownerAuthUserId     String?
+  resourceType        String?
+  resourceId          String?
+  escalationLevel     Int                  @default(0)
+  lowerLevelExhausted Boolean              @default(false)
+  evidenceJson        String               @default("[]")
+  policyJson          String               @default("{}")
+  deadlineAt          DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  steps               coordination_steps[]
+
+  @@index([center, status, createdAt])
+  @@index([correlationId])
+  @@index([ownerUserId, status])
+  @@index([deadlineAt, status])
+}
+
+model coordination_steps {
+  id             String            @id
+  runId          String
+  moduleId       String
+  capability     String
+  status         String            @default("pending")
+  dependsOnJson  String            @default("[]")
+  attempt        Int               @default(0)
+  maxAttempts    Int               @default(1)
+  checkpointJson String            @default("{}")
+  resultHash     String?
+  errorCode      String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  run            coordination_runs @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, moduleId, capability])
+  @@index([runId, status])
+  @@index([moduleId, status])
+}
+
+model optimistic_mutation_receipts {
+  id                String    @id
+  mutationId        String    @unique
+  coordinationRunId String?
+  ownerUserId       Int?
+  ownerAuthUserId   String?
+  resourceType      String
+  resourceId        String
+  status            String    @default("pending")
+  revision          Int       @default(0)
+  patchHash         String
+  authoritativeHash String?
+  reasonCode        String?
+  expiresAt         DateTime
+  confirmedAt       DateTime?
+  rolledBackAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([ownerUserId, status, createdAt])
+  @@index([resourceType, resourceId, status])
+  @@index([expiresAt, status])
+}
+
 model users {
   id                             Int                              @id @default(autoincrement())
   authUserId                     Int?                             @unique
@@ -460,6 +573,25 @@ model auth_sessions {
   @@index([clientId, revokedAt])
   @@index([idleExpiresAt])
   @@index([absoluteExpiresAt])
+}
+
+model auth_device_recovery_challenges {
+  id                 String    @id
+  challengeHash      String    @unique
+  recoveryTicketHash String?   @unique
+  clientId           String
+  authUserId         Int?
+  shadowUserId       Int?
+  status             String    @default("issued")
+  failureCount       Int       @default(0)
+  expiresAt          DateTime
+  consumedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([clientId, status, expiresAt])
+  @@index([authUserId, status])
+  @@index([expiresAt])
 }
 
 model auth_realtime_tickets {
@@ -2164,6 +2296,11 @@ model browser_profiles {
   profileId           String
   ownerUserId         Int
   executionLocation   String    @default("cloud")
+  networkRoute        String    @default("system")
+  preferredDriver     String    @default("embedded")
+  egressGrantId       String?
+  routePolicyVersion  String    @default("browser-egress-route-v1")
+  lastRouteHealth     String?
   status              String    @default("ready")
   archiveRef          String?
   archiveManifestJson String?
@@ -2180,6 +2317,32 @@ model browser_profiles {
   @@index([ownerUserId, status])
   @@index([leaseExpiresAt])
   @@index([lastUsedAt])
+}
+
+model browser_egress_grants {
+  id               String    @id @default(uuid())
+  ownerUserId      Int
+  profileId        String
+  deviceId         String
+  state            String    @default("pending")
+  region           String    @default("overseas")
+  gatewayId        String?
+  credentialRef    String?
+  configVersion    String?
+  quotaConnections Int       @default(8)
+  quotaBytes       BigInt?
+  issuedAt         DateTime?
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  lastHandshakeAt  DateTime?
+  lastHealthCode   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([ownerUserId, profileId, deviceId])
+  @@index([ownerUserId, state])
+  @@index([deviceId, state])
+  @@index([expiresAt])
 }
 
 model browser_sessions {

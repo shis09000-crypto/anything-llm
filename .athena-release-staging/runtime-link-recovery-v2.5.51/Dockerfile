@@ -43,8 +43,14 @@ COPY --chown=1000:1000 server/utils/responsesRuntime/ /app/server/utils/response
 # contract. Shipping only the migration/schema leaves prisma.responses
 # undefined even when the database tables already exist.
 COPY --chown=1000:1000 server/prisma/schema.prisma /app/server/prisma/schema.prisma
+COPY --chown=1000:1000 server/prisma/migrations/20260801170000_add_coordination_plane/ /app/server/prisma/migrations/20260801170000_add_coordination_plane/
+COPY --chown=1000:1000 server/prisma/migrations/20260802010000_add_device_identity_recovery/ /app/server/prisma/migrations/20260802010000_add_device_identity_recovery/
+COPY --chown=1000:1000 server/prisma/migrations/20260802160000_add_browser_egress/ /app/server/prisma/migrations/20260802160000_add_browser_egress/
 COPY --chown=1000:1000 server/prisma/migrations/20260803090000_add_responses_runtime/ /app/server/prisma/migrations/20260803090000_add_responses_runtime/
 COPY --chown=1000:1000 server/prisma/postgresql/schema.prisma /app/server/prisma/postgresql/schema.prisma
+COPY --chown=1000:1000 server/prisma/postgresql/migrations/20260801170000_add_coordination_plane/ /app/server/prisma/postgresql/migrations/20260801170000_add_coordination_plane/
+COPY --chown=1000:1000 server/prisma/postgresql/migrations/20260802010000_add_device_identity_recovery/ /app/server/prisma/postgresql/migrations/20260802010000_add_device_identity_recovery/
+COPY --chown=1000:1000 server/prisma/postgresql/migrations/20260802160000_add_browser_egress/ /app/server/prisma/postgresql/migrations/20260802160000_add_browser_egress/
 COPY --chown=1000:1000 server/prisma/postgresql/migrations/20260803090000_add_responses_runtime/ /app/server/prisma/postgresql/migrations/20260803090000_add_responses_runtime/
 
 # Sync V2 owns durable event persistence. Producers call this capability and
@@ -71,7 +77,7 @@ RUN cd /app/server \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
 
-LABEL athena.release.id="runtime-link-recovery-v2.5.55" \
+LABEL athena.release.id="runtime-link-recovery-v2.5.56" \
       athena.release.scope="aicp-v1.1-responses-chat-agent-sync-event-capability" \
       athena.release.contract="athena-aicp-manifest-v1.1"
 

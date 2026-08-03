@@ -50,6 +50,20 @@ describe("module schema ownership", () => {
     expect(ownerForTable("auth_sessions", "auth")).toBe("identity");
   });
 
+  test("versioned Prisma schema includes every declared module-owned table", () => {
+    const tables = new Set(modelTables(schemaFile));
+    for (const table of [
+      "module_instances",
+      "coordination_runs",
+      "auth_device_recovery_challenges",
+      "browser_egress_grants",
+      "responses_conversations",
+      "responses",
+    ]) {
+      expect(tables.has(table)).toBe(true);
+    }
+  });
+
   test("unextracted main tables remain in the workspace control boundary", () => {
     expect(ownerForTable("workspaces", "main")).toBe("workspace");
     expect(ownerForTable("system_settings", "main")).toBe("workspace");
