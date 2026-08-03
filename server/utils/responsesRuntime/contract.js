@@ -31,14 +31,30 @@ const STREAM_EVENT_TYPES = Object.freeze([
 ]);
 
 function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (Array.isArray(value)) {
+    return `[${value
+      .map((item) =>
+        item === undefined ||
+        typeof item === "function" ||
+        typeof item === "symbol"
+          ? "null"
+          : canonicalJson(item)
+      )
+      .join(",")}]`;
+  }
   if (value && typeof value === "object") {
     return `{${Object.keys(value)
+      .filter(
+        (key) =>
+          value[key] !== undefined &&
+          typeof value[key] !== "function" &&
+          typeof value[key] !== "symbol"
+      )
       .sort()
       .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
       .join(",")}}`;
   }
-  return JSON.stringify(value);
+  return JSON.stringify(value) ?? "null";
 }
 
 function sha256(value) {

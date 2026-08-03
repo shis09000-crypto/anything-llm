@@ -108,7 +108,9 @@ function createResponsesAgentProvider({
         tools: responsesTools(formatFunctionsToTools(functions)),
         tool_choice: functions.length ? "auto" : null,
         reasoning: { effort: options?.reasoningEffort || "high" },
-        max_output_tokens: options?.maxTokens || null,
+        ...(options?.maxTokens != null
+          ? { max_output_tokens: options.maxTokens }
+          : {}),
         athena: metadata(this.handlerProps),
       };
       const response = await requestInternalStream({

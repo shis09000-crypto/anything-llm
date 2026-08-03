@@ -37,6 +37,7 @@ function responsesTools(tools = []) {
 }
 
 function requestBody(messages, options = {}, metadata = {}) {
+  const thinkingEnabled = options.thinking === "enabled";
   return {
     provider: "deepseek",
     model: FLASH_MODEL,
@@ -45,13 +46,15 @@ function requestBody(messages, options = {}, metadata = {}) {
     background: false,
     tools: responsesTools(options.tools || []),
     tool_choice: options.toolChoice || null,
-    reasoning:
-      options.thinking === "enabled"
-        ? { effort: options.reasoningEffort || "high" }
-        : {},
-    temperature:
-      options.thinking === "enabled" ? undefined : options.temperature,
-    max_output_tokens: options.maxTokens || null,
+    reasoning: thinkingEnabled
+      ? { effort: options.reasoningEffort || "high" }
+      : {},
+    ...(!thinkingEnabled && options.temperature !== undefined
+      ? { temperature: options.temperature }
+      : {}),
+    ...(options.maxTokens != null
+      ? { max_output_tokens: options.maxTokens }
+      : {}),
     athena: metadata,
   };
 }

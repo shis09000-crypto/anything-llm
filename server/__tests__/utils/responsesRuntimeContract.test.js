@@ -1,4 +1,5 @@
 const {
+  canonicalJson,
   commonPrefixLength,
   normalizeUsage,
   validateCreateRequest,
@@ -55,6 +56,15 @@ describe("managed Responses protocol contracts", () => {
         { role: "assistant", content: "edited" },
       ])
     ).toBe(1);
+  });
+
+  test("canonical JSON follows JSON semantics for undefined values", () => {
+    expect(
+      canonicalJson({ z: undefined, b: [1, undefined], a: "kept" })
+    ).toBe('{"a":"kept","b":[1,null]}');
+    expect(() =>
+      JSON.parse(canonicalJson({ temperature: undefined }))
+    ).not.toThrow();
   });
 
   test("normalizes DeepSeek cache and reasoning accounting", () => {

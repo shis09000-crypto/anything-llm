@@ -65,6 +65,13 @@ function connectionRawEvent(state) {
   };
 }
 
+export function shouldReconnectInitialChatPost(error) {
+  const status = Number(error?.status || error?.raw?.status || 0);
+  if (!status) return true;
+  if (status >= 500 || [408, 409, 425, 429].includes(status)) return true;
+  return false;
+}
+
 async function streamChat({
   path,
   body,
@@ -228,8 +235,15 @@ async function streamChat({
         ...streamOptions(path),
         body: requestBody,
       });
-    } catch {
-      // Reconnect below. The POST was claimed idempotently by clientTurnId.
+    } catch (error) {
+      // A transport or recoverable server failure may happen after the durable
+      // run was claimed, so reconnecting by clientTurnId remains safe. A
+      // definitive client/auth rejection cannot have created the run and must
+      // terminate instead of polling a nonexistent run forever.
+      if (!shouldReconnectInitialChatPost(error)) {
+        emitError(error);
+        return;
+      }
     }
 
     if (!terminalSeen && !stopped && !ctrl.signal.aborted) {
