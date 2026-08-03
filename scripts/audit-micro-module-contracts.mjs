@@ -39,7 +39,9 @@ function sourceMatches(files, sourcePath) {
   return files.some(
     (file) =>
       file === normalized ||
-      file.startsWith(normalized.endsWith("/") ? normalized : `${normalized}/`) ||
+      file.startsWith(
+        normalized.endsWith("/") ? normalized : `${normalized}/`
+      ) ||
       file.startsWith(normalized)
   );
 }
@@ -81,6 +83,14 @@ const schemaOwners = new Map();
 const serviceIdentities = new Map();
 const ids = new Set(manifests.map((manifest) => manifest.id));
 const reservedCallers = new Set(["public-client"]);
+const targetScopedStandardCapabilities = new Set([
+  "module.describe",
+  "module.self-test",
+  "module.lifecycle.query",
+  "module.drain",
+  "module.quiesce",
+  "module.resume",
+]);
 
 for (const manifest of manifests) {
   for (const sourcePath of manifest.sourcePaths)
@@ -89,11 +99,12 @@ for (const manifest of manifests) {
         `source_path_unmatched:${manifest.id}:${toPosix(sourcePath)}`
       );
   for (const capability of manifest.rpc.provides) {
-    if (rpcProviders.has(capability))
+    const providers = rpcProviders.get(capability) || [];
+    if (providers.length && !targetScopedStandardCapabilities.has(capability))
       findings.push(
-        `rpc_provider_duplicate:${capability}:${rpcProviders.get(capability)}:${manifest.id}`
+        `rpc_provider_duplicate:${capability}:${providers[0]}:${manifest.id}`
       );
-    else rpcProviders.set(capability, manifest.id);
+    rpcProviders.set(capability, [...providers, manifest.id]);
   }
   for (const route of manifest.routes.public) {
     if (publicRoutes.has(route))
@@ -118,6 +129,25 @@ for (const manifest of manifests) {
   for (const caller of manifest.security.allowedCallers)
     if (!ids.has(caller) && !reservedCallers.has(caller))
       findings.push(`allowed_caller_unknown:${manifest.id}:${caller}`);
+  const aicpRules = manifest.coordination?.aicpPolicy?.links || [];
+  const seenAicpRules = new Set();
+  for (const rule of aicpRules) {
+    const ruleKey = `${rule.caller}:${rule.capability}`;
+    if (seenAicpRules.has(ruleKey))
+      findings.push(`aicp_policy_duplicate:${manifest.id}:${ruleKey}`);
+    seenAicpRules.add(ruleKey);
+    if (rule.caller !== "*" && !ids.has(rule.caller))
+      findings.push(
+        `aicp_policy_caller_unknown:${manifest.id}:${rule.caller}:${rule.capability}`
+      );
+    if (
+      rule.capability !== "*" &&
+      !manifest.rpc.provides.includes(rule.capability)
+    )
+      findings.push(
+        `aicp_policy_capability_not_provided:${manifest.id}:${rule.capability}`
+      );
+  }
 }
 
 for (const manifest of manifests)

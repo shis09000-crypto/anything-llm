@@ -18,6 +18,14 @@ function callerRole(env = process.env) {
   return role;
 }
 
+function callerModule(env = process.env) {
+  const role = callerRole(env);
+  if (role === "api") return "athena-api";
+  if (role === "crypto-account") return "crypto-account-access";
+  if (role === "identity") return "authentication";
+  return role;
+}
+
 function remoteKeyCustodyEnabled(env = process.env, context = {}) {
   const directFieldCutover =
     env.ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER === "true" &&
@@ -73,12 +81,16 @@ async function wrapMaterial(value, context = {}, env = process.env) {
   const normalizedContext = safeContext(context);
   const response = await requestInternalService({
     callerRole: callerRole(env),
+    callerModule: callerModule(env),
     url: `${keyCustodyUrl(env)}/internal/v1/keys/wrap`,
     body: {
       plaintext: String(value),
       context: normalizedContext,
     },
     idempotencyKey: idempotencyKey("wrap", value, normalizedContext),
+    targetModule: "key-custody",
+    capability: "key-custody.wrap",
+    contractVersion: "1.0",
     env,
     timeoutMs: Number(env.ATHENA_KEY_CUSTODY_TIMEOUT_MS || 10_000),
   });
@@ -98,12 +110,16 @@ async function unwrapMaterial(value, context = {}, env = process.env) {
   const normalizedContext = safeContext(context);
   const response = await requestInternalService({
     callerRole: callerRole(env),
+    callerModule: callerModule(env),
     url: `${keyCustodyUrl(env)}/internal/v1/keys/unwrap`,
     body: {
       wrapped: String(value),
       context: normalizedContext,
     },
     idempotencyKey: idempotencyKey("unwrap", value, normalizedContext),
+    targetModule: "key-custody",
+    capability: "key-custody.unwrap",
+    contractVersion: "1.0",
     env,
     timeoutMs: Number(env.ATHENA_KEY_CUSTODY_TIMEOUT_MS || 10_000),
   });
@@ -237,6 +253,7 @@ async function remoteSignAuditCheckpoint(
 }
 
 module.exports = {
+  callerModule,
   callerRole,
   keyCustodyUrl,
   remoteAuditKeyDescriptor,

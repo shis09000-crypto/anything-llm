@@ -37,12 +37,17 @@ async function callRemote(
   body,
   { method = "POST", timeoutMs = 30_000 } = {}
 ) {
+  const runtimeRole = String(
+    process.env.ATHENA_RUNTIME_ROLE || "browser-plane"
+  );
+  const apiCaller = ["api", "athena-api"].includes(runtimeRole);
   return requestInternalService({
-    callerRole:
-      process.env.ATHENA_RUNTIME_ROLE === "api"
-        ? "athena-api"
-        : "browser-plane",
+    callerRole: apiCaller ? "api" : "browser-plane",
+    callerModule: apiCaller ? "athena-api" : "browser-plane",
     url: `${endpoint()}${path}`,
+    targetModule: "browser-worker",
+    capability: "browser.worker",
+    contractVersion: "1.0",
     method,
     body,
     env: process.env,

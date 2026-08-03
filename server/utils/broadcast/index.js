@@ -5,10 +5,10 @@ const {
   ensureBroadcastTransportSupported,
 } = require("./transportRegistry");
 const { BroadcastTransport } = require("./broadcastTransport");
-const { DataAccessCenter } = require("../dataAccess");
 const { enqueueSyncPush } = require("../nativePush/apnsProvider");
-
-const SyncEvent = DataAccessCenter.syncEvent;
+const {
+  appendSyncEventViaCapability,
+} = require("../syncV2/syncEventClient");
 
 const BROADCAST_EVENT = "athenaBroadcastEvent";
 const DEFAULT_COALESCE_MS = 150;
@@ -462,7 +462,7 @@ function commitEvent(event) {
   }
   durableCommitQueue = durableCommitQueue
     .then(async () => {
-      const persisted = await SyncEvent.persist(event);
+      const persisted = await appendSyncEventViaCapability(event);
       const committed = persisted || event;
       await publishToSharedTransport(committed);
       commitLiveEvent(committed);
@@ -484,7 +484,7 @@ async function commitEventDurably(event) {
     return commitLiveEvent(event);
   }
   try {
-    const persisted = await SyncEvent.persist(event);
+    const persisted = await appendSyncEventViaCapability(event);
     const committed = persisted || event;
     await publishToSharedTransport(committed);
     return commitLiveEvent(committed);
@@ -647,6 +647,8 @@ async function replayDurableBroadcastEvents({
   subscriptions = [],
   limit = 200,
 } = {}) {
+  const { DataAccessCenter } = require("../dataAccess");
+  const SyncEvent = DataAccessCenter.syncEvent;
   const result = await SyncEvent.replay({
     userId,
     clientId,

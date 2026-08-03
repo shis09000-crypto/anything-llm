@@ -64,6 +64,7 @@ function observabilityContextMiddleware(request, response, next) {
       : crypto.randomBytes(8).toString("hex");
   const correlation = {
     operationId: compact(request.headers["x-athena-operation-id"], 160),
+    correlationId: compact(request.headers["x-athena-correlation-id"], 192),
     interactionId:
       compact(request.headers["x-athena-interaction-id"], 160) ||
       crypto.randomUUID(),
@@ -72,6 +73,25 @@ function observabilityContextMiddleware(request, response, next) {
     clientTurnId: compact(request.headers["x-athena-client-turn-id"], 160),
     invocationId: compact(request.headers["x-athena-invocation-id"], 160),
     clientId: compact(request.headers["x-athena-client-id"], 160),
+    taskId: compact(request.headers["x-athena-task-id"], 160),
+    taskPriority: compact(request.headers["x-athena-task-priority"], 8),
+    coordinationRunId: compact(
+      request.headers["x-athena-coordination-run-id"],
+      192
+    ),
+    stepId: compact(request.headers["x-athena-coordination-step-id"], 192),
+    coordinationCenter: compact(
+      request.headers["x-athena-coordination-center"],
+      32
+    ),
+    coordinationDeadlineAt: compact(
+      request.headers["x-athena-coordination-deadline-at"],
+      64
+    ),
+    coordinationCausationId: compact(
+      request.headers["x-athena-coordination-causation-id"],
+      192
+    ),
     platform: compact(request.headers["x-athena-platform"], 32),
     journey: classifyGoldenJourney(request),
     traceId,

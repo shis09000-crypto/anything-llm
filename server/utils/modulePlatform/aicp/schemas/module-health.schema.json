@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/module-health-v1.json",
+  "title": "Athena Module Health v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "moduleId",
+    "status",
+    "ready",
+    "healthScore",
+    "checkedAt",
+    "source",
+    "reasonCode",
+    "checks"
+  ],
+  "properties": {
+    "schema": { "const": "athena.aicp.module-health" },
+    "schemaVersion": { "const": "1.0" },
+    "moduleId": { "type": "string" },
+    "status": {
+      "enum": ["healthy", "degraded", "not-ready", "unmonitored", "unknown"]
+    },
+    "ready": { "type": ["boolean", "null"] },
+    "healthScore": { "type": "number", "minimum": 0, "maximum": 100 },
+    "checkedAt": { "type": ["string", "null"], "format": "date-time" },
+    "source": { "enum": ["runtime", "probe", "heartbeat", "event", "none"] },
+    "reasonCode": { "type": ["string", "null"], "maxLength": 160 },
+    "checks": { "type": "array", "items": { "type": "object" } }
+  }
+}

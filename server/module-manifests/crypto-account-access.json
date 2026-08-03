@@ -1,23 +1,68 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "id": "crypto-account-access",
   "name": "Crypto Account Access",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "kind": "security-service",
   "owner": "security",
   "criticality": "high",
   "runtimeRole": "crypto-account",
-  "sourcePaths": ["server/utils/cryptoAccount/", "server/utils/agents/aibitat/plugins/crypto-account/"],
-  "capabilities": ["gate-read-only", "account-scoped-resolution", "approval-required-tools"],
-  "routes": { "public": [], "internal": ["/internal/v1/crypto/account/read"] },
-  "rpc": { "provides": ["crypto.account"], "consumes": ["identity.assert", "key-custody.unwrap", "crypto.market"] },
-  "events": { "publishes": ["crypto.account.read.*"], "subscribes": ["crypto.connection.*", "key-custody.rotation.*"] },
-  "data": { "schemas": ["crypto_account"], "objectPrefixes": [] },
+  "sourcePaths": [
+    "server/utils/cryptoAccount/",
+    "server/utils/agents/aibitat/plugins/crypto-account/"
+  ],
+  "capabilities": [
+    "gate-read-only",
+    "account-scoped-resolution",
+    "protected-equity-history",
+    "approval-required-tools"
+  ],
+  "routes": {
+    "public": [],
+    "internal": ["/internal/v1/crypto/account/read"]
+  },
+  "rpc": {
+    "provides": [
+      "crypto.account",
+      "module.describe",
+      "module.self-test",
+      "module.lifecycle.query",
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
+    "consumes": [
+      "coordination.lifecycle.event",
+      "coordination.lifecycle.heartbeat",
+      "crypto.market",
+      "identity.assert",
+      "identity.client.attach",
+      "identity.request-signing.verify",
+      "identity.session.validate",
+      "identity.session.touch",
+      "identity.audit.append",
+      "key-custody.unwrap",
+      "operations.ingest-batch"
+    ]
+  },
+  "events": {
+    "publishes": [
+      "crypto.account.read.*",
+      "crypto.connection.*",
+      "crypto.account.equity_recording.*",
+      "module.lifecycle.*"
+    ],
+    "subscribes": ["key-custody.rotation.*"]
+  },
+  "data": {
+    "schemas": ["crypto_account"],
+    "objectPrefixes": []
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/crypto-account",
     "keyDomains": ["agent"],
-    "allowedCallers": ["tool-runtime", "scheduler"],
+    "allowedCallers": ["tool-runtime", "scheduler", "coordination-plane"],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 10000
   },
@@ -29,5 +74,366 @@
     "availabilityTarget": 0.995,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "key-custody", "crypto-market", "infra:postgresql", "infra:nats"]
+  "dependsOn": [
+    "authentication",
+    "key-custody",
+    "crypto-market",
+    "infra:postgresql",
+    "infra:nats"
+  ],
+  "domain": "security",
+  "responsibilities": [
+    "gate-read-only",
+    "account-scoped-resolution",
+    "protected-equity-history",
+    "approval-required-tools"
+  ],
+  "nonResponsibilities": [
+    "foreign-schema-writes",
+    "cross-module-business-policy"
+  ],
+  "contracts": {
+    "provides": [
+      {
+        "id": "crypto.account",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/crypto.account/request/1.0",
+        "responseSchema": "athena://contracts/crypto.account/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.describe",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.describe/request/1.0",
+        "responseSchema": "athena://contracts/module.describe/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.self-test",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.self-test/request/1.0",
+        "responseSchema": "athena://contracts/module.self-test/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.lifecycle.query",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.lifecycle.query/request/1.0",
+        "responseSchema": "athena://contracts/module.lifecycle.query/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.drain",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.drain/request/1.0",
+        "responseSchema": "athena://contracts/module.drain/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.quiesce",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.quiesce/request/1.0",
+        "responseSchema": "athena://contracts/module.quiesce/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.resume",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.resume/request/1.0",
+        "responseSchema": "athena://contracts/module.resume/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      }
+    ],
+    "consumes": [
+      {
+        "id": "coordination.lifecycle.event",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.lifecycle.event/request/1.0",
+        "responseSchema": "athena://contracts/coordination.lifecycle.event/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "coordination.lifecycle.heartbeat",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.lifecycle.heartbeat/request/1.0",
+        "responseSchema": "athena://contracts/coordination.lifecycle.heartbeat/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "crypto.market",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/crypto.market/request/1.0",
+        "responseSchema": "athena://contracts/crypto.market/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "identity.assert",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.assert/request/1.0",
+        "responseSchema": "athena://contracts/identity.assert/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.client.attach",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.client.attach/request/1.0",
+        "responseSchema": "athena://contracts/identity.client.attach/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.request-signing.verify",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.request-signing.verify/request/1.0",
+        "responseSchema": "athena://contracts/identity.request-signing.verify/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.session.validate",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/identity.session.validate/request/1.0",
+        "responseSchema": "athena://contracts/identity.session.validate/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.session.touch",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.session.touch/request/1.0",
+        "responseSchema": "athena://contracts/identity.session.touch/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.audit.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.audit.append/request/1.0",
+        "responseSchema": "athena://contracts/identity.audit.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.unwrap",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.unwrap/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.unwrap/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "operations.ingest-batch",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/operations.ingest-batch/request/1.0",
+        "responseSchema": "athena://contracts/operations.ingest-batch/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 5000,
+        "idempotency": "supported",
+        "dataClassification": "internal"
+      }
+    ]
+  },
+  "ownership": {
+    "dataSchemas": ["crypto_account"],
+    "objectPrefixes": [],
+    "keyDomains": ["agent"],
+    "configuration": ["runtime:crypto-account"],
+    "runtimeState": ["module-instance:crypto-account-access"]
+  },
+  "coordination": {
+    "centers": ["task", "recovery", "data"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "aicpPolicy": {
+      "defaultMode": "observe",
+      "links": []
+    }
+  },
+  "lifecycle": {
+    "states": [
+      "registered",
+      "initializing",
+      "ready",
+      "degraded",
+      "draining",
+      "quiesced",
+      "stopped",
+      "failed"
+    ],
+    "hooks": [
+      "initialize",
+      "self-test",
+      "ready",
+      "checkpoint",
+      "drain",
+      "quiesce",
+      "resume",
+      "stop",
+      "reconcile"
+    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "heartbeatIntervalMs": 30000,
+    "leaseTtlMs": 90000
+  },
+  "reliability": {
+    "rtoMs": 60000,
+    "rpoMs": 0,
+    "forbiddenDegradations": [
+      "security-downgrade",
+      "cross-account-data",
+      "unsigned-control"
+    ]
+  }
 }
