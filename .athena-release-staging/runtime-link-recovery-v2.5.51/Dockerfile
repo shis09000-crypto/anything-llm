@@ -24,6 +24,16 @@ COPY --chown=1000:1000 server/utils/modelGateway/remoteProvider.js /app/server/u
 COPY --chown=1000:1000 server/utils/operations/remoteEventForwarder.js /app/server/utils/operations/remoteEventForwarder.js
 COPY --chown=1000:1000 server/utils/security/keyCustody/remoteClient.js /app/server/utils/security/keyCustody/remoteClient.js
 
+# Responses execution is a single versioned contract across Chat, Agent,
+# Responses Runtime, and Model Gateway. Copy the providers and consumers with
+# the manifest catalog so a base-image route cannot drift behind its contract.
+COPY --chown=1000:1000 server/chat-runtime.js /app/server/chat-runtime.js
+COPY --chown=1000:1000 server/agent-runtime.js /app/server/agent-runtime.js
+COPY --chown=1000:1000 server/model-gateway.js /app/server/model-gateway.js
+COPY --chown=1000:1000 server/responses-runtime.js /app/server/responses-runtime.js
+COPY --chown=1000:1000 server/utils/modelGateway/ /app/server/utils/modelGateway/
+COPY --chown=1000:1000 server/utils/responsesRuntime/ /app/server/utils/responsesRuntime/
+
 # Sync V2 owns durable event persistence. Producers call this capability and
 # no longer write the Sync schema through their observer/database roles.
 COPY --chown=1000:1000 server/realtime-gateway.js /app/server/realtime-gateway.js
@@ -38,10 +48,14 @@ RUN cd /app/server \
   && find module-manifests utils/modulePlatform/aicp -name '._*' -delete \
   && node -e 'for (const file of require("fs").readdirSync("module-manifests").filter((name) => !name.startsWith("._") && name.endsWith(".json"))) JSON.parse(require("fs").readFileSync(`module-manifests/${file}`, "utf8"))' \
   && node -c realtime-gateway.js \
+  && node -c chat-runtime.js \
+  && node -c agent-runtime.js \
+  && node -c model-gateway.js \
+  && node -c responses-runtime.js \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
 
-LABEL athena.release.id="runtime-link-recovery-v2.5.51" \
+LABEL athena.release.id="runtime-link-recovery-v2.5.52" \
       athena.release.scope="aicp-v1.1-responses-chat-agent-sync-event-capability" \
       athena.release.contract="athena-aicp-manifest-v1.1"
 
