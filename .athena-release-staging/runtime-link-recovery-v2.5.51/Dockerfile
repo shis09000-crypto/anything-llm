@@ -17,6 +17,7 @@ COPY --chown=1000:1000 server/utils/microModules/internalClient.js /app/server/u
 COPY --chown=1000:1000 server/utils/microModules/lifecycle.js /app/server/utils/microModules/lifecycle.js
 COPY --chown=1000:1000 server/utils/microModules/serviceHost.js /app/server/utils/microModules/serviceHost.js
 COPY --chown=1000:1000 server/utils/observability/semanticEvents.js /app/server/utils/observability/semanticEvents.js
+COPY --chown=1000:1000 server/utils/database/moduleSchemaOwnership.js /app/server/utils/database/moduleSchemaOwnership.js
 
 # Cross-module clients must negotiate against the same catalog as providers.
 COPY --chown=1000:1000 server/utils/authz/identityOperationsClient.js /app/server/utils/authz/identityOperationsClient.js
@@ -70,7 +71,7 @@ RUN cd /app/server \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
 
-LABEL athena.release.id="runtime-link-recovery-v2.5.54" \
+LABEL athena.release.id="runtime-link-recovery-v2.5.55" \
       athena.release.scope="aicp-v1.1-responses-chat-agent-sync-event-capability" \
       athena.release.contract="athena-aicp-manifest-v1.1"
 

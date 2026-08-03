@@ -2,6 +2,7 @@ const path = require("path");
 const {
   ownerForTable,
   ownershipRegistry,
+  modelTables,
   roleRegistry,
   runtimeSchemaForRole,
   crossSchemaCapabilityFor,
@@ -18,8 +19,9 @@ describe("module schema ownership", () => {
     "%s registry covers every Prisma table exactly once",
     (database) => {
       const registry = ownershipRegistry({ database, schemaFile });
-      expect(registry).toHaveLength(167);
-      expect(new Set(registry.map(({ table }) => table)).size).toBe(167);
+      const tableCount = modelTables(schemaFile).length;
+      expect(registry).toHaveLength(tableCount);
+      expect(new Set(registry.map(({ table }) => table)).size).toBe(tableCount);
       const roles = roleRegistry(database);
       for (const entry of registry) expect(roles[entry.schema]).toBeTruthy();
     }
@@ -33,6 +35,14 @@ describe("module schema ownership", () => {
       "crypto_account"
     );
     expect(ownerForTable("browser_sessions", "main")).toBe("browser_plane");
+    expect(ownerForTable("browser_egress_grants", "main")).toBe(
+      "browser_egress"
+    );
+    expect(ownerForTable("auth_device_recovery_challenges", "main")).toBe(
+      "identity"
+    );
+    expect(ownerForTable("coordination_runs", "main")).toBe("coordination");
+    expect(ownerForTable("responses", "main")).toBe("responses_runtime");
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
     expect(ownerForTable("security_key_registry", "main")).toBe("key_custody");
@@ -52,6 +62,15 @@ describe("module schema ownership", () => {
     expect(runtimeSchemaForRole("identity", "auth")).toBe("identity");
     expect(runtimeSchemaForRole("key-custody", "main")).toBe("key_custody");
     expect(runtimeSchemaForRole("key-custody", "auth")).toBe("key_custody");
+    expect(runtimeSchemaForRole("browser-egress", "main")).toBe(
+      "browser_egress"
+    );
+    expect(runtimeSchemaForRole("coordination-plane", "main")).toBe(
+      "coordination"
+    );
+    expect(runtimeSchemaForRole("responses-runtime", "main")).toBe(
+      "responses_runtime"
+    );
   });
 
   test("Identity receives only the declared append-only audit capability", () => {

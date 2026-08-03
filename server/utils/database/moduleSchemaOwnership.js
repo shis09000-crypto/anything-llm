@@ -14,11 +14,13 @@ const MAIN_SCHEMA_ROLES = Object.freeze({
   crypto_account: "athena_crypto_account",
   crypto_forecast: "athena_crypto_forecast",
   browser_plane: "athena_browser_plane",
+  browser_egress: "athena_browser_egress",
   knowledge_query: "athena_knowledge_query",
   knowledge_ingest: "athena_knowledge_ingest",
   knowledge_reader: "athena_knowledge_reader",
   maintenance: "athena_maintenance",
   scheduler: "athena_scheduler",
+  coordination: "athena_coordination",
   sync: "athena_sync",
 });
 
@@ -48,7 +50,7 @@ const MAIN_OWNERSHIP_RULES = Object.freeze([
   ["key_custody", /^security_key_/i],
   [
     "identity",
-    /^(users|memory_candidates|user_memory_|user_profile_overviews|user_state_preferences|vault_|user_domain_|athena_clients|athena_device_attestation_challenges|athena_request_nonces)/i,
+    /^(users|memory_candidates|user_memory_|user_profile_overviews|user_state_preferences|vault_|user_domain_|athena_clients|athena_device_attestation_challenges|athena_request_nonces|auth_device_recovery_challenges)/i,
   ],
   [
     "chat",
@@ -62,7 +64,12 @@ const MAIN_OWNERSHIP_RULES = Object.freeze([
     "browser_plane",
     /^(browser_profiles|browser_sessions|browser_workspaces|browser_tabs|browser_tasks|browser_artifacts|browser_bookmarks|browser_history)$/i,
   ],
+  ["browser_egress", /^browser_egress_/i],
   ["scheduler", /^scheduled_/i],
+  [
+    "coordination",
+    /^(module_instances|module_lifecycle_events|coordination_runs|coordination_steps|optimistic_mutation_receipts)$/i,
+  ],
   [
     "sync",
     /^(?:sync_|athena_sync_).+|^(?:athena_ios_push_tokens|athena_mutation_receipts)$/i,
@@ -107,9 +114,11 @@ const MAIN_RUNTIME_SCHEMAS = Object.freeze({
   "crypto-forecast": "crypto_forecast",
   "browser-plane": "browser_plane",
   "browser-worker": "browser_plane",
+  "browser-egress": "browser_egress",
   rag: "knowledge_query",
   "knowledge-ingest": "knowledge_ingest",
   scheduler: "scheduler",
+  "coordination-plane": "coordination",
   "operations-plane": "maintenance",
   "operations-shadow-agents": "maintenance",
 });
