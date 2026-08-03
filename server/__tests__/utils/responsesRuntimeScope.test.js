@@ -101,4 +101,52 @@ describe("managed Responses ownership and retention", () => {
     expect(repository.pruneExpiredConversation).not.toHaveBeenCalled();
     expect(result.pruned).toBe(0);
   });
+
+  test("provider incomplete is the single terminal stream event", async () => {
+    const repository = {
+      findResponseByIdempotencyKey: jest.fn().mockResolvedValue(null),
+      createResponse: jest.fn().mockResolvedValue(null),
+      updateResponse: jest.fn().mockResolvedValue(null),
+    };
+    const modelClient = {
+      stream: jest.fn().mockResolvedValue({}),
+      events: async function* () {
+        yield { type: "response.output_text.delta", delta: "partial" };
+        yield {
+          type: "response.incomplete",
+          response: {
+            status: "incomplete",
+            usage: { input_tokens: 4, output_tokens: 2 },
+          },
+        };
+      },
+    };
+    const runtime = new ResponsesRuntime({ repository, modelClient });
+    const events = [];
+    for await (const event of runtime.stream({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      input: [{ role: "user", content: "hello" }],
+      store: false,
+      athena: { chatRunId: "chat-run-incomplete" },
+    })) {
+      events.push(event);
+    }
+
+    expect(events.map((event) => event.type)).toEqual([
+      "response.created",
+      "response.in_progress",
+      "response.output_text.delta",
+      "response.incomplete",
+    ]);
+    expect(events.at(-1).response).toMatchObject({
+      status: "incomplete",
+      output_text: "partial",
+      usage: { input_tokens: 4, output_tokens: 2 },
+    });
+    expect(repository.updateResponse).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ status: "incomplete" })
+    );
+  });
 });

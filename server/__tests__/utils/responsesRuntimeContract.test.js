@@ -14,6 +14,9 @@ const {
   isRecoverableResponsesFailure,
   validateProviderRequest,
 } = require("../../utils/modelGateway/deepSeekResponses");
+const {
+  toChatStream,
+} = require("../../utils/responsesRuntime/chatAdapter");
 
 describe("managed Responses protocol contracts", () => {
   const baseRequest = {
@@ -209,5 +212,24 @@ describe("managed Responses protocol contracts", () => {
       role: "assistant",
       status: "completed",
     });
+  });
+
+  test("projects an incomplete Response to a bounded Chat length finish", async () => {
+    async function* events() {
+      yield {
+        type: "response.incomplete",
+        response: {
+          usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 },
+        },
+      };
+    }
+    const chunks = [];
+    for await (const chunk of toChatStream(events())) chunks.push(chunk);
+    expect(chunks).toEqual([
+      expect.objectContaining({
+        choices: [expect.objectContaining({ finish_reason: "length" })],
+        usage: expect.objectContaining({ total_tokens: 5 }),
+      }),
+    ]);
   });
 });

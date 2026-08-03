@@ -416,6 +416,7 @@ class ResponsesRuntime {
     let usage = {};
     let protocol = "responses";
     let degradedReason = null;
+    let providerStatus = "completed";
     try {
       const rawStream = await this.modelClient.stream(request);
       const active = this.active.get(response.id);
@@ -436,7 +437,13 @@ class ResponsesRuntime {
           providerEvent.item
         )
           collectedOutput.push(providerEvent.item);
-        if (providerEvent.type === "response.completed") {
+        if (
+          [
+            "response.completed",
+            "response.incomplete",
+            "response.failed",
+          ].includes(providerEvent.type)
+        ) {
           usage = providerEvent.response?.usage || providerEvent.usage || usage;
           protocol =
             providerEvent.response?.effectiveProtocol ||
@@ -446,6 +453,20 @@ class ResponsesRuntime {
             providerEvent.response?.degradedReason ||
             providerEvent.athena?.degradedReason ||
             degradedReason;
+          if (providerEvent.type === "response.failed") {
+            const error = runtimeError(
+              providerEvent.error?.code || "provider_response_failed",
+              502
+            );
+            error.providerEvent = providerEvent;
+            throw error;
+          }
+          providerStatus =
+            providerEvent.type === "response.incomplete"
+              ? "incomplete"
+              : providerEvent.response?.status || "completed";
+          if (providerEvent.response?.output_text && !outputText)
+            outputText = providerEvent.response.output_text;
           continue;
         }
         if (request.store)
@@ -459,7 +480,7 @@ class ResponsesRuntime {
         usage,
         effectiveProtocol: protocol,
         degradedReason,
-        status: "completed",
+        status: providerStatus,
       };
       const finalized = await this.finalize({
         response,
@@ -469,7 +490,10 @@ class ResponsesRuntime {
         sequence,
       });
       const event = {
-        type: "response.completed",
+        type:
+          finalized.status === "incomplete"
+            ? "response.incomplete"
+            : "response.completed",
         sequence_number: sequence,
         response: finalized,
       };
@@ -567,7 +591,9 @@ class ResponsesRuntime {
     emitRuntimeEvent(
       finalized.athena.degradedReason
         ? "response.protocol.degraded"
-        : "response.state.completed",
+        : finalized.status === "incomplete"
+          ? "response.state.incomplete"
+          : "response.state.completed",
       finalized,
       {
         requestedProtocol: "responses",

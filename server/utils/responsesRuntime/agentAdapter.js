@@ -168,7 +168,10 @@ function createResponsesAgentProvider({
           call.name = event.item.name || call.name;
           call.arguments = event.item.arguments || call.arguments;
         }
-        if (event.type === "response.completed") {
+        if (
+          event.type === "response.completed" ||
+          event.type === "response.incomplete"
+        ) {
           usage = event.response?.usage || null;
           responseUuid = event.response?.id || responseUuid;
         }

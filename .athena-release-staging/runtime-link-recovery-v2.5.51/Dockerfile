@@ -77,7 +77,7 @@ RUN cd /app/server \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
 
-LABEL athena.release.id="runtime-link-recovery-v2.5.56" \
+LABEL athena.release.id="runtime-link-recovery-v2.5.57" \
       athena.release.scope="aicp-v1.1-responses-chat-agent-sync-event-capability" \
       athena.release.contract="athena-aicp-manifest-v1.1"
 

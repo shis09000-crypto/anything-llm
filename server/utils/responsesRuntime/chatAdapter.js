@@ -164,10 +164,19 @@ function toChatStream(events) {
         };
         continue;
       }
-      if (event.type === "response.completed") {
+      if (
+        event.type === "response.completed" ||
+        event.type === "response.incomplete"
+      ) {
         metrics = chatUsage(event.response?.usage || {});
         yield {
-          choices: [{ delta: {}, finish_reason: "stop" }],
+          choices: [
+            {
+              delta: {},
+              finish_reason:
+                event.type === "response.incomplete" ? "length" : "stop",
+            },
+          ],
           usage: metrics,
         };
       }
