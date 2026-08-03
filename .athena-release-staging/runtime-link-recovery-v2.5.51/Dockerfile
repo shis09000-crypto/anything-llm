@@ -38,6 +38,14 @@ COPY --chown=1000:1000 server/responses-runtime.js /app/server/responses-runtime
 COPY --chown=1000:1000 server/utils/modelGateway/ /app/server/utils/modelGateway/
 COPY --chown=1000:1000 server/utils/responsesRuntime/ /app/server/utils/responsesRuntime/
 
+# Responses persistence and its generated Prisma client are one runtime
+# contract. Shipping only the migration/schema leaves prisma.responses
+# undefined even when the database tables already exist.
+COPY --chown=1000:1000 server/prisma/schema.prisma /app/server/prisma/schema.prisma
+COPY --chown=1000:1000 server/prisma/migrations/20260803090000_add_responses_runtime/ /app/server/prisma/migrations/20260803090000_add_responses_runtime/
+COPY --chown=1000:1000 server/prisma/postgresql/schema.prisma /app/server/prisma/postgresql/schema.prisma
+COPY --chown=1000:1000 server/prisma/postgresql/migrations/20260803090000_add_responses_runtime/ /app/server/prisma/postgresql/migrations/20260803090000_add_responses_runtime/
+
 # Sync V2 owns durable event persistence. Producers call this capability and
 # no longer write the Sync schema through their observer/database roles.
 COPY --chown=1000:1000 server/realtime-gateway.js /app/server/realtime-gateway.js
@@ -51,6 +59,8 @@ COPY --chown=1000:1000 server/endpoints/chat.js /app/server/endpoints/chat.js
 RUN cd /app/server \
   && find module-manifests utils/modulePlatform/aicp -name '._*' -delete \
   && bash -n /usr/local/bin/docker-entrypoint.sh \
+  && DATABASE_URL=postgresql://athena_build:athena_build@127.0.0.1:5432/athena_build npx prisma generate --schema=prisma/postgresql/schema.prisma \
+  && node -e 'const { PrismaClient } = require("./generated/postgresql-main"); const client = new PrismaClient(); if (!client.responses || !client.responses_conversations) throw new Error("responses_prisma_delegate_missing"); client.$disconnect()' \
   && node -e 'for (const file of require("fs").readdirSync("module-manifests").filter((name) => !name.startsWith("._") && name.endsWith(".json"))) JSON.parse(require("fs").readFileSync(`module-manifests/${file}`, "utf8"))' \
   && node -c realtime-gateway.js \
   && node -c chat-runtime.js \
@@ -60,7 +70,7 @@ RUN cd /app/server \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
 
-LABEL athena.release.id="runtime-link-recovery-v2.5.53" \
+LABEL athena.release.id="runtime-link-recovery-v2.5.54" \
       athena.release.scope="aicp-v1.1-responses-chat-agent-sync-event-capability" \
       athena.release.contract="athena-aicp-manifest-v1.1"
 
