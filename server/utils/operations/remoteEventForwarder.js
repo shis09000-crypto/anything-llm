@@ -43,6 +43,14 @@ function moduleIdForRole(role, env = process.env) {
   return moduleIdsForRole(role, env)[0] || role;
 }
 
+function isSelfReferentialForwardingEvent(event = {}) {
+  return (
+    event.eventType === "aicp.rpc.observed" &&
+    event.impact?.scope === "operations-plane" &&
+    String(event.subject?.operation || "").includes("/internal/v1/operations/")
+  );
+}
+
 class OperationsEventForwarder {
   constructor({
     env = process.env,
@@ -131,6 +139,7 @@ class OperationsEventForwarder {
   }
 
   enqueue(event) {
+    if (isSelfReferentialForwardingEvent(event)) return this.snapshot();
     if (!event?.eventId || this.queuedIds.has(event.eventId))
       return this.snapshot();
     if (this.queue.length >= MAX_QUEUE) {
@@ -162,8 +171,13 @@ class OperationsEventForwarder {
       return { sent: 0, skipped: true };
     const batch = this.queue.splice(0, MAX_BATCH);
     for (const event of batch) this.queuedIds.delete(event.eventId);
+    const callerRole = String(this.env.ATHENA_RUNTIME_ROLE || "api");
     this.flushing = this.request({
-      callerRole: String(this.env.ATHENA_RUNTIME_ROLE || "api"),
+      callerRole,
+      callerModule: moduleIdForRole(callerRole, this.env),
+      targetModule: "operations-plane",
+      capability: "operations.ingest-batch",
+      contractVersion: "1.0",
       url: `${operationsInternalUrl(this.env)}/internal/v1/operations/ingest-batch`,
       method: "POST",
       body: { events: batch },
@@ -246,6 +260,7 @@ const operationsEventForwarder = new OperationsEventForwarder();
 module.exports = {
   OperationsEventForwarder,
   forwardingEnabled,
+  isSelfReferentialForwardingEvent,
   operationsEventForwarder,
   operationsInternalUrl,
   moduleIdForRole,

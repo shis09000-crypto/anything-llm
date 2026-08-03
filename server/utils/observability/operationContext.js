@@ -6,6 +6,7 @@ const storage = new AsyncLocalStorage();
 const tracer = api.trace.getTracer("athena-operations");
 const IDENTIFIER_FIELDS = [
   "operationId",
+  "correlationId",
   "interactionId",
   "requestId",
   "sourceActionId",
@@ -15,6 +16,9 @@ const IDENTIFIER_FIELDS = [
   "clientId",
   "workspaceId",
   "threadId",
+  "taskId",
+  "coordinationRunId",
+  "stepId",
 ];
 
 function compactIdentifier(value, maxLength = 160) {
@@ -31,6 +35,23 @@ function normalizeOperationContext(value = {}) {
   if (value.journey) normalized.journey = compactIdentifier(value.journey, 64);
   if (value.platform)
     normalized.platform = compactIdentifier(value.platform, 32);
+  if (value.taskPriority)
+    normalized.taskPriority = compactIdentifier(value.taskPriority, 8);
+  if (value.coordinationCenter)
+    normalized.coordinationCenter = compactIdentifier(
+      value.coordinationCenter,
+      32
+    );
+  if (value.coordinationDeadlineAt)
+    normalized.coordinationDeadlineAt = compactIdentifier(
+      value.coordinationDeadlineAt,
+      64
+    );
+  if (value.coordinationCausationId)
+    normalized.coordinationCausationId = compactIdentifier(
+      value.coordinationCausationId,
+      192
+    );
   if (value.traceId) normalized.traceId = compactIdentifier(value.traceId, 32);
   if (value.spanId) normalized.spanId = compactIdentifier(value.spanId, 16);
   return normalized;
@@ -73,6 +94,13 @@ function operationAttributes(context = currentOperationContext() || {}) {
   }
   if (context.journey) attributes["athena.operation.journey"] = context.journey;
   if (context.platform) attributes["client.platform"] = context.platform;
+  if (context.taskPriority)
+    attributes["athena.task.priority"] = context.taskPriority;
+  if (context.coordinationCenter)
+    attributes["athena.coordination.center"] = context.coordinationCenter;
+  if (context.coordinationDeadlineAt)
+    attributes["athena.coordination.deadline_at"] =
+      context.coordinationDeadlineAt;
   return attributes;
 }
 

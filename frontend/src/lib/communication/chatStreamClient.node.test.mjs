@@ -20,8 +20,8 @@ test("chat stream only reconnects recoverable initial POST failures", async () =
       )
       .replace('import { v4 } from "uuid";', 'const v4 = () => "test-id";')
       .replace(
-        'import { postJson } from "./apiClient";',
-        "const postJson = async () => {};"
+        'import { getJson, postJson } from "./apiClient";',
+        "const getJson = async () => ({}); const postJson = async () => {};"
       )
       .replace(
         'import { getJsonSse, postJsonSse } from "./streamClient";',
@@ -49,6 +49,13 @@ test("chat stream only reconnects recoverable initial POST failures", async () =
     assert.equal(mod.shouldReconnectInitialChatPost({ status: 401 }), false);
     assert.equal(mod.shouldReconnectInitialChatPost({ status: 403 }), false);
     assert.equal(mod.shouldReconnectInitialChatPost({ status: 404 }), false);
+    assert.equal(mod.chatRunClaimProbeResult(), "claimed");
+    assert.equal(mod.chatRunClaimProbeResult({ status: 404 }), "missing");
+    assert.equal(
+      mod.chatRunClaimProbeResult({ code: "chat_stream_run_not_found" }),
+      "missing"
+    );
+    assert.equal(mod.chatRunClaimProbeResult({ status: 503 }), "unknown");
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }

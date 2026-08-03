@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/aicp-envelope-v1.json",
+  "title": "Athena Internal Capability Protocol Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "envelopeId",
+    "callType",
+    "capability",
+    "producer",
+    "target",
+    "correlationId",
+    "occurredAt",
+    "deadlineAt",
+    "priority",
+    "dataClassification",
+    "auth",
+    "flags",
+    "payload",
+    "result",
+    "error",
+    "telemetry",
+    "payloadHash",
+    "resultHash"
+  ],
+  "properties": {
+    "schema": { "const": "athena.aicp.envelope" },
+    "schemaVersion": { "const": "1.0" },
+    "envelopeId": { "$ref": "#/$defs/id" },
+    "callType": {
+      "enum": [
+        "Call",
+        "Task",
+        "Event",
+        "Stream",
+        "Query",
+        "Command",
+        "SelfTest",
+        "Describe",
+        "Debug"
+      ]
+    },
+    "capability": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.:-]{1,159}$"
+    },
+    "producer": { "$ref": "#/$defs/id" },
+    "target": { "$ref": "#/$defs/id" },
+    "correlationId": { "$ref": "#/$defs/id" },
+    "causationId": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "operationId": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "traceId": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "deadlineAt": { "type": "string", "format": "date-time" },
+    "idempotencyKey": {
+      "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+    },
+    "priority": { "enum": ["P0", "P1", "P2", "P3", "P4"] },
+    "dataClassification": {
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["principalAssertionId", "scopes", "approvalId"],
+      "properties": {
+        "principalAssertionId": { "$ref": "#/$defs/id" },
+        "scopes": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 120 }
+        },
+        "approvalId": {
+          "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }]
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dryRun", "requiresApproval", "expectStream"],
+      "properties": {
+        "dryRun": { "type": "boolean" },
+        "requiresApproval": { "type": "boolean" },
+        "expectStream": { "type": "boolean" }
+      }
+    },
+    "payload": {},
+    "result": {},
+    "error": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "retryable", "detailsHash"],
+          "properties": {
+            "code": { "type": "string", "maxLength": 160 },
+            "retryable": { "type": "boolean" },
+            "detailsHash": {
+              "anyOf": [
+                { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sampled", "metricSet"],
+      "properties": {
+        "sampled": { "type": "boolean" },
+        "metricSet": {
+          "type": "array",
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "maxLength": 120 }
+        }
+      }
+    },
+    "payloadHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "resultHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,191}$"
+    }
+  }
+}

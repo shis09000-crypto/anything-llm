@@ -1,0 +1,298 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/module-manifest-v1.1.json",
+  "title": "Athena Module Manifest v1.1 (v1.0 compatible)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "id",
+    "name",
+    "version",
+    "kind",
+    "criticality",
+    "owner",
+    "runtimeRole",
+    "sourcePaths",
+    "capabilities",
+    "dependsOn",
+    "routes",
+    "rpc",
+    "events",
+    "data",
+    "security",
+    "deployment"
+  ],
+  "properties": {
+    "schema": { "const": "athena.module.manifest" },
+    "schemaVersion": { "enum": ["1.0", "1.1"] },
+    "id": { "$ref": "#/$defs/moduleId" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
+    },
+    "kind": {
+      "enum": [
+        "service",
+        "worker",
+        "gateway",
+        "control-plane",
+        "security-service",
+        "diagnostic",
+        "compatibility-service"
+      ]
+    },
+    "criticality": { "enum": ["critical", "high", "medium", "low"] },
+    "owner": { "type": "string", "minLength": 1 },
+    "runtimeRole": { "type": "string", "minLength": 1 },
+    "sourcePaths": { "$ref": "#/$defs/nonEmptyStrings" },
+    "capabilities": { "$ref": "#/$defs/strings" },
+    "domain": { "type": "string", "minLength": 1 },
+    "responsibilities": { "$ref": "#/$defs/nonEmptyStrings" },
+    "nonResponsibilities": { "$ref": "#/$defs/strings" },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provides", "consumes"],
+      "properties": {
+        "provides": { "$ref": "#/$defs/contracts" },
+        "consumes": { "$ref": "#/$defs/contracts" }
+      }
+    },
+    "ownership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataSchemas",
+        "objectPrefixes",
+        "keyDomains",
+        "configuration",
+        "runtimeState"
+      ],
+      "properties": {
+        "dataSchemas": { "$ref": "#/$defs/strings" },
+        "objectPrefixes": { "$ref": "#/$defs/strings" },
+        "keyDomains": { "$ref": "#/$defs/strings" },
+        "configuration": { "$ref": "#/$defs/strings" },
+        "runtimeState": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "states",
+        "hooks",
+        "commands",
+        "heartbeatIntervalMs",
+        "leaseTtlMs"
+      ],
+      "properties": {
+        "states": { "$ref": "#/$defs/nonEmptyStrings" },
+        "hooks": { "$ref": "#/$defs/nonEmptyStrings" },
+        "commands": { "$ref": "#/$defs/nonEmptyStrings" },
+        "heartbeatIntervalMs": { "type": "integer", "minimum": 1000 },
+        "leaseTtlMs": { "type": "integer", "minimum": 2000 }
+      }
+    },
+    "coordination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["centers", "acceptedCommands"],
+      "properties": {
+        "centers": {
+          "type": "array",
+          "items": {
+            "enum": ["task", "data", "cache", "recovery", "optimistic"]
+          },
+          "uniqueItems": true
+        },
+        "acceptedCommands": { "$ref": "#/$defs/strings" },
+        "aicpPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["defaultMode", "links"],
+          "properties": {
+            "defaultMode": { "enum": ["observe", "enforce"] },
+            "links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["caller", "capability", "mode"],
+                "properties": {
+                  "caller": { "type": "string", "minLength": 1 },
+                  "capability": { "type": "string", "minLength": 1 },
+                  "mode": { "enum": ["observe", "enforce"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "reliability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rtoMs", "rpoMs", "forbiddenDegradations"],
+      "properties": {
+        "rtoMs": { "type": "integer", "minimum": 0 },
+        "rpoMs": { "type": "integer", "minimum": 0 },
+        "forbiddenDegradations": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "dependsOn": { "$ref": "#/$defs/strings" },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public", "internal"],
+      "properties": {
+        "public": { "$ref": "#/$defs/strings" },
+        "internal": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "rpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provides", "consumes"],
+      "properties": {
+        "provides": { "$ref": "#/$defs/strings" },
+        "consumes": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publishes", "subscribes"],
+      "properties": {
+        "publishes": { "$ref": "#/$defs/strings" },
+        "subscribes": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemas", "objectPrefixes"],
+      "properties": {
+        "schemas": { "$ref": "#/$defs/strings" },
+        "objectPrefixes": { "$ref": "#/$defs/strings" }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serviceIdentity",
+        "keyDomains",
+        "allowedCallers",
+        "failureMode",
+        "principalFreshnessMs"
+      ],
+      "properties": {
+        "serviceIdentity": {
+          "type": "string",
+          "pattern": "^spiffe://athena/\\{environment\\}/[a-z0-9-]+$"
+        },
+        "keyDomains": { "$ref": "#/$defs/strings" },
+        "allowedCallers": { "$ref": "#/$defs/strings" },
+        "failureMode": { "enum": ["fail-closed", "isolated-degraded"] },
+        "principalFreshnessMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 60000
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image",
+        "healthPath",
+        "readinessPath",
+        "drainPath",
+        "availabilityTarget",
+        "reconnectP95Ms"
+      ],
+      "properties": {
+        "image": { "type": "string", "minLength": 1 },
+        "healthPath": { "type": "string", "minLength": 1 },
+        "readinessPath": { "type": "string", "minLength": 1 },
+        "drainPath": { "type": "string", "minLength": 1 },
+        "availabilityTarget": {
+          "type": "number",
+          "minimum": 0.9,
+          "maximum": 1
+        },
+        "reconnectP95Ms": { "type": "integer", "minimum": 0, "maximum": 60000 }
+      }
+    }
+  },
+  "$defs": {
+    "moduleId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+    "strings": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nonEmptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "callType",
+          "requestSchema",
+          "responseSchema",
+          "errorCodes",
+          "timeoutMs",
+          "idempotency",
+          "dataClassification"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_.:-]{1,159}$"
+          },
+          "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+          "callType": {
+            "enum": ["Call", "Task", "Event", "Stream", "Query", "Command"]
+          },
+          "requestSchema": { "type": "string", "minLength": 1 },
+          "responseSchema": { "type": "string", "minLength": 1 },
+          "errorCodes": { "$ref": "#/$defs/strings" },
+          "timeoutMs": { "type": "integer", "minimum": 1000 },
+          "idempotency": { "enum": ["required", "supported", "none"] },
+          "dataClassification": {
+            "enum": ["public", "internal", "confidential", "restricted"]
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": "1.1" } } },
+      "then": {
+        "required": [
+          "domain",
+          "responsibilities",
+          "nonResponsibilities",
+          "contracts",
+          "ownership",
+          "lifecycle",
+          "coordination",
+          "reliability"
+        ]
+      }
+    }
+  ]
+}

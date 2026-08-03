@@ -6,12 +6,11 @@ require("dotenv").config({ path: envPath });
 
 const cors = require("cors");
 const express = require("express");
-const http = require("http");
-const https = require("https");
 
 const { applyEnvironmentStorage } = require("./utils/environment");
 applyEnvironmentStorage();
 process.env.ATHENA_RUNTIME_ROLE ||= "realtime-gateway";
+
 const {
   shutdownOpenTelemetry,
   startOpenTelemetry,
@@ -21,14 +20,13 @@ require("./utils/logger")();
 
 const { ensureWebCrypto } = require("./utils/security/webCrypto");
 ensureWebCrypto();
-
 const {
   assertProductionSecurityConfig,
 } = require("./utils/security/startupValidation");
 assertProductionSecurityConfig();
+
 const { bootstrapSecurityContext } = require("./utils/security/keyLifecycle");
 const { quarantineMiddleware } = require("./utils/security/keyRuntimeState");
-
 const {
   applyTransportSecurity,
   corsOptionsForEnvironment,
@@ -47,70 +45,117 @@ const { shutdownStandaloneRuntime } = require("./utils/runtimeCoordinator");
 const {
   observabilityContextMiddleware,
 } = require("./utils/observability/context");
-const { metricsEndpoint } = require("./utils/observability/metrics");
-const { distributedTopology } = require("./utils/microModules/serviceHost");
-const { loadServiceIdentity } = require("./utils/security/serviceIdentity");
+const { MicroModuleServiceHost } = require("./utils/microModules/serviceHost");
+const {
+  reconcileClientSecurityProjection,
+} = require("./utils/syncV2/clientSecurityProjection");
+const {
+  reconcileUserStateProjection,
+} = require("./utils/syncV2/userStateProjection");
 
-const app = express();
 const runtime = new RealtimeGatewayRuntime();
+const host = new MicroModuleServiceHost({
+  manifestId: "sync-v2",
+  role: "realtime-gateway",
+  port: Number(process.env.REALTIME_GATEWAY_PORT || 3013),
+  enableWebSockets: true,
+  parseJson: false,
+  jsonLimit: "3mb",
+  internalRouteCapabilities: {
+    "/internal/v1/sync/security/clients/reconcile":
+      "sync.security.clients.reconcile",
+    "/internal/v1/sync/user-state/reconcile": "sync.user-state.reconcile",
+    "/internal/v1/sync/events/append": "sync.events.append",
+  },
+  readiness: () => runtime.snapshot(),
+  onStart: async () => {
+    const security = await bootstrapSecurityContext({
+      runtimeRole: "realtime-gateway",
+    });
+    if (security.quarantined) throw new Error("key_custody_quarantined");
+    const { DataAccessCenter } = require("./utils/dataAccess");
+    await DataAccessCenter.runtimeLifecycle.databaseReadiness();
+    await runtime.start();
+  },
+  onDrain: async () => runtime.stop(),
+  onCheckpoint: async () => {
+    const snapshot = runtime.snapshot();
+    return {
+      status: snapshot.status,
+      outbox: snapshot.syncOutbox,
+    };
+  },
+  onResume: async () => {
+    await runtime.start();
+  },
+  onStop: async () => runtime.stop(),
+  registerRoutes: (app) => {
+    app.post(
+      "/internal/v1/sync/events/append",
+      express.json({ limit: "1mb" }),
+      async (request, response) => {
+        if (request.body?.probe === true)
+          return response.status(200).json({
+            success: true,
+            available: true,
+            capability: "sync.events.append",
+            version: "1.0",
+          });
+        const event = await require("./utils/dataAccess").DataAccessCenter.syncEvent.persist(
+          request.body?.event
+        );
+        return response.status(200).json({ success: true, event });
+      }
+    );
+    app.post(
+      "/internal/v1/sync/security/clients/reconcile",
+      express.json({ limit: "256kb" }),
+      async (request, response) => {
+        if (request.body?.probe === true)
+          return response.status(200).json({
+            success: true,
+            available: true,
+            capability: "sync.security.clients.reconcile",
+            version: "1.0",
+          });
+        const result = await reconcileClientSecurityProjection(request.body);
+        return response.status(200).json({ success: true, ...result });
+      }
+    );
+    app.post(
+      "/internal/v1/sync/user-state/reconcile",
+      express.json({ limit: "1mb" }),
+      async (request, response) => {
+        if (request.body?.probe === true)
+          return response.status(200).json({
+            success: true,
+            available: true,
+            capability: "sync.user-state.reconcile",
+            version: "1.0",
+          });
+        const result = await reconcileUserStateProjection(request.body);
+        return response.status(200).json({ success: true, ...result });
+      }
+    );
+    app.use((_request, response, next) => {
+      setBrowserSecurityHeaders(response);
+      next();
+    });
+    applyTransportSecurity(app);
+    app.use(observabilityContextMiddleware);
+    app.use(clientIdentityMiddleware);
+    app.use(cors(corsOptionsForEnvironment()));
+    app.use(requestBodyPolicy);
+
+    const apiRouter = express.Router();
+    app.use("/api", apiRouter);
+    apiRouter.use(quarantineMiddleware);
+    syncCenterEndpoints(apiRouter);
+    app.use(requestBodyLimitErrorHandler);
+  },
+});
+
 let stopping = false;
-const identity = loadServiceIdentity("realtime-gateway", {
-  required: distributedTopology(process.env),
-});
-const server = identity
-  ? https.createServer(
-      {
-        ca: identity.ca,
-        cert: identity.cert,
-        key: identity.key,
-        minVersion: "TLSv1.3",
-        requestCert: true,
-        rejectUnauthorized: false,
-      },
-      app
-    )
-  : http.createServer(app);
-require("@mintplex-labs/express-ws").default(app, server);
-
-app.use((_request, response, next) => {
-  setBrowserSecurityHeaders(response);
-  next();
-});
-applyTransportSecurity(app);
-app.use(observabilityContextMiddleware);
-app.use(clientIdentityMiddleware);
-app.use(cors(corsOptionsForEnvironment()));
-app.use(requestBodyPolicy);
-app.use(requestBodyLimitErrorHandler);
-app.get("/metrics", metricsEndpoint);
-
-const apiRouter = express.Router();
-app.use("/api", apiRouter);
-apiRouter.use((_request, response, next) => {
-  if (runtime.status === "running") return next();
-  return response.status(503).json({
-    success: false,
-    error: runtime.lastError || "realtime_gateway_not_ready",
-    status: runtime.status,
-  });
-});
-apiRouter.use(quarantineMiddleware);
-syncCenterEndpoints(apiRouter);
-
-app.get("/health", (_request, response) => {
-  const snapshot = runtime.snapshot();
-  const ready = snapshot.ready;
-  response.status(ready ? 200 : 503).json({
-    success: ready,
-    ...snapshot,
-  });
-});
-
-app.get("/snapshot", (_request, response) => {
-  response.status(200).json(runtime.snapshot());
-});
-
-const port = Number(process.env.REALTIME_GATEWAY_PORT || 3013);
 async function shutdown(signal) {
   if (stopping) return;
   stopping = true;
@@ -118,32 +163,19 @@ async function shutdown(signal) {
   const result = await shutdownStandaloneRuntime({
     name: "realtime-gateway",
     stop: async () => {
-      await runtime.stop();
+      await host.stop();
       await shutdownOpenTelemetry();
     },
-    closeServer: () =>
-      server
-        ? new Promise((resolve) => server.close(() => resolve()))
-        : Promise.resolve(),
   });
-  if (result.timedOut) server?.closeAllConnections?.();
   process.exit(result.timedOut ? 1 : 0);
 }
 
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));
 
-bootstrapSecurityContext({ runtimeRole: "realtime-gateway" })
-  .then(async (security) => {
-    if (!security.quarantined) {
-      const { DataAccessCenter } = require("./utils/dataAccess");
-      await DataAccessCenter.runtimeLifecycle.databaseReadiness();
-      await runtime.start();
-    } else runtime.fail(new Error("key_custody_quarantined"));
-    server.listen(port, () => {
-      console.log(`[RealtimeGateway] listening on ${port}`);
-    });
-  })
+host
+  .start()
+  .then((snapshot) => console.log("[RealtimeGateway] started", snapshot))
   .catch((error) => {
     runtime.fail(error);
     console.error("[RealtimeGateway] failed to start", error);

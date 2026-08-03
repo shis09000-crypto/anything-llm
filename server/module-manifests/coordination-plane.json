@@ -1,0 +1,594 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.1",
+  "id": "coordination-plane",
+  "name": "Unified Coordination Plane",
+  "version": "1.0.0",
+  "kind": "control-plane",
+  "owner": "platform",
+  "criticality": "high",
+  "runtimeRole": "coordination-plane",
+  "sourcePaths": [
+    "server/coordination-plane.js",
+    "server/utils/coordination/",
+    "server/repositories/coordinationRepository.js"
+  ],
+  "capabilities": [
+    "task-lineage",
+    "data-ownership-coordination",
+    "cache-invalidation-coordination",
+    "graduated-recovery",
+    "optimistic-mutation-receipts",
+    "module-lifecycle-coordination"
+  ],
+  "routes": {
+    "public": [],
+    "internal": [
+      "/internal/v1/coordination/",
+      "/internal/v1/lifecycle",
+      "/internal/v1/describe",
+      "/internal/v1/self-test",
+      "/internal/drain"
+    ]
+  },
+  "rpc": {
+    "provides": [
+      "coordination.plan",
+      "coordination.status",
+      "coordination.cancel",
+      "coordination.lifecycle.heartbeat",
+      "coordination.lifecycle.event",
+      "module.describe",
+      "module.self-test",
+      "module.lifecycle.query",
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
+    "consumes": [
+      "identity.assert",
+      "module.describe",
+      "module.drain",
+      "module.lifecycle.query",
+      "module.quiesce",
+      "module.resume",
+      "module.self-test",
+      "operations.guard",
+      "operations.ingest-batch",
+      "scheduler.create",
+      "scheduler.status"
+    ]
+  },
+  "events": {
+    "publishes": [
+      "coordination.run.*",
+      "coordination.escalation.*",
+      "background.requested",
+      "module.lifecycle.*"
+    ],
+    "subscribes": [
+      "module.lifecycle.*",
+      "chat.run.*",
+      "agent.run.*",
+      "tool.invocation.*"
+    ]
+  },
+  "data": {
+    "schemas": [
+      "coordination"
+    ],
+    "objectPrefixes": []
+  },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/coordination-plane",
+    "keyDomains": [
+      "audit"
+    ],
+    "allowedCallers": [
+      "agent-runtime",
+      "athena-api",
+      "authentication",
+      "background-worker",
+      "browser-plane",
+      "browser-worker",
+      "chat-runtime",
+      "collector",
+      "crypto-account-access",
+      "crypto-forecast",
+      "crypto-market",
+      "edge-web",
+      "key-custody",
+      "knowledge-ingest",
+      "model-gateway",
+      "operations-plane",
+      "operations-shadow-agents",
+      "rag",
+      "reader-worker",
+      "scheduler",
+      "sync-v2",
+      "tool-runtime"
+    ],
+    "failureMode": "isolated-degraded",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/coordination-plane",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": [
+    "authentication",
+    "operations-plane",
+    "scheduler",
+    "infra:postgresql",
+    "infra:nats",
+    "infra:otel"
+  ],
+  "domain": "platform-coordination",
+  "responsibilities": [
+    "cross-module-lineage",
+    "coordination-policy",
+    "module-lifecycle-lineage",
+    "strict-autonomy-escalation",
+    "metadata-only-coordination-evidence"
+  ],
+  "nonResponsibilities": [
+    "chat-execution",
+    "agent-execution",
+    "tool-execution",
+    "private-cache-storage",
+    "foreign-schema-writes",
+    "business-data-mutation"
+  ],
+  "contracts": {
+    "provides": [
+      {
+        "id": "coordination.plan",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.plan/request/1.0",
+        "responseSchema": "athena://contracts/coordination.plan/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "coordination.status",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/coordination.status/request/1.0",
+        "responseSchema": "athena://contracts/coordination.status/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "coordination.cancel",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.cancel/request/1.0",
+        "responseSchema": "athena://contracts/coordination.cancel/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "coordination.lifecycle.heartbeat",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.lifecycle.heartbeat/request/1.0",
+        "responseSchema": "athena://contracts/coordination.lifecycle.heartbeat/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "coordination.lifecycle.event",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.lifecycle.event/request/1.0",
+        "responseSchema": "athena://contracts/coordination.lifecycle.event/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.describe",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.describe/request/1.0",
+        "responseSchema": "athena://contracts/module.describe/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.self-test",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.self-test/request/1.0",
+        "responseSchema": "athena://contracts/module.self-test/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.lifecycle.query",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.lifecycle.query/request/1.0",
+        "responseSchema": "athena://contracts/module.lifecycle.query/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.drain",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.drain/request/1.0",
+        "responseSchema": "athena://contracts/module.drain/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.quiesce",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.quiesce/request/1.0",
+        "responseSchema": "athena://contracts/module.quiesce/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.resume",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.resume/request/1.0",
+        "responseSchema": "athena://contracts/module.resume/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      }
+    ],
+    "consumes": [
+      {
+        "id": "identity.assert",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.assert/request/1.0",
+        "responseSchema": "athena://contracts/identity.assert/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.describe",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.describe/request/1.0",
+        "responseSchema": "athena://contracts/module.describe/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.drain",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.drain/request/1.0",
+        "responseSchema": "athena://contracts/module.drain/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.lifecycle.query",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.lifecycle.query/request/1.0",
+        "responseSchema": "athena://contracts/module.lifecycle.query/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.quiesce",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.quiesce/request/1.0",
+        "responseSchema": "athena://contracts/module.quiesce/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.resume",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.resume/request/1.0",
+        "responseSchema": "athena://contracts/module.resume/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.self-test",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.self-test/request/1.0",
+        "responseSchema": "athena://contracts/module.self-test/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "operations.guard",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/operations.guard/request/1.0",
+        "responseSchema": "athena://contracts/operations.guard/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "operations.ingest-batch",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/operations.ingest-batch/request/1.0",
+        "responseSchema": "athena://contracts/operations.ingest-batch/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 5000,
+        "idempotency": "supported",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "scheduler.create",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/scheduler.create/request/1.0",
+        "responseSchema": "athena://contracts/scheduler.create/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "scheduler.status",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/scheduler.status/request/1.0",
+        "responseSchema": "athena://contracts/scheduler.status/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      }
+    ]
+  },
+  "ownership": {
+    "dataSchemas": [
+      "coordination"
+    ],
+    "objectPrefixes": [],
+    "keyDomains": [
+      "audit"
+    ],
+    "configuration": [
+      "runtime:coordination-plane",
+      "policy:graduated-autonomy"
+    ],
+    "runtimeState": [
+      "module-instance:coordination-plane",
+      "coordination-lineage"
+    ]
+  },
+  "coordination": {
+    "centers": [
+      "task",
+      "data",
+      "cache",
+      "recovery",
+      "optimistic"
+    ],
+    "acceptedCommands": [
+      "coordination.plan",
+      "coordination.status",
+      "coordination.cancel",
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
+    "aicpPolicy": {
+      "defaultMode": "observe",
+      "links": [
+        {
+          "caller": "*",
+          "capability": "coordination.lifecycle.heartbeat",
+          "mode": "enforce"
+        },
+        {
+          "caller": "*",
+          "capability": "coordination.lifecycle.event",
+          "mode": "enforce"
+        }
+      ]
+    }
+  },
+  "lifecycle": {
+    "states": [
+      "registered",
+      "initializing",
+      "ready",
+      "degraded",
+      "draining",
+      "quiesced",
+      "stopped",
+      "failed"
+    ],
+    "hooks": [
+      "initialize",
+      "self-test",
+      "ready",
+      "checkpoint",
+      "drain",
+      "quiesce",
+      "resume",
+      "stop",
+      "reconcile"
+    ],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
+    "heartbeatIntervalMs": 30000,
+    "leaseTtlMs": 90000
+  },
+  "reliability": {
+    "rtoMs": 60000,
+    "rpoMs": 0,
+    "forbiddenDegradations": [
+      "security-downgrade",
+      "cross-account-data",
+      "unsigned-control",
+      "autonomy-level-skip",
+      "business-authority-takeover"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/module-describe-v1.json",
+  "title": "Athena Deterministic Module Description v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "generatedAt",
+    "module",
+    "capabilities",
+    "boundaries",
+    "lifecycle",
+    "operations",
+    "runtime",
+    "links"
+  ],
+  "properties": {
+    "schema": { "const": "athena.aicp.module-describe" },
+    "schemaVersion": { "const": "1.0" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "module": { "type": "object" },
+    "capabilities": { "type": "object" },
+    "boundaries": { "type": "object" },
+    "lifecycle": { "type": "object" },
+    "operations": { "type": "object" },
+    "runtime": { "type": "object" },
+    "links": { "type": "object" }
+  }
+}

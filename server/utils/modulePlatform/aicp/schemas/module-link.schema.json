@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/module-link-v1.json",
+  "title": "Athena Module Link v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "id",
+    "type",
+    "from",
+    "to",
+    "capability",
+    "transport",
+    "direction",
+    "source",
+    "metadata",
+    "state"
+  ],
+  "properties": {
+    "schema": { "const": "athena.aicp.link" },
+    "schemaVersion": { "const": "1.0" },
+    "id": { "type": "string" },
+    "type": {
+      "enum": [
+        "dependency",
+        "rpc",
+        "event",
+        "route",
+        "data",
+        "object-store",
+        "key-domain",
+        "allowed-caller"
+      ]
+    },
+    "from": { "type": "string" },
+    "to": { "type": "string" },
+    "capability": { "type": "string" },
+    "transport": { "type": "string" },
+    "direction": { "const": "outbound" },
+    "source": { "enum": ["module-manifest", "runtime-observation"] },
+    "metadata": { "type": "object" },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "lastObservedAt",
+        "latencyMs",
+        "errorRate",
+        "evidence"
+      ],
+      "properties": {
+        "status": { "type": "string" },
+        "lastObservedAt": { "type": ["string", "null"], "format": "date-time" },
+        "latencyMs": { "type": ["number", "null"], "minimum": 0 },
+        "errorRate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "evidence": { "type": "array", "maxItems": 20 }
+      }
+    }
+  }
+}

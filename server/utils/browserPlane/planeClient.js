@@ -14,6 +14,36 @@ function endpoint(env = process.env) {
   ).replace(/\/+$/, "");
 }
 
+const OPERATION_CAPABILITIES = Object.freeze({
+  status: "browser.node",
+  registerNode: "browser.node",
+  listNodes: "browser.node",
+  listWorkspaces: "browser.workspace",
+  saveWorkspace: "browser.workspace",
+  listHistory: "browser.workspace",
+  listBookmarks: "browser.workspace",
+  addBookmark: "browser.workspace",
+  egressStatus: "browser.node",
+  profileRoute: "browser.node",
+  setProfileRoute: "browser.node",
+  enrollEgress: "browser.node",
+  renewEgress: "browser.node",
+  revokeEgress: "browser.node",
+  openSystemChrome: "browser.node",
+  confirmProfileRoute: "browser.node",
+});
+
+function capabilityForOperation(operation) {
+  return OPERATION_CAPABILITIES[operation] || "browser.session";
+}
+
+function callerIdentity(env = process.env) {
+  const runtimeRole = String(env.ATHENA_RUNTIME_ROLE || "tool-broker");
+  if (["api", "athena-api"].includes(runtimeRole))
+    return { transportRole: "api", moduleId: "athena-api" };
+  return { transportRole: runtimeRole, moduleId: runtimeRole };
+}
+
 async function dispatchBrowserPlane(operation, input = {}, options = {}) {
   if (!distributed()) {
     const { browserPlaneRuntime } = require("./runtime");
@@ -37,6 +67,17 @@ async function dispatchBrowserPlane(operation, input = {}, options = {}) {
         browserPlaneRuntime.listBookmarks(payload.userId),
       addBookmark: (payload) =>
         browserPlaneRuntime.addBookmark(payload.userId, payload.input || {}),
+      egressStatus: (payload) => browserPlaneRuntime.egressStatus(payload),
+      profileRoute: (payload) => browserPlaneRuntime.profileRoute(payload),
+      setProfileRoute: (payload) =>
+        browserPlaneRuntime.setProfileRoute(payload),
+      enrollEgress: (payload) => browserPlaneRuntime.enrollEgress(payload),
+      renewEgress: (payload) => browserPlaneRuntime.renewEgress(payload),
+      revokeEgress: (payload) => browserPlaneRuntime.revokeEgress(payload),
+      openSystemChrome: (payload) =>
+        browserPlaneRuntime.openSystemChrome(payload),
+      confirmProfileRoute: (payload) =>
+        browserPlaneRuntime.confirmProfileRoute(payload),
       registerNode: (payload) => browserPlaneRuntime.registerNode(payload),
       listNodes: (payload) => browserPlaneRuntime.nodesForUser(payload.userId),
       status: () => browserPlaneRuntime.snapshot(),
@@ -48,12 +89,14 @@ async function dispatchBrowserPlane(operation, input = {}, options = {}) {
       });
     return handler(input);
   }
+  const caller = callerIdentity(process.env);
   const response = await requestInternalService({
-    callerRole:
-      process.env.ATHENA_RUNTIME_ROLE === "api"
-        ? "athena-api"
-        : process.env.ATHENA_RUNTIME_ROLE || "tool-broker",
+    callerRole: caller.transportRole,
+    callerModule: caller.moduleId,
     url: `${endpoint()}/internal/v1/browser/dispatch`,
+    targetModule: "browser-plane",
+    capability: capabilityForOperation(operation),
+    contractVersion: "1.0",
     body: { operation, input },
     idempotencyKey: options.idempotencyKey || input.idempotencyKey || null,
     env: process.env,
@@ -63,6 +106,8 @@ async function dispatchBrowserPlane(operation, input = {}, options = {}) {
 }
 
 module.exports = {
+  callerIdentity,
+  capabilityForOperation,
   dispatchBrowserPlane,
   distributed,
   endpoint,

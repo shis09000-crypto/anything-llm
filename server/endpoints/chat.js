@@ -657,10 +657,6 @@ function chatEndpoints(app) {
           return;
         }
 
-        setSseTransportHeaders(response, {
-          "Access-Control-Allow-Origin": "*",
-        });
-        response.flushHeaders();
         const clientContext = getClientContext(request, { user });
         const resolvedClientTurnId =
           String(clientTurnId || "").trim() || uuidv4();
@@ -670,6 +666,10 @@ function chatEndpoints(app) {
           clientTurnId: resolvedClientTurnId,
         });
         const { run, created } = await chatStreamRunManager.claim(scope);
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
+        response.flushHeaders();
         if (!created) {
           await chatStreamRunManager.attach(
             response,
@@ -718,7 +718,21 @@ function chatEndpoints(app) {
             error: e.message,
           });
         }
-        if (!response.writableEnded && !response.destroyed) {
+        if (
+          !response.headersSent &&
+          !response.writableEnded &&
+          !response.destroyed
+        ) {
+          response.status(e.httpStatus || 500).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: e.message,
+            errorCode: e.code || "chat_stream_failed",
+          });
+        } else if (!response.writableEnded && !response.destroyed) {
           writeResponseChunk(response, {
             id: uuidv4(),
             type: "abort",
@@ -795,10 +809,6 @@ function chatEndpoints(app) {
           return;
         }
 
-        setSseTransportHeaders(response, {
-          "Access-Control-Allow-Origin": "*",
-        });
-        response.flushHeaders();
         const clientContext = getClientContext(request, { user });
         const resolvedClientTurnId =
           String(clientTurnId || "").trim() || uuidv4();
@@ -809,6 +819,10 @@ function chatEndpoints(app) {
           clientTurnId: resolvedClientTurnId,
         });
         const { run, created } = await chatStreamRunManager.claim(scope);
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
+        response.flushHeaders();
         if (!created) {
           await chatStreamRunManager.attach(
             response,
@@ -860,7 +874,21 @@ function chatEndpoints(app) {
             error: e.message,
           });
         }
-        if (!response.writableEnded && !response.destroyed) {
+        if (
+          !response.headersSent &&
+          !response.writableEnded &&
+          !response.destroyed
+        ) {
+          response.status(e.httpStatus || 500).json({
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: e.message,
+            errorCode: e.code || "chat_stream_failed",
+          });
+        } else if (!response.writableEnded && !response.destroyed) {
           writeResponseChunk(response, {
             id: uuidv4(),
             type: "abort",

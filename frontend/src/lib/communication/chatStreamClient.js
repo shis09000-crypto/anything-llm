@@ -1,6 +1,6 @@
 import { ABORT_STREAM_EVENT, dispatchThreadRename } from "@/utils/chat";
 import { v4 } from "uuid";
-import { postJson } from "./apiClient";
+import { getJson, postJson } from "./apiClient";
 import { getJsonSse, postJsonSse } from "./streamClient";
 import {
   normalizeChatStreamEvent,
@@ -70,6 +70,16 @@ export function shouldReconnectInitialChatPost(error) {
   if (!status) return true;
   if (status >= 500 || [408, 409, 425, 429].includes(status)) return true;
   return false;
+}
+
+export function chatRunClaimProbeResult(error = null) {
+  if (!error) return "claimed";
+  const status = Number(error?.status || error?.raw?.status || 0);
+  const code = String(
+    error?.code || error?.raw?.error || error?.details?.error || ""
+  ).toLowerCase();
+  if (status === 404 || code === "chat_stream_run_not_found") return "missing";
+  return "unknown";
 }
 
 async function streamChat({
@@ -176,6 +186,35 @@ async function streamChat({
       timeout = setTimeout(finish, delay);
     });
 
+  const confirmRunClaim = async () => {
+    let missingCount = 0;
+    for (const delay of [0, 250, 750]) {
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      if (stopped || ctrl.signal.aborted) return "unknown";
+      try {
+        await getJson(`${runPath}/state`, {
+          signal: ctrl.signal,
+          communicationScene: "workspace-chat",
+          task: {
+            kind: "chat-stream-state",
+            label: "chat:stream:claim-state",
+            priority: "P0",
+            policy: "interactive",
+            resource: "network",
+            protected: true,
+            abortable: false,
+          },
+        });
+        return "claimed";
+      } catch (error) {
+        const result = chatRunClaimProbeResult(error);
+        if (result !== "missing") return result;
+        missingCount += 1;
+      }
+    }
+    return missingCount === 3 ? "missing" : "unknown";
+  };
+
   const streamOptions = (streamPath, reconnecting = false) => ({
     path: streamPath,
     signal: ctrl.signal,
@@ -242,6 +281,21 @@ async function streamChat({
       // terminate instead of polling a nonexistent run forever.
       if (!shouldReconnectInitialChatPost(error)) {
         emitError(error);
+        return;
+      }
+      const claimState = await confirmRunClaim();
+      if (claimState === "missing") {
+        const claimError = Object.assign(
+          new Error(
+            "The chat request was not accepted by the runtime. Please retry."
+          ),
+          {
+            code: "chat_stream_run_not_created",
+            status: Number(error?.status || 503),
+            cause: error,
+          }
+        );
+        emitError(claimError);
         return;
       }
     }

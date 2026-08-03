@@ -13,8 +13,10 @@ const {
   verifyPrincipalAssertion,
 } = require("./principalAssertion");
 const toolInvocationContract = require("./toolInvocationContract");
+const aicp = require("./aicp");
 
 module.exports = {
+  aicp,
   createEventEnvelope,
   issuePrincipalAssertion,
   loadManifests,
