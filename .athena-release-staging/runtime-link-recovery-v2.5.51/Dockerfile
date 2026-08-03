@@ -3,6 +3,10 @@ FROM ${BASE_IMAGE}
 
 USER root
 
+# Runtime role dispatch is part of the module contract. Never inherit a stale
+# entrypoint that can route an unknown role back into the monolith process.
+COPY --chown=1000:1000 --chmod=0755 docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 # Every server runtime in this release receives the same manifest catalog and
 # AICP implementation so fingerprints cannot drift between module images.
 COPY --chown=1000:1000 server/module-manifests/ /app/server/module-manifests/
@@ -46,6 +50,7 @@ COPY --chown=1000:1000 server/endpoints/chat.js /app/server/endpoints/chat.js
 
 RUN cd /app/server \
   && find module-manifests utils/modulePlatform/aicp -name '._*' -delete \
+  && bash -n /usr/local/bin/docker-entrypoint.sh \
   && node -e 'for (const file of require("fs").readdirSync("module-manifests").filter((name) => !name.startsWith("._") && name.endsWith(".json"))) JSON.parse(require("fs").readFileSync(`module-manifests/${file}`, "utf8"))' \
   && node -c realtime-gateway.js \
   && node -c chat-runtime.js \
@@ -55,7 +60,7 @@ RUN cd /app/server \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
 
-LABEL athena.release.id="runtime-link-recovery-v2.5.52" \
+LABEL athena.release.id="runtime-link-recovery-v2.5.53" \
       athena.release.scope="aicp-v1.1-responses-chat-agent-sync-event-capability" \
       athena.release.contract="athena-aicp-manifest-v1.1"
 

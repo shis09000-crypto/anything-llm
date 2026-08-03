@@ -101,6 +101,14 @@ run_operations_plane() {
     exec node /app/server/operations-plane.js
 }
 
+run_coordination_plane() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/coordination-plane.js
+}
+
 run_chat_runtime() {
   cd /app/server/ &&
     verify_crypto_runtime &&
@@ -224,6 +232,14 @@ run_browser_worker() {
     exec node /app/server/browser-worker.js
 }
 
+run_browser_egress() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/browser-egress.js
+}
+
 child_pids=()
 
 stop_children() {
@@ -254,6 +270,9 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   operations-plane)
     run_operations_plane
+    ;;
+  coordination-plane)
+    run_coordination_plane
     ;;
   chat-runtime)
     run_chat_runtime
@@ -302,6 +321,9 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   browser-worker)
     run_browser_worker
+    ;;
+  browser-egress)
+    run_browser_egress
     ;;
   reader-worker)
     run_reader_worker
