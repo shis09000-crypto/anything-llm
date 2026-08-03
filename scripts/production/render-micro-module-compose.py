@@ -40,6 +40,8 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-operations-shadow-agents",
     "anything-llm-browser-plane",
     "anything-llm-browser-worker",
+    "anything-llm-browser-egress",
+    "anything-llm-coordination-plane",
     "anything-llm-collector",
 }
 
@@ -88,6 +90,8 @@ DEFAULT_SERVICE_PORTS = {
     "anything-llm-operations-shadow-agents": 3029,
     "anything-llm-browser-plane": 3030,
     "anything-llm-browser-worker": 3031,
+    "anything-llm-coordination-plane": 3032,
+    "anything-llm-browser-egress": 3033,
 }
 
 
@@ -181,6 +185,8 @@ def service_port(service_name: str, environment: dict) -> int | None:
         "OPERATIONS_SHADOW_AGENTS_PORT",
         "BROWSER_PLANE_PORT",
         "BROWSER_WORKER_PORT",
+        "COORDINATION_PLANE_PORT",
+        "BROWSER_EGRESS_PORT",
     )
     for port_name in port_names:
         if port_name in environment:
