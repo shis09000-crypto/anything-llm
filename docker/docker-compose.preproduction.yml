@@ -15,7 +15,7 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_CHAT_DATABASE_URL: postgresql://athena_chat:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_AGENT_DATABASE_URL: postgresql://athena_agent:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_MODEL_DATABASE_URL: postgresql://athena_model_runtime:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
-  ATHENA_RESPONSES_DATABASE_URL: postgresql://athena_responses_runtime:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
+  ATHENA_RESPONSES_DATABASE_URL: postgresql://athena_responses_runtime:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=responses_runtime
   ATHENA_TOOL_DATABASE_URL: postgresql://athena_tools:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_CRYPTO_MARKET_DATABASE_URL: postgresql://athena_crypto_market:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_CRYPTO_ACCOUNT_DATABASE_URL: postgresql://athena_crypto_account:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
