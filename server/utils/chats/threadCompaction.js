@@ -439,6 +439,18 @@ function resolveCompactionLLM(workspace) {
   };
 }
 
+function resolveCompactionMetadata(workspace) {
+  const resolved = resolveTaskProviderModel("thread_compaction", { workspace });
+  return {
+    // Status and context accounting only need the model name for tokenization.
+    // They must not instantiate a provider connector or require provider keys.
+    llm: { model: resolved.model || workspace?.chatModel || null },
+    provider: resolved.provider || workspace?.chatProvider || null,
+    model: resolved.model || workspace?.chatModel || null,
+    fallbackUsed: false,
+  };
+}
+
 function defaultTargetBase() {
   return "compaction_window";
 }
@@ -1663,7 +1675,7 @@ async function getThreadCompactionStatus({
 
 async function computeThreadCompactionStatus({ workspace, scope } = {}) {
   const config = getConfig();
-  const compactionInfo = resolveCompactionLLM(workspace);
+  const compactionInfo = resolveCompactionMetadata(workspace);
   const compactionLLM = compactionInfo.llm;
   const budgets = resolveTargetBudgets({
     workspace,

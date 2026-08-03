@@ -573,7 +573,7 @@ describe("Thread compaction memory", () => {
     expect(candidates).toContain("930亿元");
   });
 
-  it("uses the rough compaction model for status even when workspace chat model is pro", async () => {
+  it("uses rough-model metadata for status without initializing a provider", async () => {
     mockGetLLMProvider.mockImplementation(({ provider, model }) => {
       if (model === "deepseek-v4-pro") {
         throw new Error("pro model should not be initialized for compaction");
@@ -616,14 +616,7 @@ describe("Thread compaction memory", () => {
 
     expect(status.compactionProvider).toBe("deepseek");
     expect(status.compactionModel).toBe("deepseek-v4-flash");
-    expect(mockGetLLMProvider).toHaveBeenCalledWith({
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-    });
-    expect(mockGetLLMProvider).not.toHaveBeenCalledWith({
-      provider: "deepseek",
-      model: "deepseek-v4-pro",
-    });
+    expect(mockGetLLMProvider).not.toHaveBeenCalled();
   });
 
   it("uses the rough compaction model for manual compaction even when workspace chat model is pro", async () => {
