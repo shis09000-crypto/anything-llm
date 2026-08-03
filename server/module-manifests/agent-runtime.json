@@ -21,9 +21,7 @@
     "recovery"
   ],
   "routes": {
-    "public": [
-      "/api/agent-invocation/"
-    ],
+    "public": ["/api/agent-invocation/"],
     "internal": [
       "/internal/v1/agent/invocations",
       "/internal/v1/agent/runs",
@@ -45,38 +43,30 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "identity.audit.append",
+      "identity.client.attach",
+      "identity.realtime-ticket.consume",
+      "identity.request-signing.verify",
       "identity.session.validate",
       "model.stream",
       "responses.create",
       "responses.stream",
+      "sync.events.append",
       "operations.ingest-batch",
       "tool.invoke"
     ]
   },
   "events": {
-    "publishes": [
-      "agent.run.*",
-      "approval.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "tool.invocation.*",
-      "model.stream.*"
-    ]
+    "publishes": ["agent.run.*", "approval.*", "module.lifecycle.*"],
+    "subscribes": ["tool.invocation.*", "model.stream.*"]
   },
   "data": {
-    "schemas": [
-      "agent"
-    ],
-    "objectPrefixes": [
-      "agent/results"
-    ]
+    "schemas": ["agent"],
+    "objectPrefixes": ["agent/results"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/agent-runtime",
-    "keyDomains": [
-      "agent"
-    ],
+    "keyDomains": ["agent"],
     "allowedCallers": [
       "edge-web",
       "athena-api",
@@ -97,7 +87,6 @@
   },
   "dependsOn": [
     "authentication",
-    "chat-runtime",
     "model-gateway",
     "responses-runtime",
     "tool-runtime",
@@ -250,12 +239,96 @@
     ],
     "consumes": [
       {
+        "id": "identity.audit.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.audit.append/request/1.0",
+        "responseSchema": "athena://contracts/identity.audit.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.client.attach",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.client.attach/request/1.0",
+        "responseSchema": "athena://contracts/identity.client.attach/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.realtime-ticket.consume",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.realtime-ticket.consume/request/1.0",
+        "responseSchema": "athena://contracts/identity.realtime-ticket.consume/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.request-signing.verify",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.request-signing.verify/request/1.0",
+        "responseSchema": "athena://contracts/identity.request-signing.verify/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "sync.events.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/sync.events.append/request/1.0",
+        "responseSchema": "athena://contracts/sync.events.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 5000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "responses.create",
         "version": "1.0",
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.create/request/1.0",
         "responseSchema": "athena://contracts/responses.create/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -266,7 +339,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.stream/request/1.0",
         "responseSchema": "athena://contracts/responses.stream/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -386,34 +463,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "agent"
-    ],
-    "objectPrefixes": [
-      "agent/results"
-    ],
-    "keyDomains": [
-      "agent"
-    ],
-    "configuration": [
-      "runtime:agent-runtime"
-    ],
-    "runtimeState": [
-      "module-instance:agent-runtime"
-    ]
+    "dataSchemas": ["agent"],
+    "objectPrefixes": ["agent/results"],
+    "keyDomains": ["agent"],
+    "configuration": ["runtime:agent-runtime"],
+    "runtimeState": ["module-instance:agent-runtime"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data",
-      "optimistic"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data", "optimistic"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -441,11 +499,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

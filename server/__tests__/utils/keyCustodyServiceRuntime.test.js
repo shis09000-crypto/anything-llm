@@ -71,6 +71,31 @@ describe("Key Custody isolated service runtime", () => {
     ).toThrow("key_custody_purpose_denied");
   });
 
+  test("wraps browser egress credentials only for the egress owner", () => {
+    const context = {
+      purpose: "browser-egress-credential",
+      domain: "browser-egress",
+      resource: "4:profile_test:device_test",
+    };
+    const result = wrapMaterial(
+      { plaintext: "egress-credential", context },
+      {
+        caller: "spiffe://athena/production/browser-egress",
+        env: { NODE_ENV: "production" },
+      }
+    );
+    expect(result.wrapped).toMatch(/^enc:v2:/);
+    expect(() =>
+      wrapMaterial(
+        { plaintext: "egress-credential", context },
+        {
+          caller: "spiffe://athena/production/browser-plane",
+          env: { NODE_ENV: "production" },
+        }
+      )
+    ).toThrow("key_custody_purpose_denied");
+  });
+
   test.each(["api", "identity"])(
     "signs only canonical security-audit checkpoint payloads for %s",
     (callerRole) => {

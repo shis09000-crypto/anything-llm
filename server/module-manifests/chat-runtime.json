@@ -48,13 +48,19 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "identity.audit.append",
+      "identity.client.attach",
+      "identity.realtime-ticket.consume",
+      "identity.request-signing.verify",
       "identity.session.validate",
+      "identity.user-domain-wrap.queue",
       "key-custody.wrap",
       "key-custody.unwrap",
       "model.stream",
       "agent.submit",
       "responses.create",
       "responses.stream",
+      "sync.events.append",
       "operations.ingest-batch",
       "rag.retrieve"
     ]
@@ -292,6 +298,102 @@
     ],
     "consumes": [
       {
+        "id": "identity.audit.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.audit.append/request/1.0",
+        "responseSchema": "athena://contracts/identity.audit.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.client.attach",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.client.attach/request/1.0",
+        "responseSchema": "athena://contracts/identity.client.attach/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.realtime-ticket.consume",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.realtime-ticket.consume/request/1.0",
+        "responseSchema": "athena://contracts/identity.realtime-ticket.consume/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.request-signing.verify",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.request-signing.verify/request/1.0",
+        "responseSchema": "athena://contracts/identity.request-signing.verify/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.user-domain-wrap.queue",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.user-domain-wrap.queue/request/1.0",
+        "responseSchema": "athena://contracts/identity.user-domain-wrap.queue/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "sync.events.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/sync.events.append/request/1.0",
+        "responseSchema": "athena://contracts/sync.events.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 5000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "agent.submit",
         "version": "1.0",
         "callType": "Task",
@@ -313,7 +415,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.create/request/1.0",
         "responseSchema": "athena://contracts/responses.create/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -324,7 +430,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.stream/request/1.0",
         "responseSchema": "athena://contracts/responses.stream/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"

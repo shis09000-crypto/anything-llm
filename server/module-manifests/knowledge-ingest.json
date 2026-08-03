@@ -13,23 +13,18 @@
     "server/utils/DocumentEmbeddingBatch/",
     "server/services/documentVectorConsistencyService.js"
   ],
-  "capabilities": [
-    "parse",
-    "chunk",
-    "embed",
-    "index"
-  ],
+  "capabilities": ["parse", "chunk", "embed", "index"],
   "routes": {
-    "public": [
-      "/api/document/"
-    ],
+    "public": ["/api/document/"],
     "internal": [
-      "/internal/v1/knowledge/browser-ingest"
+      "/internal/v1/knowledge/browser-ingest",
+      "/internal/v1/knowledge/metrics/recompute"
     ]
   },
   "rpc": {
     "provides": [
       "knowledge.ingest",
+      "knowledge.metrics.recompute",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -41,6 +36,9 @@
       "collector.parse",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
+      "identity.assert",
+      "identity.audit.append",
+      "identity.request-signing.verify",
       "operations.ingest-batch",
       "reader.process"
     ]
@@ -51,24 +49,15 @@
       "reader.requested",
       "module.lifecycle.*"
     ],
-    "subscribes": [
-      "reader.job.*"
-    ]
+    "subscribes": ["reader.job.*"]
   },
   "data": {
-    "schemas": [
-      "knowledge_ingest"
-    ],
-    "objectPrefixes": [
-      "knowledge/documents",
-      "knowledge/previews"
-    ]
+    "schemas": ["knowledge_ingest"],
+    "objectPrefixes": ["knowledge/documents", "knowledge/previews"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/knowledge-ingest",
-    "keyDomains": [
-      "file"
-    ],
+    "keyDomains": ["file"],
     "allowedCallers": [
       "athena-api",
       "background-worker",
@@ -87,6 +76,7 @@
     "reconnectP95Ms": 3000
   },
   "dependsOn": [
+    "authentication",
     "collector",
     "reader-worker",
     "rag",
@@ -95,12 +85,7 @@
     "infra:nats"
   ],
   "domain": "knowledge",
-  "responsibilities": [
-    "parse",
-    "chunk",
-    "embed",
-    "index"
-  ],
+  "responsibilities": ["parse", "chunk", "embed", "index"],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
@@ -121,6 +106,22 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "knowledge.metrics.recompute",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/knowledge.metrics.recompute/request/1.0",
+        "responseSchema": "athena://contracts/knowledge.metrics.recompute/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 120000,
+        "idempotency": "required",
         "dataClassification": "internal"
       },
       {
@@ -270,6 +271,54 @@
         "dataClassification": "internal"
       },
       {
+        "id": "identity.assert",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.assert/request/1.0",
+        "responseSchema": "athena://contracts/identity.assert/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.audit.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.audit.append/request/1.0",
+        "responseSchema": "athena://contracts/identity.audit.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.request-signing.verify",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/identity.request-signing.verify/request/1.0",
+        "responseSchema": "athena://contracts/identity.request-signing.verify/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "operations.ingest-batch",
         "version": "1.0",
         "callType": "Call",
@@ -304,35 +353,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "knowledge_ingest"
-    ],
-    "objectPrefixes": [
-      "knowledge/documents",
-      "knowledge/previews"
-    ],
-    "keyDomains": [
-      "file"
-    ],
-    "configuration": [
-      "runtime:knowledge-ingest"
-    ],
-    "runtimeState": [
-      "module-instance:knowledge-ingest"
-    ]
+    "dataSchemas": ["knowledge_ingest"],
+    "objectPrefixes": ["knowledge/documents", "knowledge/previews"],
+    "keyDomains": ["file"],
+    "configuration": ["runtime:knowledge-ingest"],
+    "runtimeState": ["module-instance:knowledge-ingest"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data",
-      "cache"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data", "cache"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -360,11 +389,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

@@ -130,7 +130,7 @@ roles=(
   operations-plane chat-runtime agent-runtime model-gateway responses-runtime tool-broker
   crypto-market crypto-account crypto-forecast key-custody collector edge-web
   identity knowledge-ingest rag operations-shadow-agents prometheus minio
-  browser-plane browser-worker
+  browser-plane browser-worker browser-egress coordination-plane
 )
 
 dns_for_role() {
@@ -158,6 +158,8 @@ dns_for_role() {
     operations-shadow-agents) printf '%s' 'anything-llm-operations-shadow-agents,operations-shadow-agents' ;;
     browser-plane) printf '%s' 'anything-llm-browser-plane,browser-plane' ;;
     browser-worker) printf '%s' 'anything-llm-browser-worker,browser-worker' ;;
+    browser-egress) printf '%s' 'anything-llm-browser-egress,browser-egress' ;;
+    coordination-plane) printf '%s' 'anything-llm-coordination-plane,coordination-plane' ;;
     prometheus) printf '%s' 'anything-llm-prometheus,prometheus' ;;
     minio) printf '%s' 'minio' ;;
   esac

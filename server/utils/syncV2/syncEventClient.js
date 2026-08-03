@@ -21,7 +21,9 @@ function endpointBase(endpoint) {
 
 function realtimeGatewayUrl(env = process.env) {
   return endpointBase(
-    parseEndpointMap(env)["sync-v2"] || env.ATHENA_REALTIME_UPSTREAM
+    parseEndpointMap(env)["sync-v2"] ||
+      env.ATHENA_REALTIME_GATEWAY_URL ||
+      env.ATHENA_REALTIME_UPSTREAM
   );
 }
 

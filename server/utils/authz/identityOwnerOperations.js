@@ -63,6 +63,78 @@ async function attachClientFromSession({ token, client } = {}) {
   };
 }
 
+async function assertPrincipalFromSession({ token, client } = {}) {
+  const session = await introspectSessionToken(bounded(token, 16_384), {
+    requireClient: false,
+  });
+  if (!session.active) return session;
+
+  const metadata = safeClientInput(client);
+  if (
+    metadata &&
+    session.principal?.clientId &&
+    session.principal.clientId !== metadata.clientId
+  ) {
+    return {
+      success: true,
+      active: false,
+      reasonCode: "session_client_mismatch",
+    };
+  }
+
+  let registeredClient = null;
+  if (metadata && session.principal?.userId) {
+    registeredClient = await registerClient({
+      userId: session.principal.userId,
+      ...metadata,
+      projectSync: false,
+    });
+    if (registeredClient?.revokedAt) {
+      return {
+        success: true,
+        active: false,
+        reasonCode: "client_revoked",
+      };
+    }
+  } else if (session.principal?.clientId) {
+    const authoritative = await introspectSessionToken(bounded(token, 16_384), {
+      requireClient: true,
+    });
+    if (!authoritative.active) return authoritative;
+  }
+
+  let user = null;
+  if (session.principal?.subjectType === "user") {
+    const shadow = await DataAccessCenter.authIdentity.shadowUser._get({
+      id: Number(session.principal.userId),
+    });
+    if (!shadow) {
+      return {
+        success: true,
+        active: false,
+        reasonCode: "account_unavailable",
+      };
+    }
+    user = DataAccessCenter.authIdentity.shadowUser.filterFields(shadow);
+  }
+
+  return {
+    ...session,
+    user,
+    client: metadata
+      ? {
+          ...metadata,
+          registered: Boolean(registeredClient),
+          revoked: false,
+        }
+      : null,
+  };
+}
+
+async function sessionFromToken(token, { requireClient = true } = {}) {
+  return introspectSessionToken(bounded(token, 16_384), { requireClient });
+}
+
 async function consumeRealtimeTicketAsOwner(ticket) {
   return DataAccessCenter.adminSystem.realtimeTicket.consumeLocal(
     bounded(ticket, 512)
@@ -70,7 +142,9 @@ async function consumeRealtimeTicketAsOwner(ticket) {
 }
 
 module.exports = {
+  assertPrincipalFromSession,
   attachClientFromSession,
   consumeRealtimeTicketAsOwner,
   safeClientInput,
+  sessionFromToken,
 };

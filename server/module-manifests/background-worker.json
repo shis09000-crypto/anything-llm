@@ -13,18 +13,10 @@
     "server/utils/backgroundWorker/",
     "server/utils/BackgroundWorkers/"
   ],
-  "capabilities": [
-    "maintenance",
-    "cleanup",
-    "recovery",
-    "patrol"
-  ],
+  "capabilities": ["maintenance", "cleanup", "recovery", "patrol"],
   "routes": {
     "public": [],
-    "internal": [
-      "/health",
-      "/snapshot"
-    ]
+    "internal": ["/health", "/snapshot"]
   },
   "rpc": {
     "provides": [
@@ -40,37 +32,24 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "crypto.forecast",
+      "identity.audit.append",
       "knowledge.ingest",
+      "knowledge.metrics.recompute",
       "operations.ingest-batch"
     ]
   },
   "events": {
-    "publishes": [
-      "background.job.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "background.requested"
-    ]
+    "publishes": ["background.job.*", "module.lifecycle.*"],
+    "subscribes": ["background.requested"]
   },
   "data": {
-    "schemas": [
-      "maintenance"
-    ],
+    "schemas": ["maintenance"],
     "objectPrefixes": []
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/background-worker",
-    "keyDomains": [
-      "data",
-      "file",
-      "agent"
-    ],
-    "allowedCallers": [
-      "scheduler",
-      "operations-plane",
-      "coordination-plane"
-    ],
+    "keyDomains": ["data", "file", "agent"],
+    "allowedCallers": ["scheduler", "operations-plane", "coordination-plane"],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 30000
   },
@@ -90,12 +69,7 @@
     "infra:nats"
   ],
   "domain": "platform-control",
-  "responsibilities": [
-    "maintenance",
-    "cleanup",
-    "recovery",
-    "patrol"
-  ],
+  "responsibilities": ["maintenance", "cleanup", "recovery", "patrol"],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
@@ -217,6 +191,22 @@
     ],
     "consumes": [
       {
+        "id": "knowledge.metrics.recompute",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/knowledge.metrics.recompute/request/1.0",
+        "responseSchema": "athena://contracts/knowledge.metrics.recompute/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 120000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
         "id": "coordination.lifecycle.event",
         "version": "1.0",
         "callType": "Command",
@@ -265,6 +255,22 @@
         "dataClassification": "internal"
       },
       {
+        "id": "identity.audit.append",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.audit.append/request/1.0",
+        "responseSchema": "athena://contracts/identity.audit.append/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "knowledge.ingest",
         "version": "1.0",
         "callType": "Call",
@@ -299,33 +305,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "maintenance"
-    ],
+    "dataSchemas": ["maintenance"],
     "objectPrefixes": [],
-    "keyDomains": [
-      "data",
-      "file",
-      "agent"
-    ],
-    "configuration": [
-      "runtime:background-worker"
-    ],
-    "runtimeState": [
-      "module-instance:background-worker"
-    ]
+    "keyDomains": ["data", "file", "agent"],
+    "configuration": ["runtime:background-worker"],
+    "runtimeState": ["module-instance:background-worker"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -353,11 +341,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

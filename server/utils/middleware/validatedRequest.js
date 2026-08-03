@@ -6,6 +6,7 @@ const { DataAccessCenter } = require("../dataAccess");
 const {
   attachAuthenticatedClientContext,
   getClientRecord,
+  getClientContext,
 } = require("../clientIdentity");
 const {
   CLIENT_REVOKED_ERROR,
@@ -36,6 +37,16 @@ async function validateRequest(request, response, next) {
       user: response.locals.user,
     });
     return requireSignedHighRiskRequest(request, response, next);
+  }
+
+  const identityClient = require("../authz/identityOperationsClient");
+  if (identityClient.remoteIdentityOperationsEnabled()) {
+    return validateRemoteIdentityRequest(
+      request,
+      response,
+      next,
+      identityClient
+    );
   }
 
   const multiUserMode = await SystemSettings.isMultiUserMode();
@@ -143,6 +154,59 @@ async function validateRequest(request, response, next) {
   return requireSignedHighRiskRequest(request, response, next);
 }
 
+async function validateRemoteIdentityRequest(
+  request,
+  response,
+  next,
+  identityClient
+) {
+  const client = getClientContext(request);
+  const result = await identityClient.assertPrincipalViaIdentity({
+    request,
+    client,
+    authoritative: requiresAuthoritativeSession(request),
+  });
+  if (!result?.active) {
+    const reason = result?.reasonCode || "session_invalid";
+    if (reason === "client_revoked") {
+      return rejectAuthentication(
+        response,
+        403,
+        { success: false, error: CLIENT_REVOKED_ERROR },
+        reason
+      );
+    }
+    return sessionRejected(response, reason);
+  }
+
+  const principal = result.principal || {};
+  const multiUserMode = principal.subjectType === "user";
+  response.locals.multiUserMode = multiUserMode;
+  response.locals.authSession = {
+    sessionId: principal.sessionId || null,
+    clientId: principal.clientId || null,
+    authUserId: principal.authUserId || null,
+    authMode: principal.authMode || null,
+    tokenVersion: principal.tokenVersion || 1,
+  };
+  if (multiUserMode) {
+    if (!result.user?.id) {
+      const error = new Error("identity_principal_user_missing");
+      error.code = "identity_principal_user_missing";
+      throw error;
+    }
+    response.locals.user = result.user;
+  }
+  const clientContext = {
+    ...client,
+    userId: result.user?.id || principal.userId || null,
+    clientId: principal.clientId || client.clientId,
+  };
+  request.clientContext = clientContext;
+  response.locals.clientContext = clientContext;
+  return requireSignedHighRiskRequest(request, response, next);
+}
+
 function validatedRequest(request, response, next) {
   return validateRequest(request, response, next).catch((error) => {
     if (response.headersSent) return next(error);
@@ -179,7 +243,9 @@ function isAuthenticationStateUnavailable(error) {
     name.startsWith("PrismaClient") ||
     /^P\d{4}$/.test(code) ||
     code === "database_operation_failed" ||
-    code === "AUTH_DB_FOREIGN_KEY_VIOLATION"
+    code === "AUTH_DB_FOREIGN_KEY_VIOLATION" ||
+    code === "identity_capability_unavailable" ||
+    code === "identity_principal_user_missing"
   );
 }
 

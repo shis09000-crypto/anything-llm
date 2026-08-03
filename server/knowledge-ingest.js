@@ -31,6 +31,9 @@ const {
 const { createApiScope } = require("./utils/microModules/scopedApi");
 const { DataAccessCenter } = require("./utils/dataAccess");
 const { CollectorApi } = require("./utils/collectorApi");
+const {
+  recomputeKnowledgeMetrics,
+} = require("./utils/knowledgeGraph/metricsCapabilityClient");
 
 const Workspace = DataAccessCenter.workspace;
 const User = DataAccessCenter.user;
@@ -135,6 +138,26 @@ const host = new MicroModuleServiceHost({
             batchJobId: embedded.batchJob?.jobId || null,
           },
         });
+      }
+    );
+    app.post(
+      "/internal/v1/knowledge/metrics/recompute",
+      express.json({ limit: "16kb" }),
+      async (request, response) => {
+        const batchSize = Math.max(
+          1,
+          Math.min(Number(request.body?.batchSize) || 200, 1_000)
+        );
+        const lockTtlMs = Math.max(
+          60_000,
+          Math.min(Number(request.body?.lockTtlMs) || 900_000, 3_600_000)
+        );
+        const result = await recomputeKnowledgeMetrics({
+          trigger: String(request.body?.trigger || "worker").slice(0, 64),
+          batchSize,
+          lockTtlMs,
+        });
+        return response.status(200).json({ success: true, result });
       }
     );
   },

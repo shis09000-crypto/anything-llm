@@ -288,6 +288,20 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
   CMD curl --silent --fail --insecure "https://localhost:${OPERATIONS_PLANE_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
+FROM backend-build AS coordination-plane-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=coordination-plane
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV COORDINATION_PLANE_PORT=3032
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${COORDINATION_PLANE_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
 FROM backend-build AS chat-runtime-build
 WORKDIR /app
 ENV NODE_ENV=production
@@ -528,6 +542,20 @@ ENV BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES=1073741824
 ENV DEPLOYMENT_VERSION=2.1.1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s \
   CMD curl --silent --fail --insecure "https://localhost:${BROWSER_WORKER_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS browser-egress-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=browser-egress
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV BROWSER_EGRESS_PORT=3033
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${BROWSER_EGRESS_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
 FROM nginx:1.27-alpine AS web-production-build

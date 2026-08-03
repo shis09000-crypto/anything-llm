@@ -56,6 +56,11 @@ const RUNTIME_BINDINGS = Object.freeze({
   ],
   "browser-plane": ["anything-llm-browser-plane", "browser-plane-build"],
   "browser-worker": ["anything-llm-browser-worker", "browser-worker-build"],
+  "browser-egress": ["anything-llm-browser-egress", "browser-egress-build"],
+  "coordination-plane": [
+    "anything-llm-coordination-plane",
+    "coordination-plane-build",
+  ],
 });
 
 // RPC edges must not become Compose lifecycle edges. Otherwise pausing an
@@ -139,6 +144,9 @@ function main() {
     "scripts/production/build-backend-runtime-source.sh"
   );
   const moduleRollout = read("scripts/production/roll-micro-module.sh");
+  const hostProvisioner = read(
+    "scripts/production/provision-micro-module-host.sh"
+  );
   const databaseRoleInitializer = read("docker/postgresql/init-athena.sh");
   const databaseRoleProvisioner = read(
     "scripts/production/provision-module-database-roles.sh"
@@ -241,6 +249,12 @@ function main() {
       findings.push(`service_identity_mismatch:${manifest.id}`);
     if (!mtlsConfigured(manifest.id, env))
       findings.push(`service_mtls_missing:${manifest.id}`);
+    if (
+      !new RegExp(`\\s${manifest.runtimeRole}(?:\\s|$)`).test(hostProvisioner)
+    )
+      findings.push(`host_provision_role_missing:${manifest.id}`);
+    if (!hostProvisioner.includes(`${manifest.runtimeRole}) printf`))
+      findings.push(`host_provision_dns_missing:${manifest.id}`);
     if (!prometheusIds.has(manifest.id))
       findings.push(`prometheus_target_missing:${manifest.id}`);
     if (

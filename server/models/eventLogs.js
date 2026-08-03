@@ -18,6 +18,35 @@ const EventLogs = {
       metadata && typeof metadata === "object" && !Array.isArray(metadata)
         ? redactLogObject(metadata)
         : metadata;
+    const {
+      appendIdentityEventViaIdentity,
+      remoteIdentityOperationsEnabled,
+    } = require("../utils/authz/identityOperationsClient");
+    if (remoteIdentityOperationsEnabled()) {
+      try {
+        const remote = await appendIdentityEventViaIdentity({
+          event,
+          metadata: safeMetadata,
+          userId,
+          occurredAt: occurredAt.toISOString(),
+          idempotencyKey:
+            metadata?.eventId ||
+            metadata?.requestId ||
+            `${event}:${occurredAt.getTime()}`,
+        });
+        return {
+          eventLog: remote?.eventLog || null,
+          securityAudit: remote?.securityAudit || null,
+          message: null,
+        };
+      } catch (error) {
+        console.error(
+          `\x1b[31m[Event Logging Failed]\x1b[0m - ${event}`,
+          error.message
+        );
+        return { eventLog: null, securityAudit: null, message: error.message };
+      }
+    }
     try {
       eventLog = await prisma.event_logs.create({
         data: {
