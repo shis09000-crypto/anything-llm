@@ -143,6 +143,9 @@ function main() {
   const backendRuntimeSourceBuild = read(
     "scripts/production/build-backend-runtime-source.sh"
   );
+  const backendRuntimeSourceDockerfile = read(
+    "docker/Dockerfile.backend-runtime-source"
+  );
   const moduleRollout = read("scripts/production/roll-micro-module.sh");
   const hostProvisioner = read(
     "scripts/production/provision-micro-module-host.sh"
@@ -345,6 +348,13 @@ function main() {
       );
   if (!backendRuntimeSourceBuild.includes("full_rebuild_required"))
     findings.push("runtime_source_dependency_change_not_fail_closed");
+  if (
+    !backendRuntimeSourceDockerfile.includes(
+      "./docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh"
+    ) ||
+    !backendRuntimeSourceBuild.includes("runtime_source_entrypoint_mismatch")
+  )
+    findings.push("runtime_source_entrypoint_not_refreshed");
   for (const role of [
     "athena_main_observer",
     "athena_auth_observer",
