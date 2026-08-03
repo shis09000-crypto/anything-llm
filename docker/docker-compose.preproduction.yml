@@ -598,6 +598,7 @@ services:
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/chat-runtime.key
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/chat-runtime.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-chat-runtime
+      ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
       ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
       ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034

@@ -31,6 +31,9 @@ const {
   secureDatabaseStart,
 } = require("./utils/microModules");
 const { DataAccessCenter } = require("./utils/dataAccess");
+const {
+  submitAgentInvocation,
+} = require("./utils/agents/invocationCapability");
 
 const role = "agent-runtime";
 const port = Number(process.env.AGENT_RUNTIME_PORT || 3017);
@@ -49,6 +52,23 @@ const host = new MicroModuleServiceHost({
   onDrain: () => drainAgentRuntime({ timeoutMs: drainTimeoutMs }),
   registerRoutes: (app) => {
     registerCompatibleApi(app, agentWebsocket);
+    app.post("/internal/v1/agent/invocations", async (request, response) => {
+      try {
+        const result = await submitAgentInvocation(request.body);
+        response.status(result.replayed ? 200 : 201).json({
+          success: true,
+          ...result,
+        });
+      } catch (error) {
+        const contractInvalid = error?.code === "AGENT_SUBMIT_CONTRACT_INVALID";
+        response.status(contractInvalid ? 400 : 503).json({
+          success: false,
+          error: contractInvalid
+            ? "agent_submit_contract_invalid"
+            : "agent_invocation_store_unavailable",
+        });
+      }
+    });
     app.get(
       "/internal/v1/agent/runs/:invocationId",
       async (request, response) => {
@@ -73,6 +93,10 @@ const host = new MicroModuleServiceHost({
         });
       }
     );
+  },
+  internalRouteCapabilities: {
+    "POST /internal/v1/agent/invocations": "agent.submit",
+    "GET /internal/v1/agent/runs/:invocationId": "agent.status",
   },
 });
 

@@ -52,6 +52,7 @@
       "key-custody.wrap",
       "key-custody.unwrap",
       "model.stream",
+      "agent.submit",
       "responses.create",
       "responses.stream",
       "operations.ingest-batch",
@@ -89,6 +90,7 @@
   },
   "dependsOn": [
     "authentication",
+    "agent-runtime",
     "key-custody",
     "model-gateway",
     "responses-runtime",
@@ -289,6 +291,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "agent.submit",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/agent.submit/request/1.0",
+        "responseSchema": "athena://contracts/agent.submit/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
       {
         "id": "responses.create",
         "version": "1.0",

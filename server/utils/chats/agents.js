@@ -4,6 +4,10 @@ const pluralize = require("pluralize");
 const WorkspaceAgentInvocation = lazyDataAccessFacade(
   "workspaceAgentInvocation"
 );
+const {
+  createRemoteAgentInvocation,
+  remoteAgentInvocationEnabled,
+} = require("../agents/invocationClient");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { enrichOperationContext } = require("../observability/operationContext");
 
@@ -93,13 +97,24 @@ async function grepAgents({
 
   const agentHandles = WorkspaceAgentInvocation.parseAgents(message);
   if (agentHandles.length > 0 || nativeToolingEnabled) {
-    const { invocation: newInvocation } = await WorkspaceAgentInvocation.new({
+    const submission = {
       prompt: message,
-      workspace: workspace,
-      user: user,
-      thread: thread,
+      workspace,
+      user,
+      thread,
       clientTurnId,
-    });
+    };
+    let newInvocation = null;
+    try {
+      const result = remoteAgentInvocationEnabled()
+        ? await createRemoteAgentInvocation(submission)
+        : await WorkspaceAgentInvocation.new(submission);
+      newInvocation = result?.invocation || null;
+    } catch (error) {
+      console.error(
+        `[AgentInvocation] submission failed: ${error?.code || error?.message || "unknown"}`
+      );
+    }
 
     if (!newInvocation) {
       writeResponseChunk(response, {

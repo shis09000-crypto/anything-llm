@@ -9,6 +9,7 @@
   "criticality": "critical",
   "runtimeRole": "agent-runtime",
   "sourcePaths": [
+    "server/agent-runtime.js",
     "server/endpoints/agentWebsocket.js",
     "server/utils/agents/"
   ],
@@ -24,6 +25,7 @@
       "/api/agent-invocation/"
     ],
     "internal": [
+      "/internal/v1/agent/invocations",
       "/internal/v1/agent/runs",
       "/internal/v1/agent/runs/:id/drain"
     ]
@@ -78,6 +80,7 @@
     "allowedCallers": [
       "edge-web",
       "athena-api",
+      "chat-runtime",
       "scheduler",
       "coordination-plane"
     ],

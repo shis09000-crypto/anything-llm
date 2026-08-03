@@ -247,6 +247,7 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: chat-runtime
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
       CHAT_RUNTIME_PORT: 3016
       ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
