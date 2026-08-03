@@ -21,12 +21,14 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_CRYPTO_ACCOUNT_DATABASE_URL: postgresql://athena_crypto_account:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_CRYPTO_FORECAST_DATABASE_URL: postgresql://athena_crypto_forecast:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_BROWSER_DATABASE_URL: postgresql://athena_browser_plane:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
+  ATHENA_BROWSER_EGRESS_DATABASE_URL: postgresql://athena_browser_egress:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_RAG_DATABASE_URL: postgresql://athena_knowledge_query:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_INGEST_DATABASE_URL: postgresql://athena_knowledge_ingest:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_READER_DATABASE_URL: postgresql://athena_knowledge_reader:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_BACKGROUND_DATABASE_URL: postgresql://athena_maintenance:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_MAINTENANCE_DATABASE_URL: postgresql://athena_maintenance:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_SCHEDULER_DATABASE_URL: postgresql://athena_scheduler:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
+  ATHENA_COORDINATION_DATABASE_URL: postgresql://athena_coordination:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_SYNC_DATABASE_URL: postgresql://athena_sync:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_MAIN_OBSERVER_DATABASE_URL: postgresql://athena_main_observer:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_IDENTITY_MAIN_DATABASE_URL: postgresql://athena_identity:${ATHENA_PREPROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
@@ -75,6 +77,8 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_RAG_URL: https://anything-llm-rag:3028
   ATHENA_BROWSER_PLANE_URL: https://anything-llm-browser-plane:3030
   ATHENA_BROWSER_WORKER_URL: https://anything-llm-browser-worker:3031
+  ATHENA_BROWSER_EGRESS_URL: https://anything-llm-browser-egress:3033
+  ATHENA_COORDINATION_INTERNAL_URL: https://anything-llm-coordination-plane:3032
   ATHENA_BROWSER_AGENT_ENABLED: "false"
   ATHENA_OPERATIONS_HEARTBEAT_ENABLED: "true"
   ATHENA_OPERATIONS_HEARTBEAT_MS: "60000"
@@ -573,7 +577,31 @@ services:
       ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
       ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019"}
+        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","coordination-plane":"https://anything-llm-coordination-plane:3032","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019"}
+    networks: [anything-llm]
+
+  anything-llm-coordination-plane:
+    profiles: ["operations-plane"]
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - preprod-storage:/app/server/storage:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: coordination-plane
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/coordination-plane
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/coordination-plane.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/coordination-plane.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/coordination-plane.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-coordination-plane
+      COORDINATION_PLANE_PORT: "3032"
     networks: [anything-llm]
 
   anything-llm-chat-runtime:
@@ -978,6 +1006,32 @@ services:
       BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES: "268435456"
       BROWSER_WORKER_PROFILE_ROOT: /tmp/athena-browser-worker
       STORAGE_DIR: /tmp/athena-browser-worker
+    networks: [anything-llm]
+
+  anything-llm-browser-egress:
+    profiles: ["browser-runtimes"]
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    tmpfs:
+      - /tmp/athena-browser-egress:rw,nosuid,nodev,noexec,size=64m,mode=0700,uid=1000,gid=1000
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: browser-egress
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/browser-egress
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/browser-egress.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/browser-egress.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/browser-egress.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-browser-egress
+      BROWSER_EGRESS_PORT: "3033"
+      STORAGE_DIR: /tmp/athena-browser-egress
     networks: [anything-llm]
 
   anything-llm-collector:

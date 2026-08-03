@@ -216,6 +216,12 @@ const {
   validateUserStateInput,
   validateUserStateScope,
 } = require("../utils/userStatePreferencePolicy");
+const {
+  deleteUserStateViaIdentity,
+  readUserStateViaIdentity,
+  remoteIdentityOperationsEnabled,
+  upsertUserStateViaIdentity,
+} = require("../utils/authz/identityOperationsClient");
 const { VALID_COMMANDS } = require("../utils/chats");
 const { runtimeSummary } = require("../utils/desktopRuntime");
 const { submitFeedback } = require("../utils/feedback");
@@ -3334,10 +3340,15 @@ function systemEndpoints(app) {
             .json({ success: false, error: "state_namespace_unavailable" });
           return;
         }
-        const states = await DataAccessCenter.userState.where({
-          userId: sessionUser.id,
-          namespaces,
-        });
+        const result = remoteIdentityOperationsEnabled()
+          ? await readUserStateViaIdentity({ request, namespaces })
+          : {
+              states: await DataAccessCenter.userState.where({
+                userId: sessionUser.id,
+                namespaces,
+              }),
+            };
+        const states = result?.states || [];
         response.status(200).json({ success: true, states });
       } catch (e) {
         console.error(e);
@@ -3386,14 +3397,25 @@ function systemEndpoints(app) {
         }
 
         const context = getClientContext(request, { user: sessionUser });
-        const saved = await DataAccessCenter.userState.upsertMany({
-          userId: sessionUser.id,
-          states: validatedStates,
-          syncContext: {
-            originClientId: context?.clientId || null,
-            mutationId: request.header("Idempotency-Key") || null,
-          },
-        });
+        const syncContext = {
+          originClientId: context?.clientId || null,
+          mutationId: request.header("Idempotency-Key") || null,
+        };
+        const result = remoteIdentityOperationsEnabled()
+          ? await upsertUserStateViaIdentity({
+              request,
+              states: validatedStates,
+              syncContext,
+              idempotencyKey: syncContext.mutationId,
+            })
+          : {
+              states: await DataAccessCenter.userState.upsertMany({
+                userId: sessionUser.id,
+                states: validatedStates,
+                syncContext,
+              }),
+            };
+        const saved = result?.states || [];
         publishBroadcastEvent({
           namespace: "userState",
           type: "updated",
@@ -3463,19 +3485,33 @@ function systemEndpoints(app) {
           return;
         }
 
-        const deleted = await DataAccessCenter.userState.delete({
-          userId: sessionUser.id,
-          namespace,
-          scope,
-          syncContext: {
-            originClientId: getClientContext(request, { user: sessionUser })
-              ?.clientId,
-            mutationId: request.header("Idempotency-Key") || null,
-            baseVersion: request.header("If-Match")
-              ? Number(String(request.header("If-Match")).replace(/\D/g, ""))
-              : null,
-          },
-        });
+        const syncContext = {
+          originClientId: getClientContext(request, { user: sessionUser })
+            ?.clientId,
+          mutationId: request.header("Idempotency-Key") || null,
+          baseVersion: request.header("If-Match")
+            ? Number(String(request.header("If-Match")).replace(/\D/g, ""))
+            : null,
+        };
+        const remoteResult = remoteIdentityOperationsEnabled()
+          ? await deleteUserStateViaIdentity({
+              request,
+              namespace,
+              scope,
+              syncContext,
+              idempotencyKey: syncContext.mutationId,
+            })
+          : {
+              deletedCount: (
+                await DataAccessCenter.userState.delete({
+                  userId: sessionUser.id,
+                  namespace,
+                  scope,
+                  syncContext,
+                })
+              ).count,
+            };
+        const deletedCount = Number(remoteResult?.deletedCount || 0);
         const context = getClientContext(request, { user: sessionUser });
         publishBroadcastEvent({
           namespace: "userState",
@@ -3488,7 +3524,7 @@ function systemEndpoints(app) {
           payload: {
             namespace,
             scope: scope || "global",
-            deletedCount: deleted.count,
+            deletedCount,
           },
           audience: requiresAppleNativeAudience(namespace)
             ? ["ios", "ipad"]
@@ -3497,9 +3533,7 @@ function systemEndpoints(app) {
             scope || "global"
           }`,
         });
-        response
-          .status(200)
-          .json({ success: true, deletedCount: deleted.count });
+        response.status(200).json({ success: true, deletedCount });
       } catch (e) {
         console.error(e);
         if (e?.code === "state_version_conflict") {

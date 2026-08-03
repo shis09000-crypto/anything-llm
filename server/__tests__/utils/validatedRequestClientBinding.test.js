@@ -10,6 +10,9 @@ const mockEnsureShadowUser = jest.fn();
 const mockCanLoginInCurrentEnv = jest.fn();
 const mockAttachAuthenticatedClientContext = jest.fn();
 const mockGetClientRecord = jest.fn();
+const mockGetClientContext = jest.fn();
+const mockRemoteIdentityOperationsEnabled = jest.fn(() => false);
+const mockAssertPrincipalViaIdentity = jest.fn();
 const mockRequireSignedHighRiskRequest = jest.fn((_request, _response, next) =>
   next()
 );
@@ -39,6 +42,14 @@ jest.mock("../../utils/clientIdentity", () => ({
   attachAuthenticatedClientContext: (...args) =>
     mockAttachAuthenticatedClientContext(...args),
   getClientRecord: (...args) => mockGetClientRecord(...args),
+  getClientContext: (...args) => mockGetClientContext(...args),
+}));
+
+jest.mock("../../utils/authz/identityOperationsClient", () => ({
+  assertPrincipalViaIdentity: (...args) =>
+    mockAssertPrincipalViaIdentity(...args),
+  remoteIdentityOperationsEnabled: (...args) =>
+    mockRemoteIdentityOperationsEnabled(...args),
 }));
 
 jest.mock("../../utils/requestSigning", () => ({
@@ -48,9 +59,7 @@ jest.mock("../../utils/requestSigning", () => ({
 }));
 
 const { makeJWT } = require("../../utils/http");
-const {
-  validatedRequest,
-} = require("../../utils/middleware/validatedRequest");
+const { validatedRequest } = require("../../utils/middleware/validatedRequest");
 
 function responseDouble() {
   return {
@@ -114,6 +123,26 @@ describe("validatedRequest client-bound sessions", () => {
       clientId: "client_abc",
       userId: 10,
       revokedAt: null,
+    });
+    mockGetClientContext.mockReturnValue({
+      clientId: "client_abc",
+      platform: "web",
+      trustLevel: "low",
+      legacy: false,
+    });
+    mockRemoteIdentityOperationsEnabled.mockReturnValue(false);
+    mockAssertPrincipalViaIdentity.mockResolvedValue({
+      success: true,
+      active: true,
+      principal: {
+        subjectType: "user",
+        userId: 10,
+        authUserId: 100,
+        sessionId: "sess_abc",
+        clientId: "client_abc",
+        role: "admin",
+      },
+      user: { id: 10, authUserId: 100, username: "user", role: "admin" },
     });
   });
 
@@ -235,5 +264,29 @@ describe("validatedRequest client-bound sessions", () => {
       "authentication_state_unavailable"
     );
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it("uses the Identity principal capability in distributed runtimes", async () => {
+    mockRemoteIdentityOperationsEnabled.mockReturnValue(true);
+    const request = requestDouble(sessionToken({ sessionId: "sess_abc" }));
+    const response = responseDouble();
+    const next = jest.fn();
+
+    await validatedRequest(request, response, next);
+
+    expect(mockAssertPrincipalViaIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request,
+        client: expect.objectContaining({ clientId: "client_abc" }),
+      })
+    );
+    expect(response.locals.user).toMatchObject({ id: 10, role: "admin" });
+    expect(response.locals.authSession).toMatchObject({
+      sessionId: "sess_abc",
+      clientId: "client_abc",
+    });
+    expect(mockUserGet).not.toHaveBeenCalled();
+    expect(mockRequireSignedHighRiskRequest).toHaveBeenCalled();
+    expect(next).toHaveBeenCalled();
   });
 });

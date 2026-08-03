@@ -6,9 +6,7 @@ const {
 } = require("./transportRegistry");
 const { BroadcastTransport } = require("./broadcastTransport");
 const { enqueueSyncPush } = require("../nativePush/apnsProvider");
-const {
-  appendSyncEventViaCapability,
-} = require("../syncV2/syncEventClient");
+const { appendSyncEventViaCapability } = require("../syncV2/syncEventClient");
 
 const BROADCAST_EVENT = "athenaBroadcastEvent";
 const DEFAULT_COALESCE_MS = 150;

@@ -35,6 +35,7 @@
       "/internal/v1/session/validate",
       "/internal/v1/session/touch",
       "/internal/v1/audit/append",
+      "/internal/v1/user-domain-wraps/queue",
       "/internal/v1/user-state/read",
       "/internal/v1/user-state/upsert",
       "/internal/v1/user-state/delete"
@@ -50,6 +51,7 @@
       "identity.session.validate",
       "identity.session.touch",
       "identity.audit.append",
+      "identity.user-domain-wrap.queue",
       "identity.user-state.read",
       "identity.user-state.upsert",
       "identity.user-state.delete",
@@ -86,11 +88,17 @@
     "allowedCallers": [
       "edge-web",
       "athena-api",
+      "browser-plane",
       "crypto-account-access",
       "chat-runtime",
       "agent-runtime",
+      "background-worker",
+      "knowledge-ingest",
+      "model-gateway",
+      "rag",
       "scheduler",
       "sync-v2",
+      "tool-runtime",
       "coordination-plane"
     ],
     "failureMode": "fail-closed",
@@ -296,6 +304,22 @@
         "timeoutMs": 10000,
         "idempotency": "required",
         "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.user-domain-wrap.queue",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.user-domain-wrap.queue/request/1.0",
+        "responseSchema": "athena://contracts/identity.user-domain-wrap.queue/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
       },
       {
         "id": "module.describe",

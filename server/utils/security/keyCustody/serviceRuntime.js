@@ -10,9 +10,19 @@ const MAX_MATERIAL_BYTES = 64 * 1024;
 const CALLER_PURPOSES = Object.freeze({
   "crypto-account": new Set(["crypto-account-dek"]),
   "responses-runtime": new Set(["responses-state"]),
-  "athena-api": new Set(["crypto-account-dek", "security-audit-checkpoint"]),
-  identity: new Set(["security-audit-checkpoint"]),
+  "athena-api": new Set([
+    "chat-conversation-key",
+    "crypto-account-dek",
+    "security-audit-checkpoint",
+  ]),
+  identity: new Set([
+    "request-signing-secret",
+    "secret-store",
+    "security-audit-checkpoint",
+  ]),
+  "chat-runtime": new Set(["chat-conversation-key", "secret-store"]),
   "browser-worker": new Set(["browser-profile-dek"]),
+  "browser-egress": new Set(["browser-egress-credential"]),
 });
 
 function observe(operation, outcome) {

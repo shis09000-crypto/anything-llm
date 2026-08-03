@@ -14,6 +14,7 @@ case "$service" in
   anything-llm-reader-worker) image_variable=ATHENA_PROD_READER_WORKER_IMAGE ;;
   anything-llm-scheduler) image_variable=ATHENA_PROD_SCHEDULER_IMAGE ;;
   anything-llm-operations-plane) image_variable=ATHENA_PROD_OPERATIONS_PLANE_IMAGE ;;
+  anything-llm-coordination-plane) image_variable=ATHENA_PROD_COORDINATION_PLANE_IMAGE ;;
   anything-llm-chat-runtime) image_variable=ATHENA_PROD_CHAT_RUNTIME_IMAGE ;;
   anything-llm-agent-runtime) image_variable=ATHENA_PROD_AGENT_RUNTIME_IMAGE ;;
   anything-llm-model-gateway) image_variable=ATHENA_PROD_MODEL_GATEWAY_IMAGE ;;
@@ -29,6 +30,7 @@ case "$service" in
   anything-llm-operations-shadow-agents) image_variable=ATHENA_PROD_OPERATIONS_SHADOW_AGENTS_IMAGE ;;
   anything-llm-browser-plane) image_variable=ATHENA_PROD_BROWSER_PLANE_IMAGE ;;
   anything-llm-browser-worker) image_variable=ATHENA_PROD_BROWSER_WORKER_IMAGE ;;
+  anything-llm-browser-egress) image_variable=ATHENA_PROD_BROWSER_EGRESS_IMAGE ;;
   anything-llm-collector) image_variable=ATHENA_PROD_COLLECTOR_IMAGE ;;
   *)
     echo "unsupported_module:$service" >&2

@@ -1,7 +1,7 @@
 const { log, conclude } = require("./helpers/index.js");
 const {
-  recomputeStaleNodeMetrics,
-} = require("../utils/knowledgeGraph/nodeMetrics");
+  recomputeKnowledgeMetrics,
+} = require("../utils/knowledgeGraph/metricsCapabilityClient");
 
 (async () => {
   try {
@@ -9,7 +9,7 @@ const {
       log("Knowledge node metrics recompute disabled. Exiting.");
       return;
     }
-    const result = await recomputeStaleNodeMetrics({
+    const result = await recomputeKnowledgeMetrics({
       trigger: "worker",
       batchSize: Number(
         process.env.KNOWLEDGE_NODE_METRICS_RECOMPUTE_BATCH_SIZE || 200

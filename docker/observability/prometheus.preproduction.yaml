@@ -99,6 +99,18 @@ scrape_configs:
       - targets: [anything-llm-operations-plane:3015]
         labels: { module_id: operations-plane }
 
+  - job_name: athena-coordination-plane
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-coordination-plane
+    static_configs:
+      - targets: [anything-llm-coordination-plane:3032]
+        labels: { module_id: coordination-plane }
+
   - job_name: athena-chat-runtime
     scheme: https
     metrics_path: /metrics
@@ -290,3 +302,15 @@ scrape_configs:
     static_configs:
       - targets: [anything-llm-browser-worker:3031]
         labels: { module_id: browser-worker }
+
+  - job_name: athena-browser-egress
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-browser-egress
+    static_configs:
+      - targets: [anything-llm-browser-egress:3033]
+        labels: { module_id: browser-egress }

@@ -42,6 +42,7 @@
       "identity.session.validate",
       "identity.session.touch",
       "identity.audit.append",
+      "identity.user-domain-wrap.queue",
       "key-custody.unwrap",
       "operations.ingest-batch"
     ]
@@ -208,6 +209,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "identity.user-domain-wrap.queue",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.user-domain-wrap.queue/request/1.0",
+        "responseSchema": "athena://contracts/identity.user-domain-wrap.queue/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
       {
         "id": "coordination.lifecycle.event",
         "version": "1.0",

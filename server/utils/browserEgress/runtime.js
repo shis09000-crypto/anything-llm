@@ -6,6 +6,10 @@ const {
   unwrapMaterial,
   wrapMaterial,
 } = require("../security/keyCustody/remoteClient");
+const {
+  safeBrowserNodePublicKey,
+  sealBrowserEgressConfig,
+} = require("../security/browserEgressEnvelope");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 const { metrics } = require("../observability/metrics");
 
@@ -50,29 +54,7 @@ function validId(value, code) {
 }
 
 function safePublicKey(value) {
-  const pem = String(value || "");
-  if (
-    pem.length < 400 ||
-    pem.length > 8_192 ||
-    !pem.includes("BEGIN PUBLIC KEY")
-  )
-    throw Object.assign(new Error("browser_egress_node_key_invalid"), {
-      code: "browser_egress_node_key_invalid",
-      httpStatus: 400,
-    });
-  const key = crypto.createPublicKey(pem);
-  if (key.asymmetricKeyType !== "rsa")
-    throw Object.assign(new Error("browser_egress_node_key_invalid"), {
-      code: "browser_egress_node_key_invalid",
-      httpStatus: 400,
-    });
-  const bits = Number(key.asymmetricKeyDetails?.modulusLength || 0);
-  if (bits < 3072)
-    throw Object.assign(new Error("browser_egress_node_key_too_weak"), {
-      code: "browser_egress_node_key_too_weak",
-      httpStatus: 400,
-    });
-  return key;
+  return safeBrowserNodePublicKey(value);
 }
 
 function emit(eventType, outcome, reasonCode = null) {
@@ -262,8 +244,8 @@ class BrowserEgressRuntime {
         expiresAt,
       });
       await this.renderGatewayConfig();
-      const clientConfig = Buffer.from(
-        JSON.stringify({
+      const sealedConfig = sealBrowserEgressConfig(
+        {
           version: CONFIG_VERSION,
           grantId: grant.id,
           routePolicyVersion: ROUTE_POLICY_VERSION,
@@ -280,37 +262,15 @@ class BrowserEgressRuntime {
             realityPublicKey: settings.realityPublicKey,
             realityShortId: settings.realityShortId,
           },
-        }),
-        "utf8"
-      );
-      const envelopeKey = crypto.randomBytes(32);
-      const iv = crypto.randomBytes(12);
-      const cipher = crypto.createCipheriv("aes-256-gcm", envelopeKey, iv);
-      const ciphertext = Buffer.concat([
-        cipher.update(clientConfig),
-        cipher.final(),
-      ]);
-      const encryptedKey = crypto.publicEncrypt(
-        {
-          key: targetKey,
-          oaepHash: "sha256",
-          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
         },
-        envelopeKey
+        targetKey
       );
       this.stats.issued += 1;
       metrics.browserEgressGrants.inc({ action: "issue", outcome: "success" });
       emit("browser.egress.grant_issued", "success");
       return {
         grant: publicGrant(grant),
-        sealedConfig: {
-          version: "athena-browser-egress-sealed:v1",
-          algorithm: "RSA-OAEP-3072-SHA256+A256GCM",
-          encryptedKey: encryptedKey.toString("base64"),
-          iv: iv.toString("base64"),
-          tag: cipher.getAuthTag().toString("base64"),
-          ciphertext: ciphertext.toString("base64"),
-        },
+        sealedConfig,
       };
     } catch (error) {
       this.stats.failures += 1;

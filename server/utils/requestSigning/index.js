@@ -3,7 +3,12 @@ const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const RequestSigningData = lazyDataAccessFacade("requestSigning");
 const requestSigningDb = RequestSigningData.db;
 const { EncryptionManager } = require("../EncryptionManager");
-const { isSecretEncrypted, readSecret, saveSecret } = require("../security");
+const { isSecretEncrypted } = require("../security");
+const {
+  remoteKeyCustodyEnabled,
+  unwrapMaterial,
+  wrapMaterial,
+} = require("../security/keyCustody/remoteClient");
 const {
   CLIENT_HEADERS,
   clientAuditMetadata,
@@ -392,13 +397,53 @@ function newSigningSecretVersion() {
   return `sec_${crypto.randomUUID?.() || crypto.randomBytes(16).toString("hex")}`;
 }
 
-function encryptSigningSecret(secret) {
-  return saveSecret(secret);
+function encryptedSecretPurpose(value) {
+  const parts = String(value || "").split(":");
+  if (parts[0] !== "enc" || parts[1] !== "v2" || !parts[3]) return null;
+  try {
+    return Buffer.from(parts[3], "base64url").toString("utf8") || null;
+  } catch {
+    return null;
+  }
 }
 
-function decryptSigningSecret(encryptedSecret) {
+function signingSecretContext({
+  userId,
+  clientId,
+  operation,
+  purpose = "request-signing-secret",
+} = {}) {
+  return {
+    purpose,
+    domain: "authentication",
+    resource: `${Number(userId) || "unknown"}:${compactString(clientId, 256) || "unknown"}`,
+    operation,
+  };
+}
+
+async function encryptSigningSecret(secret, identifiers = {}) {
+  return wrapMaterial(
+    secret,
+    signingSecretContext({ ...identifiers, operation: "wrap" })
+  );
+}
+
+async function decryptSigningSecret(encryptedSecret, identifiers = {}) {
   if (!encryptedSecret) return null;
-  if (isSecretEncrypted(encryptedSecret)) return readSecret(encryptedSecret);
+  if (isSecretEncrypted(encryptedSecret)) {
+    const storedPurpose = encryptedSecretPurpose(encryptedSecret);
+    return unwrapMaterial(
+      encryptedSecret,
+      signingSecretContext({
+        ...identifiers,
+        operation:
+          storedPurpose === "request-signing-secret"
+            ? "unwrap"
+            : "migrate-unwrap",
+        purpose: storedPurpose || "request-signing-secret",
+      })
+    );
+  }
 
   try {
     const decrypted = legacySigningEncryption.decrypt(encryptedSecret);
@@ -1067,6 +1112,36 @@ function requestSigningHeaders(request) {
   };
 }
 
+function signingDescriptorForRequest(request) {
+  const context = getClientContext(request);
+  return {
+    method: compactString(request?.method, 16) || "GET",
+    canonicalPath: compactString(canonicalPathForRequest(request), 2048) || "/",
+    bodySha256:
+      compactString(request?.rawBodySha256, 256) ||
+      sha256Base64Url(request?.rawBody || ""),
+    signed: requestSigningHeaders(request),
+    client: {
+      clientId: compactString(context.clientId, 256),
+      platform: compactString(context.platform, 32),
+      appVersion: compactString(context.appVersion, 128),
+      requestId: compactString(context.requestId, 128),
+      trustLevel: compactString(context.trustLevel, 32),
+      capabilitySource: compactString(context.capabilitySource, 32),
+      capabilities:
+        context.capabilities && typeof context.capabilities === "object"
+          ? context.capabilities
+          : null,
+      capabilityProfile:
+        context.capabilityProfile &&
+        typeof context.capabilityProfile === "object"
+          ? context.capabilityProfile
+          : null,
+      legacy: context.legacy === true,
+    },
+  };
+}
+
 function parseTimestamp(value) {
   if (!value) return null;
   if (/^\d+$/.test(String(value))) return Number(value);
@@ -1141,17 +1216,34 @@ async function clientSigningSecret({ userId, clientId } = {}) {
 
   let secret = null;
   try {
-    secret = decryptSigningSecret(client.signingSecretEncrypted);
+    secret = await decryptSigningSecret(client.signingSecretEncrypted, {
+      userId,
+      clientId,
+    });
   } catch (error) {
     console.warn(
-      "[request-signing] Failed to decrypt client signing secret; reissuing",
+      "[request-signing] Failed to decrypt client signing secret",
       productionRuntime()
         ? { clientId: "[redacted]" }
         : { clientId, error: error.message }
     );
+    // A remote custody failure is not equivalent to an absent secret. Issuing
+    // a replacement here would invalidate the browser's still-valid signing
+    // secret and turn a transient Key Custody outage into device reauth loops.
+    if (
+      remoteKeyCustodyEnabled(process.env, {
+        purpose: "request-signing-secret",
+      })
+    ) {
+      throw error;
+    }
     return null;
   }
-  if (secret && !isSecretEncrypted(client.signingSecretEncrypted)) {
+  if (
+    secret &&
+    encryptedSecretPurpose(client.signingSecretEncrypted) !==
+      "request-signing-secret"
+  ) {
     try {
       await requestSigningDb.athena_clients.updateMany({
         where: {
@@ -1160,7 +1252,10 @@ async function clientSigningSecret({ userId, clientId } = {}) {
           revokedAt: null,
         },
         data: {
-          signingSecretEncrypted: encryptSigningSecret(secret),
+          signingSecretEncrypted: await encryptSigningSecret(secret, {
+            userId,
+            clientId,
+          }),
         },
       });
     } catch (error) {
@@ -1204,7 +1299,10 @@ async function ensureClientSigningSecret({ context } = {}) {
   }
 
   const secret = newSigningSecret();
-  const encrypted = encryptSigningSecret(secret);
+  const encrypted = await encryptSigningSecret(secret, {
+    userId: context.userId,
+    clientId: context.clientId,
+  });
   if (!encrypted) return null;
 
   const signingSecretVersion = newSigningSecretVersion();
@@ -1257,7 +1355,7 @@ async function rotateSigningSecret({
   if (client.revokedAt) return { client, revoked: true };
 
   const secret = newSigningSecret();
-  const encrypted = encryptSigningSecret(secret);
+  const encrypted = await encryptSigningSecret(secret, { userId, clientId });
   if (!encrypted) return null;
 
   const issuedAt = new Date();
@@ -1590,6 +1688,33 @@ async function verifySignedRequest(request) {
   });
 }
 
+async function verifyRequestSigningDescriptor({ descriptor, principal } = {}) {
+  const client = descriptor?.client || {};
+  const request = {
+    method: compactString(descriptor?.method, 16) || "GET",
+    originalUrl: compactString(descriptor?.canonicalPath, 2048) || "/",
+    clientContext: {
+      ...client,
+      userId: principal?.userId ? Number(principal.userId) : null,
+      clientId: compactString(client.clientId, 256) || "legacy",
+      platform: compactString(client.platform, 32) || "api",
+      legacy: client.legacy === true || !compactString(client.clientId, 256),
+    },
+  };
+  const result = await verifySignatureParts({
+    request,
+    method: request.method,
+    canonicalPath: request.originalUrl,
+    bodySha256Override: compactString(descriptor?.bodySha256, 256),
+    signed: descriptor?.signed || {},
+  });
+  await recordSigningAudit(request, result, {
+    transport: "http",
+    verificationOwner: "identity",
+  });
+  return result;
+}
+
 async function requireSignedHighRiskRequest(request, response, next) {
   const canonicalPath = canonicalPathForRequest(request);
   if (
@@ -1601,8 +1726,22 @@ async function requireSignedHighRiskRequest(request, response, next) {
     return next();
   }
 
-  const result = await verifySignedRequest(request);
-  await recordSigningAudit(request, result, { transport: "http" });
+  const identityClient = require("../authz/identityOperationsClient");
+  let result;
+  if (identityClient.remoteIdentityOperationsEnabled()) {
+    const remote = await identityClient.verifyRequestSigningViaIdentity({
+      request,
+      descriptor: signingDescriptorForRequest(request),
+      idempotencyKey:
+        request?.clientContext?.requestId ||
+        requestSigningHeaders(request).requestId ||
+        null,
+    });
+    result = remote?.result || remote;
+  } else {
+    result = await verifySignedRequest(request);
+    await recordSigningAudit(request, result, { transport: "http" });
+  }
   if (
     result.ok &&
     deviceSignatureRequired() &&
@@ -1779,6 +1918,8 @@ module.exports = {
   rotateSigningSecret,
   sha256Base64Url,
   signingWarnOnly,
+  signingDescriptorForRequest,
+  verifyRequestSigningDescriptor,
   verifySignedRequest,
   verifySignedWebSocketMessage,
   _hybridInternals: {

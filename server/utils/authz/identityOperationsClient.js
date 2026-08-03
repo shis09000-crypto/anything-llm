@@ -106,11 +106,13 @@ async function consumeRealtimeTicketViaIdentity(ticket, env = process.env) {
 }
 
 const IDENTITY_CAPABILITIES = Object.freeze({
+  "identity.assert": "/internal/v1/principal/assert",
   "identity.client.attach": "/internal/v1/client-identity/attach",
   "identity.request-signing.verify": "/internal/v1/request-signing/verify",
   "identity.session.validate": "/internal/v1/session/validate",
   "identity.session.touch": "/internal/v1/session/touch",
   "identity.audit.append": "/internal/v1/audit/append",
+  "identity.user-domain-wrap.queue": "/internal/v1/user-domain-wraps/queue",
   "identity.user-state.read": "/internal/v1/user-state/read",
   "identity.user-state.upsert": "/internal/v1/user-state/upsert",
   "identity.user-state.delete": "/internal/v1/user-state/delete",
@@ -164,6 +166,31 @@ async function callIdentityCapability({
 function sessionProof({ request = null, claims = null } = {}) {
   const token = request ? bearerToken(request) : null;
   return token ? { token } : { claims };
+}
+
+async function assertPrincipalViaIdentity({
+  request,
+  client = null,
+  authoritative = false,
+  env = process.env,
+} = {}) {
+  const token = bearerToken(request);
+  if (!token) {
+    return {
+      success: true,
+      active: false,
+      reasonCode: "session_missing",
+    };
+  }
+  return callIdentityCapability({
+    capability: "identity.assert",
+    body: {
+      token,
+      client: safeClientMetadata(client || {}),
+      authoritative: authoritative === true,
+    },
+    env,
+  });
 }
 
 async function validateSessionViaIdentity(options = {}) {
@@ -220,17 +247,70 @@ async function appendIdentityAuditViaIdentity({
   });
 }
 
+async function appendIdentityEventViaIdentity({
+  event,
+  metadata = null,
+  userId = null,
+  occurredAt = null,
+  idempotencyKey = null,
+  env = process.env,
+} = {}) {
+  return callIdentityCapability({
+    capability: "identity.audit.append",
+    body: { event, metadata, userId, occurredAt },
+    idempotencyKey,
+    env,
+  });
+}
+
+async function queueUserDomainWrapViaIdentity(
+  {
+    userId,
+    authUserId,
+    resourceType,
+    resourceId,
+    domain,
+    platformWrappedValue = null,
+    platformWrapVersion = null,
+    platformKeyId = null,
+    domainKeyVersion = null,
+    createdByClientId = null,
+    migrationJobId = null,
+  } = {},
+  env = process.env
+) {
+  return callIdentityCapability({
+    capability: "identity.user-domain-wrap.queue",
+    body: {
+      userId,
+      authUserId,
+      resourceType,
+      resourceId,
+      domain,
+      platformWrappedValue,
+      platformWrapVersion,
+      platformKeyId,
+      domainKeyVersion,
+      createdByClientId,
+      migrationJobId,
+    },
+    idempotencyKey: `identity-user-domain-wrap:${Number(userId)}:${bounded(resourceType, 80)}:${bounded(resourceId, 256)}:${bounded(domain, 80)}`,
+    env,
+  });
+}
+
 async function readUserStateViaIdentity({
   request,
   namespaces,
   scopes,
   env,
 } = {}) {
-  return callIdentityCapability({
+  const result = await callIdentityCapability({
     capability: "identity.user-state.read",
     body: { ...sessionProof({ request }), namespaces, scopes },
     env,
   });
+  return requireActiveIdentitySession(result);
 }
 
 async function upsertUserStateViaIdentity({
@@ -240,12 +320,13 @@ async function upsertUserStateViaIdentity({
   idempotencyKey,
   env,
 } = {}) {
-  return callIdentityCapability({
+  const result = await callIdentityCapability({
     capability: "identity.user-state.upsert",
     body: { ...sessionProof({ request }), states, syncContext },
     idempotencyKey,
     env,
   });
+  return requireActiveIdentitySession(result);
 }
 
 async function deleteUserStateViaIdentity({
@@ -256,12 +337,23 @@ async function deleteUserStateViaIdentity({
   idempotencyKey,
   env,
 } = {}) {
-  return callIdentityCapability({
+  const result = await callIdentityCapability({
     capability: "identity.user-state.delete",
     body: { ...sessionProof({ request }), namespace, scope, syncContext },
     idempotencyKey,
     env,
   });
+  return requireActiveIdentitySession(result);
+}
+
+function requireActiveIdentitySession(result) {
+  if (result?.active !== false) return result;
+  const reasonCode = bounded(result.reasonCode, 128) || "session_revoked";
+  const error = new Error(reasonCode);
+  error.code = reasonCode;
+  error.httpStatus = 401;
+  error.terminalAuthFailure = true;
+  throw error;
 }
 
 async function probeIdentityCapabilities(
@@ -293,6 +385,8 @@ module.exports = {
   CORE_IDENTITY_CAPABILITIES,
   IDENTITY_CAPABILITIES,
   appendIdentityAuditViaIdentity,
+  appendIdentityEventViaIdentity,
+  assertPrincipalViaIdentity,
   attachClientContextViaIdentity,
   bearerToken,
   callIdentityCapability,
@@ -304,6 +398,7 @@ module.exports = {
   remoteIdentityOperationsEnabled,
   safeClientMetadata,
   probeIdentityCapabilities,
+  queueUserDomainWrapViaIdentity,
   readUserStateViaIdentity,
   touchSessionViaIdentity,
   upsertUserStateViaIdentity,

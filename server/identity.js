@@ -44,9 +44,19 @@ const {
   introspectSessionToken,
 } = require("./utils/authz/sessionIntrospection");
 const {
+  assertPrincipalFromSession,
   attachClientFromSession,
   consumeRealtimeTicketAsOwner,
+  sessionFromToken,
 } = require("./utils/authz/identityOwnerOperations");
+const { verifyRequestSigningDescriptor } = require("./utils/requestSigning");
+const { DataAccessCenter } = require("./utils/dataAccess");
+const { USER_STATE_NAMESPACES } = require("./utils/userStatePreferencePolicy");
+const prisma = require("./utils/prisma");
+const {
+  queueUserDomainWrap,
+} = require("./utils/security/userDomainWrapService");
+const { EventLogs } = require("./models/eventLogs");
 
 const role = "identity";
 const state = {
@@ -122,6 +132,9 @@ const host = new MicroModuleServiceHost({
       authSessionRecoveryEndpoints(api);
     });
     app.post("/internal/v1/session/introspect", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
       const token = String(request.body?.token || "").trim();
       if (!token)
         return response.status(400).json({
@@ -131,6 +144,16 @@ const host = new MicroModuleServiceHost({
         });
       const result = await introspectSessionToken(token);
       return response.status(result.active ? 200 : 401).json(result);
+    });
+    app.post("/internal/v1/principal/assert", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const result = await assertPrincipalFromSession({
+        token: request.body?.token,
+        client: request.body?.client,
+      });
+      return response.status(200).json(result);
     });
     app.post(
       "/internal/v1/client-identity/attach",
@@ -149,6 +172,197 @@ const host = new MicroModuleServiceHost({
         return response.status(200).json({ success: true, entry });
       }
     );
+    app.post(
+      "/internal/v1/request-signing/verify",
+      async (request, response) => {
+        if (request.body?.probe === true) {
+          return response.status(200).json({ success: true, available: true });
+        }
+        const session = await sessionFromToken(request.body?.token, {
+          requireClient: true,
+        });
+        if (!session.active) {
+          return response.status(200).json({
+            success: true,
+            result: {
+              ok: false,
+              reasonCode: session.reasonCode || "session_invalid",
+            },
+          });
+        }
+        const result = await verifyRequestSigningDescriptor({
+          descriptor: request.body?.descriptor,
+          principal: session.principal,
+        });
+        return response.status(200).json({ success: true, result });
+      }
+    );
+    app.post("/internal/v1/session/validate", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const result = await sessionFromToken(request.body?.token, {
+        requireClient: true,
+      });
+      return response.status(200).json(result);
+    });
+    app.post("/internal/v1/session/touch", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const session = await sessionFromToken(request.body?.token, {
+        requireClient: true,
+      });
+      if (!session.active) return response.status(200).json(session);
+      await DataAccessCenter.adminSystem.authSession.touchUserAction(
+        session.principal.sessionId
+      );
+      return response.status(200).json({ ...session, touched: true });
+    });
+    app.post(
+      "/internal/v1/user-domain-wraps/queue",
+      async (request, response) => {
+        const input = request.body || {};
+        const userId = Number(input.userId);
+        const authUserId = Number(input.authUserId);
+        const user = await prisma.users.findFirst({
+          where: { id: userId, authUserId },
+          select: { id: true, authUserId: true },
+        });
+        if (!user) {
+          return response.status(403).json({
+            success: false,
+            error: "user_domain_owner_invalid",
+          });
+        }
+        const result = await queueUserDomainWrap({
+          ...input,
+          userId: user.id,
+          authUserId: user.authUserId,
+          client: prisma,
+        });
+        return response.status(200).json({ success: true, ...result });
+      }
+    );
+    app.post("/internal/v1/audit/append", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      let userId = request.body?.userId || null;
+      let event = String(request.body?.event || "")
+        .trim()
+        .slice(0, 160);
+      let metadata = request.body?.metadata || {};
+      if (!event && request.body?.descriptor) {
+        const session = await sessionFromToken(request.body?.token, {
+          requireClient: true,
+        });
+        if (!session.active) {
+          return response.status(401).json({
+            success: false,
+            error: session.reasonCode || "session_invalid",
+          });
+        }
+        event = "identity.request_signing.audit";
+        userId = session.principal.userId;
+        metadata = {
+          result: String(request.body?.result || "unknown").slice(0, 96),
+          operation: String(
+            request.body?.descriptor?.operation || "request-signing"
+          ).slice(0, 96),
+          ...(request.body?.metadata || {}),
+        };
+      }
+      if (!event) {
+        return response.status(400).json({
+          success: false,
+          error: "identity_audit_event_required",
+        });
+      }
+      const result = await EventLogs.logEvent(event, metadata, userId);
+      return response.status(200).json({ success: true, ...result });
+    });
+    app.post("/internal/v1/user-state/read", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const session = await sessionFromToken(request.body?.token, {
+        requireClient: true,
+      });
+      if (!session.active) return response.status(200).json(session);
+      const namespaces = Array.isArray(request.body?.namespaces)
+        ? request.body.namespaces
+            .map(String)
+            .filter((value) => USER_STATE_NAMESPACES.has(value))
+        : null;
+      const scopes = Array.isArray(request.body?.scopes)
+        ? request.body.scopes.map((value) => String(value).slice(0, 512))
+        : null;
+      const states = await DataAccessCenter.userState.where({
+        userId: session.principal.userId,
+        namespaces,
+        scopes,
+      });
+      return response.status(200).json({ success: true, states });
+    });
+    app.post("/internal/v1/user-state/upsert", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const session = await sessionFromToken(request.body?.token, {
+        requireClient: true,
+      });
+      if (!session.active) return response.status(200).json(session);
+      const states = Array.isArray(request.body?.states)
+        ? request.body.states
+            .filter((state) => USER_STATE_NAMESPACES.has(state?.namespace))
+            .slice(0, 64)
+        : [];
+      if (!states.length) {
+        return response.status(400).json({
+          success: false,
+          error: "user_state_input_required",
+        });
+      }
+      const saved = await DataAccessCenter.userState.upsertMany({
+        userId: session.principal.userId,
+        states,
+        syncContext: {
+          ...(request.body?.syncContext || {}),
+          originClientId: session.principal.clientId || null,
+        },
+      });
+      return response.status(200).json({ success: true, states: saved });
+    });
+    app.post("/internal/v1/user-state/delete", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const session = await sessionFromToken(request.body?.token, {
+        requireClient: true,
+      });
+      if (!session.active) return response.status(200).json(session);
+      const namespace = String(request.body?.namespace || "");
+      if (!USER_STATE_NAMESPACES.has(namespace)) {
+        return response.status(400).json({
+          success: false,
+          error: "invalid_namespace",
+        });
+      }
+      const deleted = await DataAccessCenter.userState.delete({
+        userId: session.principal.userId,
+        namespace,
+        scope: request.body?.scope || null,
+        syncContext: {
+          ...(request.body?.syncContext || {}),
+          originClientId: session.principal.clientId || null,
+        },
+      });
+      return response.status(200).json({
+        success: true,
+        deletedCount: Number(deleted?.count || 0),
+      });
+    });
   },
 });
 

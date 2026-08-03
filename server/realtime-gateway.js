@@ -101,9 +101,10 @@ const host = new MicroModuleServiceHost({
             capability: "sync.events.append",
             version: "1.0",
           });
-        const event = await require("./utils/dataAccess").DataAccessCenter.syncEvent.persist(
-          request.body?.event
-        );
+        const event =
+          await require("./utils/dataAccess").DataAccessCenter.syncEvent.persist(
+            request.body?.event
+          );
         return response.status(200).json({ success: true, event });
       }
     );

@@ -3,6 +3,12 @@
 const mockIntrospectSessionToken = jest.fn();
 const mockRegisterClient = jest.fn();
 const mockConsumeLocal = jest.fn();
+const mockShadowGet = jest.fn();
+const mockFilterFields = jest.fn((user) => ({
+  id: user.id,
+  username: user.username,
+  role: user.role,
+}));
 
 jest.mock("../../utils/authz/sessionIntrospection", () => ({
   introspectSessionToken: mockIntrospectSessionToken,
@@ -13,10 +19,17 @@ jest.mock("../../utils/clientIdentity", () => ({
 jest.mock("../../utils/dataAccess", () => ({
   DataAccessCenter: {
     adminSystem: { realtimeTicket: { consumeLocal: mockConsumeLocal } },
+    authIdentity: {
+      shadowUser: {
+        _get: mockShadowGet,
+        filterFields: mockFilterFields,
+      },
+    },
   },
 }));
 
 const {
+  assertPrincipalFromSession,
   attachClientFromSession,
   consumeRealtimeTicketAsOwner,
 } = require("../../utils/authz/identityOwnerOperations");
@@ -74,5 +87,35 @@ describe("Identity owner operations", () => {
       consumeRealtimeTicketAsOwner("rt-secret")
     ).resolves.toMatchObject({ purpose: "broadcast" });
     expect(mockConsumeLocal).toHaveBeenCalledWith("rt-secret");
+  });
+
+  test("returns a filtered principal projection from the Identity owner", async () => {
+    mockIntrospectSessionToken.mockResolvedValueOnce({
+      success: true,
+      active: true,
+      principal: {
+        subjectType: "user",
+        userId: 10,
+        clientId: "client-browser",
+      },
+    });
+    mockRegisterClient.mockResolvedValueOnce({ revokedAt: null });
+    mockShadowGet.mockResolvedValueOnce({
+      id: 10,
+      username: "owner",
+      role: "admin",
+      password: "must-not-leave-identity",
+    });
+
+    await expect(
+      assertPrincipalFromSession({
+        token: "signed-session-token",
+        client: { clientId: "client-browser", platform: "web" },
+      })
+    ).resolves.toMatchObject({
+      active: true,
+      user: { id: 10, username: "owner", role: "admin" },
+    });
+    expect(mockFilterFields).toHaveBeenCalled();
   });
 });
