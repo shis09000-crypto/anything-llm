@@ -47,7 +47,7 @@ import { requestWorkspaceCreate } from "@/utils/workspaceOptimisticController";
 async function getWorkspaceFromCacheOrNetwork(slug) {
   if (!slug) return null;
   const cached = workspaceNavigationCache.getWorkspaceDetail(slug, {
-    allowStale: false,
+    allowStale: true,
   });
   if (cached) return cached;
   return workspaceNavigationCache.runInFlight(
@@ -57,6 +57,7 @@ async function getWorkspaceFromCacheOrNetwork(slug) {
         signal,
         communicationScene: "workspace-navigation",
         task: false,
+        throwOnError: true,
       }),
     {
       priority: "P0",
@@ -73,7 +74,7 @@ async function getWorkspaceFromCacheOrNetwork(slug) {
 async function getThreadsFromCacheOrNetwork(slug) {
   if (!slug) return [];
   const cached = workspaceNavigationCache.getThreads(slug, {
-    allowStale: false,
+    allowStale: true,
   });
   if (Array.isArray(cached)) return cached;
   const result = await workspaceNavigationCache.runInFlight(
@@ -83,6 +84,7 @@ async function getThreadsFromCacheOrNetwork(slug) {
         signal,
         communicationScene: "workspace-navigation",
         task: false,
+        throwOnError: true,
       }),
     {
       priority: "P0",
@@ -102,7 +104,7 @@ async function getThreadsFromCacheOrNetwork(slug) {
 }
 
 async function getWorkspacesFromCacheOrNetwork() {
-  const cached = workspaceNavigationCache.getWorkspaces({ allowStale: false });
+  const cached = workspaceNavigationCache.getWorkspaces({ allowStale: true });
   if (Array.isArray(cached)) return cached;
   const workspaces = await workspaceNavigationCache.runInFlight(
     "workspaces",
@@ -111,6 +113,7 @@ async function getWorkspacesFromCacheOrNetwork() {
         signal,
         communicationScene: "workspace-navigation",
         task: false,
+        throwOnError: true,
       }),
     {
       priority: "P0",
@@ -182,6 +185,7 @@ export default function Home() {
   const [workspace, setWorkspace] = useState(null);
   const [threadSlug, setThreadSlug] = useState(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
   const [dragging, setDragging] = useState(false);
   const pendingFilesRef = useRef([]);
   const { hasWorkspaceActivity, getRunningThread, getThreadPath } =
@@ -199,26 +203,49 @@ export default function Home() {
   );
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer = null;
+    let retryAttempt = 0;
+
     async function init() {
-      const { workspace: ws, redirectPath } = await getTargetWorkspace();
-      if (ws) {
-        if (redirectPath) {
-          navigate(redirectPath, { replace: true });
-          return;
+      try {
+        const { workspace: ws, redirectPath } = await getTargetWorkspace();
+        if (cancelled) return;
+        setWorkspaceUnavailable(false);
+        retryAttempt = 0;
+        if (ws) {
+          if (redirectPath) {
+            navigate(redirectPath, { replace: true });
+            return;
+          }
+          const [suggestedMessages, { showAgentCommand }] = await Promise.all([
+            Workspace.getSuggestedMessages(ws.slug),
+            Workspace.agentCommandAvailable(ws.slug),
+          ]);
+          if (cancelled) return;
+          setWorkspace({
+            ...ws,
+            suggestedMessages,
+            showAgentCommand,
+          });
         }
-        const [suggestedMessages, { showAgentCommand }] = await Promise.all([
-          Workspace.getSuggestedMessages(ws.slug),
-          Workspace.agentCommandAvailable(ws.slug),
-        ]);
-        setWorkspace({
-          ...ws,
-          suggestedMessages,
-          showAgentCommand,
-        });
+        setWorkspaceLoading(false);
+      } catch (error) {
+        if (cancelled || error?.name === "AbortError") return;
+        setWorkspaceUnavailable(true);
+        setWorkspaceLoading(false);
+        retryAttempt += 1;
+        retryTimer = window.setTimeout(
+          init,
+          Math.min(2_000 * 2 ** Math.min(retryAttempt - 1, 3), 10_000)
+        );
       }
-      setWorkspaceLoading(false);
     }
     init();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
   }, [navigate]);
 
   // When workspace/thread becomes available and we have pending files, trigger upload
@@ -304,6 +331,7 @@ export default function Home() {
   }
 
   if (!workspace) {
+    if (workspaceUnavailable) return <WorkspaceDataUnavailable />;
     return <NoWorkspacesAssigned />;
   }
 
@@ -529,6 +557,22 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
         </div>
       </DnDFileUploaderWrapper>
       <ChatTooltips />
+    </div>
+  );
+}
+
+function WorkspaceDataUnavailable() {
+  const mobileLayoutActive = mobileRuntimeActive();
+  return (
+    <div
+      style={{ height: mobileLayoutActive ? "100%" : "calc(100% - 32px)" }}
+      className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
+    >
+      <div className="flex h-full w-full items-center justify-center px-6 text-center">
+        <div className="max-w-sm rounded-2xl border border-amber-400/30 bg-amber-400/10 px-5 py-4 text-sm leading-6 text-amber-100 light:text-amber-800">
+          工作区数据暂时不可用，系统正在自动重连；本地可信数据不会被清空。
+        </div>
+      </div>
     </div>
   );
 }

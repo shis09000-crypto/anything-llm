@@ -8,6 +8,9 @@ const {
 const SyncV2 = lazyDataAccessFacade("syncV2");
 const { nodeKeys } = require("../syncV2/nodeRegistry");
 const { clientDevicesProjection } = require("../syncV2/securityProjection");
+const {
+  reconcileClientSecurityProjectionViaCapability,
+} = require("../syncV2/clientSecurityProjectionClient");
 const AdminSystem = lazyDataAccessFacade("adminSystem");
 const AuthSession = AdminSystem.authSession;
 const {
@@ -76,20 +79,40 @@ async function recordClientNodeChange(
 }
 
 async function clientSecuritySyncReady({
-  userId,
-  maintainShadow = false,
+  userId: _userId,
+  maintainShadow: _maintainShadow = false,
 } = {}) {
   const domainEnabled = await SyncV2.enabled("security");
-  if (!domainEnabled && !maintainShadow) return false;
-  if (!(await SyncV2.schemaReady())) return false;
-  if (domainEnabled) return true;
+  if (!domainEnabled) return false;
+  return await SyncV2.schemaReady();
+}
 
-  const nodeKey = nodeKeys.userSecurityClients(userId);
-  const existingNode = await clientIdentityDb.sync_nodes.findUnique({
-    where: { nodeKey },
-    select: { nodeKey: true },
-  });
-  return Boolean(existingNode);
+async function reconcileClientNodeChange({
+  userId,
+  eventType,
+  changedPaths,
+  payloadHint,
+  originClientId = null,
+  maintainShadow = true,
+} = {}) {
+  try {
+    const content = await clientDevicesProjection(clientIdentityDb, userId);
+    return await reconcileClientSecurityProjectionViaCapability({
+      userId,
+      content,
+      maintainShadow,
+      eventType,
+      changedPaths,
+      payloadHint,
+      originClientId,
+    });
+  } catch (error) {
+    console.warn("[client-identity] Sync V2 client projection deferred", {
+      userId: Number(userId),
+      code: error?.code || "client_projection_failed",
+    });
+    return null;
+  }
 }
 
 function headerValue(request, name) {
@@ -600,6 +623,96 @@ async function getClientRecord({
   });
 }
 
+async function recoverClientDeviceIdentity({
+  userId,
+  clientId,
+  p256PublicKey,
+  p256KeyAlgorithm,
+  pqPublicKey,
+} = {}) {
+  if (
+    !userId ||
+    !clientId ||
+    clientId === "legacy" ||
+    !p256PublicKey ||
+    !p256KeyAlgorithm ||
+    !pqPublicKey
+  ) {
+    return null;
+  }
+
+  return serializeClientRegistration(userId, clientId, async () => {
+    const metadata = devicePublicKeyMetadata(p256KeyAlgorithm);
+    const now = new Date();
+    const update = async (tx) => {
+      const rebound = await tx.athena_clients.updateMany({
+        where: {
+          userId: Number(userId),
+          clientId: String(clientId),
+          revokedAt: null,
+        },
+        data: {
+          publicKey: compactString(p256PublicKey, 2048),
+          deviceFingerprintVersion: compactString(p256KeyAlgorithm, 96),
+          publicKeyAlgorithm: metadata.publicKeyAlgorithm || "ECDSA",
+          publicKeyParameterSet: metadata.publicKeyParameterSet || "P-256",
+          publicKeyOrigin: "device-recovery",
+          publicKeyHardwareProtection: "client-declared",
+          pqPublicKey: String(pqPublicKey),
+          pqKeyAlgorithm: "request-device-mldsa65-v1",
+          pqPublicKeyParameterSet: "ML-DSA-65",
+          pqPublicKeyOrigin: "device-recovery",
+          pqPublicKeyHardwareProtection: "client-declared",
+          pendingPublicKey: null,
+          pendingDeviceKeyAlgorithm: null,
+          pendingPublicKeyParameterSet: null,
+          pendingPublicKeyOrigin: null,
+          pendingPublicKeyHardwareProtection: null,
+          pendingDeviceKeyExpiresAt: null,
+          signingSecretEncrypted: null,
+          signingSecretVersion: `recovery-${crypto.randomUUID()}`,
+          signingSecretRotatedAt: now,
+          trustLevel: "medium",
+          attestationProvider: null,
+          attestationKeyIdHash: null,
+          attestationStatus: "unverified",
+          attestationEnvironment: null,
+          attestationCounter: 0,
+          attestedAt: null,
+          attestationExpiresAt: null,
+          lastSeenAt: now,
+        },
+      });
+      if (rebound.count !== 1) return null;
+      return tx.athena_clients.findFirst({
+        where: {
+          userId: Number(userId),
+          clientId: String(clientId),
+          revokedAt: null,
+        },
+      });
+    };
+    const saved = await clientIdentityDb.$transaction(update);
+    if (!saved) return null;
+    void reconcileClientNodeChange({
+      userId,
+      eventType: "client.device_identity_recovered",
+      changedPaths: [
+        `clients.${String(clientId)}.hasDevicePublicKey`,
+        `clients.${String(clientId)}.deviceFingerprintVersion`,
+        `clients.${String(clientId)}.attestationStatus`,
+      ],
+      payloadHint: {
+        operation: "device-identity-recovery",
+        clientId: String(clientId),
+      },
+      originClientId: clientId,
+      maintainShadow: true,
+    });
+    return saved;
+  });
+}
+
 async function listUserClients({ userId, currentClientId = null } = {}) {
   if (!userId) return [];
   const clients = await clientIdentityDb.athena_clients.findMany({
@@ -1024,6 +1137,8 @@ module.exports = {
   getClientContext,
   getClientRecord,
   listUserClients,
+  recoverClientDeviceIdentity,
+  reconcileClientNodeChange,
   recordClientTrustCheckpoint,
   registerClient,
   commitClientDeviceKeyRotation,

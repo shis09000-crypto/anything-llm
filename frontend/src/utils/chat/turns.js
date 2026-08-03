@@ -219,6 +219,19 @@ function normalizeStoredTimeline(timeline = []) {
     : [];
 }
 
+export function isTransientAgentReconnectEvent(event = {}) {
+  if (event?.type !== "thought") return false;
+  return String(event?.content || "").startsWith(
+    "Agent connection interrupted. Reconnecting"
+  );
+}
+
+export function withoutTransientAgentReconnectEvents(timeline = []) {
+  return normalizeStoredTimeline(timeline).filter(
+    (event) => !isTransientAgentReconnectEvent(event)
+  );
+}
+
 export function normalizeTurnItem(item = {}) {
   const createdAt = item.createdAt || item.sentAt || nowMs();
   if (isUserItem(item)) {
@@ -852,10 +865,15 @@ function patchLocalTurnWithServer(
       ? TURN_STATUSES.running
       : TURN_STATUSES.completed,
     error: preserveRunningTurn ? localAssistant.error : null,
-    timeline: normalizeStoredTimeline([
-      ...(localAssistant.timeline || []),
-      ...(serverAssistant.timeline || []),
-    ]),
+    timeline: preserveRunningTurn
+      ? normalizeStoredTimeline([
+          ...(localAssistant.timeline || []),
+          ...(serverAssistant.timeline || []),
+        ])
+      : withoutTransientAgentReconnectEvents([
+          ...(localAssistant.timeline || []),
+          ...(serverAssistant.timeline || []),
+        ]),
     updatedAt: nowMs(),
   };
 

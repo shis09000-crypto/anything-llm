@@ -2,6 +2,9 @@
 
 const { OperationsPlane } = require("../../utils/operations/operationsPlane");
 const { semanticEvent } = require("../../utils/observability/semanticEvents");
+const {
+  AicpShadowObserver,
+} = require("../../utils/modulePlatform/aicp/shadowObserver");
 
 describe("AI Operations Plane", () => {
   function fixture() {
@@ -27,6 +30,7 @@ describe("AI Operations Plane", () => {
       drain: jest.fn().mockResolvedValue(true),
       health: jest.fn(() => ({ ready: Boolean(transport.ready) })),
     };
+    const aicpObserver = new AicpShadowObserver({ env: {} });
     const plane = new OperationsPlane({
       env: {
         NODE_ENV: "development",
@@ -42,12 +46,13 @@ describe("AI Operations Plane", () => {
           sink = null;
         };
       },
+      aicpObserver,
     });
-    return { getSink: () => sink, plane, store, transport };
+    return { aicpObserver, getSink: () => sink, plane, store, transport };
   }
 
   test("validates then publishes events through the durable transport", async () => {
-    const { getSink, plane, store, transport } = fixture();
+    const { aicpObserver, getSink, plane, store, transport } = fixture();
     await plane.start();
     const event = semanticEvent({ eventType: "login.completed" });
     await getSink()(event);
@@ -65,6 +70,11 @@ describe("AI Operations Plane", () => {
           stale: false,
         }),
       ],
+    });
+    expect(aicpObserver.health()).toMatchObject({
+      semanticEvents: 1,
+      duplicateEvents: 1,
+      mappedEvents: 1,
     });
     await plane.stop();
   });
@@ -128,6 +138,23 @@ describe("AI Operations Plane", () => {
     });
   });
 
+  test("clears a recovered error only after both durable stores are healthy", async () => {
+    const { plane, store, transport } = fixture();
+    plane.lastError = "20";
+    plane.status = "degraded";
+
+    store.health.mockReturnValue({ configured: true, ready: false });
+    await plane.flushRetryQueue();
+    expect(plane.lastError).toBe("20");
+    expect(plane.status).toBe("degraded");
+
+    store.health.mockReturnValue({ configured: true, ready: true });
+    transport.ready = true;
+    await plane.flushRetryQueue();
+    expect(plane.lastError).toBeNull();
+    expect(plane.status).toBe("running");
+  });
+
   test("rejects unknown schemas before transport or storage", async () => {
     const { plane, store, transport } = fixture();
     await plane.start();
@@ -137,5 +164,60 @@ describe("AI Operations Plane", () => {
     expect(store.insert).not.toHaveBeenCalled();
     expect(transport.publish).not.toHaveBeenCalled();
     await plane.stop();
+  });
+
+  test("accepts module lifecycle metadata emitted by micro-module hosts", () => {
+    const { semanticEvent } = require("../../utils/observability/semanticEvents");
+    const { validateRegistered } = require("../../utils/operations/schemaRegistry");
+    const event = semanticEvent({
+      eventType: "module.lifecycle.heartbeat",
+      category: "module_lifecycle",
+      metadata: {
+        moduleId: "browser-plane",
+        runtimeRole: "browser-plane",
+        version: "1.0.0",
+        manifestFingerprint: "abc123",
+        instanceId: "instance-1",
+        sequence: "2",
+        ready: "true",
+        heartbeatAt: "2026-08-02T18:00:00.000Z",
+        leaseExpiresAt: "2026-08-02T18:01:30.000Z",
+        center: "task",
+        priority: "P3",
+        escalationLevel: "none",
+      },
+    });
+
+    expect(validateRegistered(event)).toEqual({ valid: true, errors: [] });
+  });
+
+  test("re-establishes the durable consumer after a transient startup failure", async () => {
+    jest.useFakeTimers();
+    const { plane, transport } = fixture();
+    transport.start
+      .mockRejectedValueOnce(Object.assign(new Error("timeout"), { code: "TIMEOUT" }))
+      .mockImplementationOnce(async (handler) => {
+        transport.handler = handler;
+        transport.ready = true;
+      });
+
+    await plane.start();
+    expect(plane.health()).toMatchObject({ status: "degraded", ready: false });
+
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(transport.start).toHaveBeenCalledTimes(2);
+    expect(plane.health()).toMatchObject({ status: "running", ready: true });
+    await plane.stop();
+    jest.useRealTimers();
+  });
+
+  test("keeps the expected module contract stable across health reads", () => {
+    const { plane } = fixture();
+    const expected = plane.health().moduleHeartbeatCoverage.expected;
+
+    expect(expected).toBeGreaterThan(0);
+    expect(plane.health().moduleHeartbeatCoverage.expected).toBe(expected);
+    expect(Object.isFrozen(plane.expectedModuleIds)).toBe(true);
   });
 });

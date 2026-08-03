@@ -206,6 +206,43 @@ export async function signBrowserRootPayload(value) {
   };
 }
 
+export async function createDeviceBindingAssertion(challenge = {}) {
+  const challengeId = String(challenge?.challengeId || "");
+  const challengeValue = String(challenge?.challenge || "");
+  if (!challengeId || !challengeValue) {
+    throw new Error("device_binding_challenge_invalid");
+  }
+  const registration = await ensureBrowserHybridKeys();
+  const proof = [
+    "athena-device-binding-preflight:v1",
+    challengeId,
+    challengeValue,
+    registration.clientId,
+  ].join("\n");
+  const [p256, postQuantum] = await Promise.all([
+    signWithDeviceIdentityKey(proof),
+    signWithPostQuantumDeviceKey(proof),
+  ]);
+  if (!p256?.signature || !postQuantum?.signature) {
+    throw new Error("device_binding_proof_unavailable");
+  }
+  return {
+    challengeId,
+    challenge: challengeValue,
+    p256: {
+      publicKey: p256.publicKey,
+      keyAlgorithm: p256.algorithm,
+      signature: p256.signature,
+    },
+    postQuantum: {
+      publicKey: postQuantum.publicKey,
+      keyAlgorithm: postQuantum.keyAlgorithm,
+      hybridSignatureVersion: postQuantum.hybridSignatureVersion,
+      signature: postQuantum.signature,
+    },
+  };
+}
+
 export async function encapsulateForBrowser(kemPublicKey) {
   const result = ml_kem768_x25519.encapsulate(fromBase64Url(kemPublicKey));
   return {

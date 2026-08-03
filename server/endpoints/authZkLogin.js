@@ -810,6 +810,20 @@ function authZkLoginEndpoints(app) {
           });
         }
 
+        if (process.env.ATHENA_BROWSER_EGRESS_ENABLED === "true") {
+          const {
+            dispatchBrowserEgress,
+          } = require("../utils/browserEgress/client");
+          await dispatchBrowserEgress(
+            "revokeDevice",
+            { userId: user.id, deviceId: device.deviceId },
+            {
+              callerRole: "authentication",
+              callerModule: "authentication",
+              idempotencyKey: `identity-device-revoke:${device.id}`,
+            }
+          );
+        }
         await authPrisma.trustedLoginDevice.update({
           where: { id: device.id },
           data: { revokedAt: new Date() },

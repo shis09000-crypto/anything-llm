@@ -68,6 +68,7 @@ export default function ActiveWorkspaces() {
   const navigate = useNavigate();
   const { slug } = useParams();
   const [loading, setLoading] = useState(true);
+  const [navigationUnavailable, setNavigationUnavailable] = useState(false);
   const [workspaces, setWorkspaces] = useState([]);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
   const [creatingWorkspaces, setCreatingWorkspaces] = useState({});
@@ -80,6 +81,7 @@ export default function ActiveWorkspaces() {
   const refreshInFlightRef = useRef(null);
   const pendingForceRefreshRef = useRef(false);
   const pendingRefreshTimerRef = useRef(null);
+  const navigationRetryAttemptRef = useRef(0);
   const deleteAnimationTimersRef = useRef(new Map());
   const bootCoalesceUntilRef = useRef(
     typeof window === "undefined"
@@ -144,26 +146,49 @@ export default function ActiveWorkspaces() {
         setLoading(true);
       }
 
-      const workspaces = await workspaceNavigationCache.runInFlight(
-        "workspaces:all",
-        ({ signal } = {}) =>
-          Workspace.all({
-            signal,
-            task: false,
-            preferSyncV2Cache: !force,
-          }),
-        {
-          reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS,
-          priority: "P0",
-          label: "navigation:workspaces",
-          scope: { route: "workspace-sidebar", surface: "workspaces" },
-          policy: "foreground",
-          emergency: false,
-          intentRank: 0,
-          dedupeKey: "navigation:workspaces",
+      let workspaces;
+      try {
+        workspaces = await workspaceNavigationCache.runInFlight(
+          "workspaces:all",
+          ({ signal } = {}) =>
+            Workspace.all({
+              signal,
+              task: false,
+              preferSyncV2Cache: !force,
+              throwOnError: true,
+            }),
+          {
+            reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS,
+            priority: "P0",
+            label: "navigation:workspaces",
+            scope: { route: "workspace-sidebar", surface: "workspaces" },
+            policy: "foreground",
+            emergency: false,
+            intentRank: 0,
+            dedupeKey: "navigation:workspaces",
+          }
+        );
+      } catch (error) {
+        if (error?.name === "AbortError") return null;
+        setNavigationUnavailable(true);
+        setLoading(false);
+        navigationRetryAttemptRef.current += 1;
+        const retryDelayMs = Math.min(
+          2_000 * 2 ** Math.min(navigationRetryAttemptRef.current - 1, 3),
+          10_000
+        );
+        if (pendingRefreshTimerRef.current) {
+          window.clearTimeout(pendingRefreshTimerRef.current);
         }
-      );
+        pendingRefreshTimerRef.current = window.setTimeout(() => {
+          pendingRefreshTimerRef.current = null;
+          refreshWorkspaces({ force: true });
+        }, retryDelayMs);
+        return stale || null;
+      }
       if (!workspaces) return null;
+      navigationRetryAttemptRef.current = 0;
+      setNavigationUnavailable(false);
       workspaceNavigationCache.setWorkspaces(workspaces);
       setLoading(false);
       setWorkspaces(Workspace.orderWorkspaces(workspaces));
@@ -718,6 +743,14 @@ export default function ActiveWorkspaces() {
             ref={provided.innerRef}
             {...provided.droppableProps}
           >
+            {navigationUnavailable ? (
+              <div
+                role="status"
+                className="rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-1.5 text-xs leading-5 text-amber-100 light:text-amber-800"
+              >
+                工作区数据暂时不可用，已保留上次可信列表。
+              </div>
+            ) : null}
             {workspaces.map((workspace, index) => {
               const isVirtuallyActive = workspace.slug === virtualActiveSlug;
               const isActive = workspace.slug === slug || isVirtuallyActive;

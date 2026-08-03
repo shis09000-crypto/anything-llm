@@ -168,6 +168,9 @@ class RecoveryCenter {
       retryAvailable: Boolean(
         shouldRetry && typeof context.retry === "function"
       ),
+      coordinationContext: context.coordinationContext
+        ? { ...context.coordinationContext }
+        : null,
     };
 
     if (shouldToast) {
@@ -221,6 +224,7 @@ class RecoveryCenter {
       actionId: context.actionId || null,
       taskId: context.taskId || null,
       requestId: context.requestId || null,
+      coordinationContext: context.coordinationContext || null,
       scope: context.scope || null,
       classification: result.classification,
       reason: result.reason,

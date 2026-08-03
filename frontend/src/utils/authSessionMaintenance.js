@@ -1,3 +1,8 @@
+import {
+  authReasonFrom,
+  isTerminalAuthReason,
+} from "@/utils/authLifecycleCoordinator";
+
 export const DEV_AUTH_REFRESH_TOAST_ID = "athena-dev-auth-refresh";
 
 const TRANSIENT_ERROR_CODES = new Set([
@@ -5,7 +10,6 @@ const TRANSIENT_ERROR_CODES = new Set([
   "API_TIMEOUT_ERROR",
   "HTTP_OPEN_ERROR",
 ]);
-const EXPLICIT_AUTH_STATUSES = new Set([401, 403]);
 
 function statusFrom(source = {}) {
   const status = source?.status ?? source?.response?.status ?? 0;
@@ -31,17 +35,13 @@ export function isDevelopmentAuthMaintenanceEnabled() {
 }
 
 export function isExplicitAuthFailure(source = {}) {
-  const status = statusFrom(source);
-  if (EXPLICIT_AUTH_STATUSES.has(status)) return true;
-
-  const message = messageFrom(source);
-  return /session expired|invalid auth|user is suspended|account.*disabled/i.test(
-    message
-  );
+  return isTerminalAuthReason(authReasonFrom(source));
 }
 
 export function isTransientAuthFailure(source = {}) {
   const status = statusFrom(source);
+  if ([401, 403, 429].includes(status) && !isExplicitAuthFailure(source))
+    return true;
   if (status >= 500) return true;
   if (status === 0 && TRANSIENT_ERROR_CODES.has(codeFrom(source))) return true;
 
@@ -55,11 +55,31 @@ export function classifyAuthRefreshResult(result = {}) {
   if (result?.success) return "valid";
   if (isExplicitAuthFailure(result)) return "invalid";
   if (isTransientAuthFailure(result)) return "transient";
-  return "invalid";
+  // Ambiguous business 401/403 and malformed upstream failures are not proof
+  // that Identity revoked the session. Keep the local session until the
+  // Identity-owned validation endpoint returns a terminal reason.
+  return "transient";
 }
 
 export function shouldPreserveLocalAuthOnFailure(source = {}) {
   return !isExplicitAuthFailure(source) && isTransientAuthFailure(source);
+}
+
+export function classifyDeviceBindingPreflightFailure(error = {}) {
+  const status = statusFrom(error);
+  const transportFailure = error?.deviceBindingStage === "transport";
+  const serviceUnavailable =
+    transportFailure && (status === 0 || status >= 500);
+  return {
+    status,
+    serviceUnavailable,
+    errorCode:
+      String(error?.code || error?.message || "").trim() ||
+      "device_binding_preflight_failed",
+    message: serviceUnavailable
+      ? "登录服务暂时不可用，请稍后重试。"
+      : "无法读取或验证此设备的安全密钥。",
+  };
 }
 
 export function authMaintenanceRetryDelayMs(attempt = 0) {

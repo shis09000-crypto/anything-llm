@@ -46,6 +46,7 @@ const { handleAssetUpload, handlePfpUpload } = require("../utils/files/multer");
 const { v4 } = require("uuid");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const SystemSettings = DataAccessCenter.adminSystem;
+const { buildAuthBootstrap } = require("../utils/authz/authBootstrap");
 const AuthSession = DataAccessCenter.adminSystem.authSession;
 const AgentSkillWhitelist = DataAccessCenter.agentSkillWhitelist;
 const ApiKey = DataAccessCenter.adminSystem.apiKey;
@@ -67,6 +68,16 @@ const isMemorySchemaMissingError = (error) =>
   UserMemory.isMemorySchemaMissingError(error);
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { getClientContext } = require("../utils/clientIdentity");
+const {
+  evaluateDeviceBindingForLogin,
+} = require("../utils/authz/deviceBindingRecovery");
+const {
+  deleteUserStateViaIdentity,
+  readUserStateViaIdentity,
+  remoteIdentityOperationsEnabled,
+  touchSessionViaIdentity,
+  upsertUserStateViaIdentity,
+} = require("../utils/authz/identityOperationsClient");
 const {
   authSessionFingerprintFromRequest,
 } = require("../utils/authz/vaultAccessGrants");
@@ -216,12 +227,6 @@ const {
   validateUserStateInput,
   validateUserStateScope,
 } = require("../utils/userStatePreferencePolicy");
-const {
-  deleteUserStateViaIdentity,
-  readUserStateViaIdentity,
-  remoteIdentityOperationsEnabled,
-  upsertUserStateViaIdentity,
-} = require("../utils/authz/identityOperationsClient");
 const { VALID_COMMANDS } = require("../utils/chats");
 const { runtimeSummary } = require("../utils/desktopRuntime");
 const { submitFeedback } = require("../utils/feedback");
@@ -512,6 +517,40 @@ function systemEndpoints(app) {
       response.status(httpStatus(e)).json({
         success: false,
         allowPublicRegistration: false,
+      });
+    }
+  });
+
+  app.get("/auth/bootstrap", async (request, response) => {
+    response.setHeader("Cache-Control", "no-store, max-age=0");
+    response.setHeader("Pragma", "no-cache");
+    try {
+      const payload = await buildAuthBootstrap({
+        request,
+        settings: SystemSettings,
+      });
+      response.status(200).json(payload);
+    } catch (error) {
+      console.error("[auth.bootstrap] unable to build bootstrap", {
+        name: error?.name || "Error",
+        code: error?.code || null,
+      });
+      response.status(503).json({
+        schemaVersion: "athena.auth.bootstrap.v1",
+        serviceStatus: "degraded",
+        authMode: "multi",
+        nextAction: "wait",
+        methods: {
+          password: { enabled: true },
+          passkey: {
+            enabled: false,
+            crossDeviceAllowed: false,
+            rpIdValid: false,
+          },
+          sso: { enabled: false, noLogin: false, redirectUrl: null },
+        },
+        retryAfterMs: 3_000,
+        reasonCode: "identity_bootstrap_unavailable",
       });
     }
   });
@@ -1402,8 +1441,16 @@ function systemEndpoints(app) {
           ? currentState.lastUserActionAt
           : now;
         const nextState = jwtIdleState({ lastUserActionAt });
-        if (!throttled && decodedToken.sid)
-          await AuthSession.touchUserAction(decodedToken.sid);
+        if (!throttled && decodedToken.sid) {
+          if (remoteIdentityOperationsEnabled()) {
+            await touchSessionViaIdentity({
+              request,
+              idempotencyKey: `identity-session-touch:${decodedToken.sid}:${lastUserActionAt}`,
+            });
+          } else {
+            await AuthSession.touchUserAction(decodedToken.sid);
+          }
+        }
         const nextToken = throttled
           ? null
           : decodedToken.sid
@@ -1466,6 +1513,7 @@ function systemEndpoints(app) {
             success: false,
             user: null,
             message: "Session expired or invalid.",
+            reasonCode: "session_expired",
           });
 
         if (user.suspended)
@@ -1473,6 +1521,7 @@ function systemEndpoints(app) {
             success: false,
             user: null,
             message: "User is suspended.",
+            reasonCode: "account_suspended",
           });
 
         return response.status(200).json({
@@ -1504,7 +1553,8 @@ function systemEndpoints(app) {
           return;
         }
 
-        const { identifier, username, password } = reqBody(request);
+        const { identifier, username, password, deviceBinding } =
+          reqBody(request);
         const loginIdentifier = String(identifier || username || "").trim();
         const loginContext = {
           ip: request.ip || "Unknown IP",
@@ -1664,6 +1714,36 @@ function systemEndpoints(app) {
             message: LOGIN_GENERIC_ERROR,
           });
           return;
+        }
+
+        const deviceBindingResult = await evaluateDeviceBindingForLogin({
+          request,
+          user: existingUser,
+          authUser: verifiedAuthUser,
+          assertion: deviceBinding,
+        });
+        if (!deviceBindingResult.ok) {
+          if (deviceBindingResult.recoveryRequired) {
+            return response.status(200).json({
+              valid: false,
+              user: null,
+              token: null,
+              nextAction: "device_identity_reauth",
+              recoveryTicket: deviceBindingResult.recoveryTicket,
+              recoveryExpiresAt: deviceBindingResult.expiresAt,
+              recoveryMethods: ["passkey"],
+              reason: deviceBindingResult.reasonCode,
+              message: "需要确认此设备的身份后才能进入工作区。",
+            });
+          }
+          return response.status(409).json({
+            valid: false,
+            user: null,
+            token: null,
+            nextAction: "device_binding_preflight",
+            reason: deviceBindingResult.reasonCode,
+            message: "无法验证当前设备密钥，请重新尝试登录。",
+          });
         }
 
         await clearLoginSuccess(loginContext);

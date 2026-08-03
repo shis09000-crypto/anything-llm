@@ -2,6 +2,7 @@ const { DataAccessCenter } = require("../dataAccess");
 const { getClientRecord } = require("../clientIdentity");
 const { decodeJWT } = require("../http");
 const { jwtIdleState, sessionClientIdFromToken } = require("../sessionIdle");
+const { isAuthEpochCompatible } = require("./authCompatibility");
 
 function compact(value, maxLength = 256) {
   if (value === null || value === undefined) return null;
@@ -33,15 +34,16 @@ function safePrincipal({ claims, session, subjectType, authUserId = null }) {
   };
 }
 
-async function introspectSessionToken(
-  token,
+async function introspectSessionClaims(
+  claims,
   {
     data = DataAccessCenter,
     findClient = getClientRecord,
     requireClient = true,
   } = {}
 ) {
-  const claims = decodeJWT(compact(token, 16_384));
+  if (!isAuthEpochCompatible(claims))
+    return inactive("session_epoch_incompatible");
   if (!claims?.sid) return inactive("session_missing");
 
   const idle = jwtIdleState(claims);
@@ -123,6 +125,12 @@ async function introspectSessionToken(
   };
 }
 
+async function introspectSessionToken(token, options = {}) {
+  const claims = decodeJWT(compact(token, 16_384));
+  return introspectSessionClaims(claims, options);
+}
+
 module.exports = {
+  introspectSessionClaims,
   introspectSessionToken,
 };

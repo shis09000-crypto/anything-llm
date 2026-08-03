@@ -7,6 +7,7 @@ import { useModal } from "@/hooks/useModal";
 import RecoveryCodeModal from "@/components/Modals/DisplayRecoveryCodeModal";
 import { useTranslation } from "react-i18next";
 import { setAuthToken } from "@/utils/authTokenStorage";
+import { consumeAuthReturnRef } from "@/utils/authLifecycleCoordinator";
 
 export default function SingleUserAuth() {
   const { t } = useTranslation();
@@ -40,7 +41,7 @@ export default function SingleUserAuth() {
         openRecoveryCodeModal();
       } else {
         setAuthToken(token);
-        window.location = paths.home();
+        window.location.replace(consumeAuthReturnRef() || paths.home());
       }
     } else {
       setError(message);
@@ -56,7 +57,7 @@ export default function SingleUserAuth() {
   useEffect(() => {
     if (downloadComplete && token) {
       setAuthToken(token);
-      window.location = paths.home();
+      window.location.replace(consumeAuthReturnRef() || paths.home());
     }
   }, [downloadComplete, token]);
 

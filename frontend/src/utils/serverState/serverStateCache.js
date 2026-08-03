@@ -137,6 +137,7 @@ export class ServerStateCache {
       staleWhileRevalidate = false,
       onCommit,
       respectOptimistic = true,
+      coordinationContext = null,
     } = options;
 
     if (!force) {
@@ -191,6 +192,7 @@ export class ServerStateCache {
         protected: protectedTask,
         intentRank,
         dedupeKey: requestKey,
+        coordinationContext,
       }
     );
     this.inflightDetails.set(requestKey, {

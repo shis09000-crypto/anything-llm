@@ -355,6 +355,132 @@ test("Agent session ignores duplicate final and blocks reconnect/feedback after 
   }
 });
 
+test("Agent ledger final cancels a scheduled reconnect without a false reconnect thought", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    const events = [];
+    const reconnectPhases = [];
+    globalThis.__agentWsRequestJson = async (requestPath) => ({
+      data: {
+        success: true,
+        state: {
+          provider: "debug",
+          model: "debug-model",
+          modelTier: "debug",
+          silenceTimeoutMs: 60_000,
+        },
+        events: requestPath.includes("includeEvents=1")
+          ? [
+              reportFinal("ledger recovered", 1),
+              { type: "WAITING_ON_INPUT", seq: 2 },
+            ]
+          : [],
+      },
+    });
+    const controller = mod.createAgentWebSocketSession({
+      websocketUUID: "debug-ledger-recovery",
+      onEvent: (event) => {
+        events.push(event);
+        return event;
+      },
+      onReconnectPhase: (phase, detail) =>
+        reconnectPhases.push({ phase, detail }),
+    });
+
+    const socket = await latestSocket();
+    socket.open();
+    socket.close();
+    await new Promise((resolve) => setTimeout(resolve, 1_350));
+
+    assert.equal(FakeWebSocket.instances.length, 1);
+    assert.equal(
+      events.some((event) =>
+        String(event.event?.content || "").startsWith(
+          "Agent connection interrupted. Reconnecting"
+        )
+      ),
+      false
+    );
+    assert.equal(
+      events.some((event) => event.type === "assistant_final"),
+      true
+    );
+    assert.deepEqual(
+      reconnectPhases.map(({ phase, detail }) => [phase, detail.transport]),
+      [["recovered", "ledger_poll"]]
+    );
+    assert.equal(
+      controller.getState().state,
+      mod.AgentSessionState.WAITING_ON_INPUT
+    );
+    controller.close("test_cleanup");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Agent only shows reconnect progress after a replacement handshake starts", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    const events = [];
+    const reconnectPhases = [];
+    const controller = mod.createAgentWebSocketSession({
+      websocketUUID: "debug-real-reconnect",
+      onEvent: (event) => {
+        events.push(event);
+        return event;
+      },
+      onReconnectPhase: (phase, detail) =>
+        reconnectPhases.push({ phase, detail }),
+    });
+
+    const firstSocket = await latestSocket();
+    firstSocket.open();
+    firstSocket.close();
+    assert.equal(
+      events.some((event) => event.event?.type === "thought"),
+      false
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1_350));
+    assert.equal(FakeWebSocket.instances.length, 2);
+    const secondSocket = FakeWebSocket.instances.at(-1);
+    assert.equal(
+      events.some((event) =>
+        String(event.event?.content || "").startsWith(
+          "Agent connection interrupted. Reconnecting"
+        )
+      ),
+      true
+    );
+    assert.deepEqual(
+      reconnectPhases.map(({ phase, detail }) => [phase, detail.transport]),
+      [["started", "websocket"]]
+    );
+
+    secondSocket.open();
+    assert.equal(
+      events.some(
+        (event) =>
+          event.event?.type === "remove_agent_event" &&
+          event.event?.targetId === "agent-reconnect:debug-real-reconnect"
+      ),
+      true
+    );
+    assert.deepEqual(
+      reconnectPhases.map(({ phase, detail }) => [phase, detail.transport]),
+      [
+        ["started", "websocket"],
+        ["recovered", "websocket"],
+      ]
+    );
+    assert.equal(controller.getState().retryCount, 0);
+    controller.close("test_cleanup");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("Agent stop emits one stop and suppresses close/error assistant errors", async () => {
   const { mod, tmpDir } = await loadAgentClient();
   try {
