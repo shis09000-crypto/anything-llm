@@ -29,6 +29,23 @@ const {
 const { DocumentManager } = require("../DocumentManager");
 const { resolveEffectivePolicy } = require("../fileAccessPolicy");
 const { resolveTaskProviderModel } = require("../llmTasks");
+const {
+  agentEnabled: responsesAgentEnabled,
+} = require("../responsesRuntime/agentAdapter");
+const { agentGatewayEnabled } = require("../modelGateway/agentRemoteProvider");
+
+function deepSeekAgentExecutionAvailable({
+  provider,
+  model,
+  env = process.env,
+} = {}) {
+  if (provider !== "deepseek") return false;
+  return (
+    responsesAgentEnabled({ provider, model, env }) ||
+    agentGatewayEnabled(env) ||
+    Boolean(env.DEEPSEEK_API_KEY)
+  );
+}
 
 function agentCacheStableHistoryStrategyFor({
   provider = null,
@@ -230,7 +247,12 @@ class AgentHandler {
           );
         break;
       case "deepseek":
-        if (!process.env.DEEPSEEK_API_KEY)
+        if (
+          !deepSeekAgentExecutionAvailable({
+            provider: this.provider,
+            model: this.model,
+          })
+        )
           throw new Error("DeepSeek API Key must be provided to use agents.");
         break;
       case "litellm":
@@ -912,3 +934,5 @@ If the user asks about book structure, reading order, timeline, person relations
 module.exports.AgentHandler = AgentHandler;
 module.exports.agentCacheStableHistoryStrategyFor =
   agentCacheStableHistoryStrategyFor;
+module.exports.deepSeekAgentExecutionAvailable =
+  deepSeekAgentExecutionAvailable;
