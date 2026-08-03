@@ -35,7 +35,8 @@ COPY --chown=1000:1000 server/utils/syncV2/syncEventClient.js /app/server/utils/
 COPY --chown=1000:1000 server/endpoints/chat.js /app/server/endpoints/chat.js
 
 RUN cd /app/server \
-  && node -e 'for (const file of require("fs").readdirSync("module-manifests").filter((name) => name.endsWith(".json"))) JSON.parse(require("fs").readFileSync(`module-manifests/${file}`, "utf8"))' \
+  && find module-manifests utils/modulePlatform/aicp -name '._*' -delete \
+  && node -e 'for (const file of require("fs").readdirSync("module-manifests").filter((name) => !name.startsWith("._") && name.endsWith(".json"))) JSON.parse(require("fs").readFileSync(`module-manifests/${file}`, "utf8"))' \
   && node -c realtime-gateway.js \
   && node -c endpoints/chat.js \
   && node -c utils/syncV2/syncEventClient.js
