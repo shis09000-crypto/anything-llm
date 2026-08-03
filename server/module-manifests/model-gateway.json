@@ -8,16 +8,52 @@
   "owner": "ai-platform",
   "criticality": "critical",
   "runtimeRole": "model-gateway",
-  "sourcePaths": ["server/utils/llmTasks/", "server/utils/agents/aibitat/providers/"],
+  "sourcePaths": [
+    "server/utils/llmTasks/",
+    "server/utils/agents/aibitat/providers/"
+  ],
   "capabilities": ["provider-routing", "streaming", "rate-limits", "retries"],
-  "routes": { "public": [], "internal": ["/internal/v1/models/health", "/internal/v1/models/stream", "/internal/v1/models/catalog", "/internal/v1/models/agent/complete", "/internal/v1/models/agent/stream"] },
-  "rpc": { "provides": ["model.health", "model.stream", "model.catalog", "model.agent.complete", "model.agent.stream"], "consumes": ["identity.assert"] },
-  "events": { "publishes": ["model.stream.*", "model.provider.*"], "subscribes": ["model.configuration.*"] },
-  "data": { "schemas": ["model_runtime"], "objectPrefixes": ["models/artifacts"] },
+  "routes": {
+    "public": [],
+    "internal": [
+      "/internal/v1/models/health",
+      "/internal/v1/models/stream",
+      "/internal/v1/models/catalog",
+      "/internal/v1/models/agent/complete",
+      "/internal/v1/models/agent/stream"
+    ]
+  },
+  "rpc": {
+    "provides": [
+      "model.health",
+      "model.stream",
+      "model.catalog",
+      "model.agent.complete",
+      "model.agent.stream",
+      "model.responses.complete",
+      "model.responses.stream",
+      "model.responses.capabilities"
+    ],
+    "consumes": ["identity.assert"]
+  },
+  "events": {
+    "publishes": ["model.stream.*", "model.provider.*"],
+    "subscribes": ["model.configuration.*"]
+  },
+  "data": {
+    "schemas": ["model_runtime"],
+    "objectPrefixes": ["models/artifacts"]
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/model-gateway",
     "keyDomains": ["provider"],
-    "allowedCallers": ["chat-runtime", "agent-runtime", "background-worker", "operations-plane"],
+    "allowedCallers": [
+      "chat-runtime",
+      "agent-runtime",
+      "background-worker",
+      "operations-plane",
+      "responses-runtime"
+    ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 30000
   },

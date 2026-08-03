@@ -105,6 +105,8 @@ SELECT format('CREATE ROLE athena_agent LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_agent')\gexec
 SELECT format('CREATE ROLE athena_model_runtime LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_model_runtime')\gexec
+SELECT format('CREATE ROLE athena_responses_runtime LOGIN PASSWORD %L', :'main_password')
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_responses_runtime')\gexec
 SELECT format('CREATE ROLE athena_tools LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_tools')\gexec
 SELECT format('CREATE ROLE athena_crypto_market LOGIN PASSWORD %L', :'main_password')
@@ -134,6 +136,7 @@ ALTER ROLE athena_workspace PASSWORD :'main_password';
 ALTER ROLE athena_chat PASSWORD :'main_password';
 ALTER ROLE athena_agent PASSWORD :'main_password';
 ALTER ROLE athena_model_runtime PASSWORD :'main_password';
+ALTER ROLE athena_responses_runtime PASSWORD :'main_password';
 ALTER ROLE athena_tools PASSWORD :'main_password';
 ALTER ROLE athena_crypto_market PASSWORD :'main_password';
 ALTER ROLE athena_crypto_account PASSWORD :'main_password';
@@ -153,6 +156,7 @@ GRANT CONNECT ON DATABASE athena_main TO
   athena_chat,
   athena_agent,
   athena_model_runtime,
+  athena_responses_runtime,
   athena_tools,
   athena_crypto_market,
   athena_crypto_account,
@@ -221,6 +225,7 @@ CREATE SCHEMA IF NOT EXISTS identity AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS chat AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS agent AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS model_runtime AUTHORIZATION athena_main_owner;
+CREATE SCHEMA IF NOT EXISTS responses_runtime AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS tools AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS crypto_market AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS crypto_account AUTHORIZATION athena_main_owner;
@@ -239,6 +244,7 @@ REVOKE ALL ON SCHEMA
   chat,
   agent,
   model_runtime,
+  responses_runtime,
   tools,
   crypto_market,
   crypto_account,
@@ -257,6 +263,7 @@ GRANT USAGE, CREATE ON SCHEMA workspace TO athena_workspace;
 GRANT USAGE, CREATE ON SCHEMA chat TO athena_chat;
 GRANT USAGE, CREATE ON SCHEMA agent TO athena_agent;
 GRANT USAGE, CREATE ON SCHEMA model_runtime TO athena_model_runtime;
+GRANT USAGE, CREATE ON SCHEMA responses_runtime TO athena_responses_runtime;
 GRANT USAGE, CREATE ON SCHEMA tools TO athena_tools;
 GRANT USAGE, CREATE ON SCHEMA crypto_market TO athena_crypto_market;
 GRANT USAGE, CREATE ON SCHEMA crypto_account TO athena_crypto_account;
@@ -279,6 +286,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_agent IN SCHEMA agent
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_agent;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_model_runtime IN SCHEMA model_runtime
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_model_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_responses_runtime IN SCHEMA responses_runtime
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_responses_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_tools IN SCHEMA tools
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_tools;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_crypto_market IN SCHEMA crypto_market
@@ -312,6 +321,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_agent IN SCHEMA agent
   GRANT USAGE, SELECT ON SEQUENCES TO athena_agent;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_model_runtime IN SCHEMA model_runtime
   GRANT USAGE, SELECT ON SEQUENCES TO athena_model_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_responses_runtime IN SCHEMA responses_runtime
+  GRANT USAGE, SELECT ON SEQUENCES TO athena_responses_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_tools IN SCHEMA tools
   GRANT USAGE, SELECT ON SEQUENCES TO athena_tools;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_crypto_market IN SCHEMA crypto_market

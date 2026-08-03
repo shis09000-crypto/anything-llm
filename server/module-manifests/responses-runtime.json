@@ -1,0 +1,84 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.0",
+  "id": "responses-runtime",
+  "name": "Athena Managed Responses Runtime",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "ai-platform",
+  "criticality": "critical",
+  "runtimeRole": "responses-runtime",
+  "sourcePaths": [
+    "server/responses-runtime.js",
+    "server/utils/responsesRuntime/"
+  ],
+  "capabilities": [
+    "response-state",
+    "conversation-state",
+    "response-streaming",
+    "background-responses",
+    "response-compaction"
+  ],
+  "routes": {
+    "public": [],
+    "internal": ["/internal/v1/responses"]
+  },
+  "rpc": {
+    "provides": [
+      "responses.create",
+      "responses.stream",
+      "responses.retrieve",
+      "responses.cancel",
+      "responses.delete",
+      "responses.input-items.list",
+      "responses.conversation.create",
+      "responses.conversation.retrieve",
+      "responses.conversation.items",
+      "responses.conversation.delete",
+      "responses.compact",
+      "responses.capabilities",
+      "responses.background.claim",
+      "responses.background.execute",
+      "responses.maintenance"
+    ],
+    "consumes": [
+      "model.responses.complete",
+      "model.responses.stream",
+      "model.responses.capabilities",
+      "key-custody.wrap",
+      "key-custody.unwrap",
+      "chat.memory.context.resolve",
+      "tool.invoke",
+      "operations.ingest-batch"
+    ]
+  },
+  "events": {
+    "publishes": ["response.state.*", "response.protocol.*"],
+    "subscribes": []
+  },
+  "data": {
+    "schemas": ["responses_runtime"],
+    "objectPrefixes": []
+  },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/responses-runtime",
+    "keyDomains": ["responses-state"],
+    "allowedCallers": ["chat-runtime", "agent-runtime", "scheduler"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/responses-runtime",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": [
+    "key-custody",
+    "model-gateway",
+    "infra:postgresql",
+    "infra:nats"
+  ]
+}

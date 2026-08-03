@@ -1858,6 +1858,22 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
   getProviderForConfig(config) {
     if (typeof config.provider === "object") return config.provider;
     const {
+      agentEnabled,
+      createResponsesAgentProvider,
+    } = require("../../responsesRuntime/agentAdapter");
+    if (
+      agentEnabled({
+        provider: config.provider,
+        model: config.model,
+        env: process.env,
+      })
+    )
+      return createResponsesAgentProvider({
+        provider: config.provider,
+        model: config.model,
+        env: process.env,
+      });
+    const {
       agentGatewayEnabled,
       createRemoteAgentProvider,
     } = require("../../modelGateway/agentRemoteProvider");

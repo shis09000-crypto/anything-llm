@@ -636,6 +636,15 @@ async function streamChatWithWorkspace(
           temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
           user: user,
           thinking: deepSeekThinkingMode,
+          runtimeContext: {
+            workspaceId: workspace.id,
+            threadId: thread?.id || null,
+            userId: user?.id || null,
+            chatRunId: options.clientTurnId || uuid,
+            clientTurnId: options.clientTurnId || null,
+            taskPriority: "P0",
+            taskIntent: "foreground_chat",
+          },
         });
 
       completeText = textResponse;
@@ -657,6 +666,15 @@ async function streamChatWithWorkspace(
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
         user: user,
         thinking: deepSeekThinkingMode,
+        runtimeContext: {
+          workspaceId: workspace.id,
+          threadId: thread?.id || null,
+          userId: user?.id || null,
+          chatRunId: options.clientTurnId || uuid,
+          clientTurnId: options.clientTurnId || null,
+          taskPriority: "P0",
+          taskIntent: "foreground_chat",
+        },
         ...(exposeSaveMemoryTool
           ? {
               tools: saveMemoryToolsForMessage(updatedMessage),

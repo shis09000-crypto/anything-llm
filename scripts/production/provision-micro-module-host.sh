@@ -127,7 +127,7 @@ fi
 
 roles=(
   api background-worker realtime-gateway reader-worker scheduler
-  operations-plane chat-runtime agent-runtime model-gateway tool-broker
+  operations-plane chat-runtime agent-runtime model-gateway responses-runtime tool-broker
   crypto-market crypto-account crypto-forecast key-custody collector edge-web
   identity knowledge-ingest rag operations-shadow-agents prometheus minio
   browser-plane browser-worker
@@ -144,6 +144,7 @@ dns_for_role() {
     chat-runtime) printf '%s' 'anything-llm-chat-runtime,chat-runtime' ;;
     agent-runtime) printf '%s' 'anything-llm-agent-runtime,agent-runtime' ;;
     model-gateway) printf '%s' 'anything-llm-model-gateway,model-gateway' ;;
+    responses-runtime) printf '%s' 'anything-llm-responses-runtime,responses-runtime' ;;
     tool-broker) printf '%s' 'anything-llm-tool-broker,tool-broker' ;;
     crypto-market) printf '%s' 'anything-llm-crypto-market,crypto-market' ;;
     crypto-account) printf '%s' 'anything-llm-crypto-account,crypto-account' ;;
@@ -291,6 +292,7 @@ module_image_variables=(
   ATHENA_PROD_CHAT_RUNTIME_IMAGE
   ATHENA_PROD_AGENT_RUNTIME_IMAGE
   ATHENA_PROD_MODEL_GATEWAY_IMAGE
+  ATHENA_PROD_RESPONSES_RUNTIME_IMAGE
   ATHENA_PROD_TOOL_BROKER_IMAGE
   ATHENA_PROD_CRYPTO_MARKET_IMAGE
   ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE

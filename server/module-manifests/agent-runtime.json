@@ -9,11 +9,35 @@
   "criticality": "critical",
   "runtimeRole": "agent-runtime",
   "sourcePaths": ["server/endpoints/agentWebsocket.js", "server/utils/agents/"],
-  "capabilities": ["planning", "approval", "tool-routing", "durable-runs", "recovery"],
-  "routes": { "public": ["/api/agent-invocation/"], "internal": ["/internal/v1/agent/runs", "/internal/v1/agent/runs/:id/drain"] },
-  "rpc": { "provides": ["agent.submit", "agent.status"], "consumes": ["identity.assert", "model.stream", "tool.invoke"] },
-  "events": { "publishes": ["agent.run.*", "approval.*"], "subscribes": ["tool.invocation.*", "model.stream.*"] },
-  "data": { "schemas": ["agent"], "objectPrefixes": ["agent/results"] },
+  "capabilities": [
+    "planning",
+    "approval",
+    "tool-routing",
+    "durable-runs",
+    "recovery"
+  ],
+  "routes": {
+    "public": ["/api/agent-invocation/"],
+    "internal": ["/internal/v1/agent/runs", "/internal/v1/agent/runs/:id/drain"]
+  },
+  "rpc": {
+    "provides": ["agent.submit", "agent.status"],
+    "consumes": [
+      "identity.assert",
+      "model.stream",
+      "tool.invoke",
+      "responses.create",
+      "responses.stream"
+    ]
+  },
+  "events": {
+    "publishes": ["agent.run.*", "approval.*"],
+    "subscribes": ["tool.invocation.*", "model.stream.*"]
+  },
+  "data": {
+    "schemas": ["agent"],
+    "objectPrefixes": ["agent/results"]
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/agent-runtime",
     "keyDomains": ["agent"],
@@ -29,5 +53,14 @@
     "availabilityTarget": 0.999,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "chat-runtime", "model-gateway", "tool-runtime", "sync-v2", "infra:postgresql", "infra:nats"]
+  "dependsOn": [
+    "authentication",
+    "chat-runtime",
+    "model-gateway",
+    "tool-runtime",
+    "sync-v2",
+    "infra:postgresql",
+    "infra:nats",
+    "responses-runtime"
+  ]
 }

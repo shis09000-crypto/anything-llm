@@ -192,6 +192,7 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: scheduler
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
       SCHEDULER_PORT: 3014
     networks:
       - anything-llm
@@ -221,7 +222,7 @@ services:
       ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
       ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","scheduler":"https://anything-llm-scheduler:3014"}
+        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","scheduler":"https://anything-llm-scheduler:3014"}
     networks:
       - anything-llm
 
@@ -247,6 +248,8 @@ services:
       ATHENA_RUNTIME_ROLE: chat-runtime
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       CHAT_RUNTIME_PORT: 3016
+      ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
     networks:
@@ -275,6 +278,8 @@ services:
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_BROWSER_AGENT_ENABLED: "false"
       AGENT_RUNTIME_PORT: 3017
+      ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
     networks:
@@ -302,6 +307,40 @@ services:
       ATHENA_RUNTIME_ROLE: model-gateway
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       MODEL_GATEWAY_PORT: 3018
+    networks:
+      - anything-llm
+
+  anything-llm-responses-runtime:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: responses-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    depends_on:
+      anything-llm-model-gateway:
+        condition: service_healthy
+      anything-llm-key-custody:
+        condition: service_healthy
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: responses-runtime
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      RESPONSES_RUNTIME_PORT: 3034
     networks:
       - anything-llm
 

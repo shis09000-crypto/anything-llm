@@ -31,6 +31,10 @@ const RUNTIME_BINDINGS = Object.freeze({
   "chat-runtime": ["anything-llm-chat-runtime", "chat-runtime-build"],
   "agent-runtime": ["anything-llm-agent-runtime", "agent-runtime-build"],
   "model-gateway": ["anything-llm-model-gateway", "model-gateway-build"],
+  "responses-runtime": [
+    "anything-llm-responses-runtime",
+    "responses-runtime-build",
+  ],
   "tool-runtime": ["anything-llm-tool-broker", "tool-broker-build"],
   "crypto-market": ["anything-llm-crypto-market", "crypto-market-build"],
   "crypto-account-access": [

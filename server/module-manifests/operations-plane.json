@@ -8,12 +8,40 @@
   "owner": "sre",
   "criticality": "high",
   "runtimeRole": "operations-plane",
-  "sourcePaths": ["server/operations-plane.js", "server/endpoints/operations.js", "server/utils/operations/", "server/utils/observability/"],
-  "capabilities": ["semantic-events", "timeline", "state-graph", "deployment-guard", "module-health-probes", "cross-module-correlation"],
-  "routes": { "public": ["/api/operations/"], "internal": ["/internal/v1/operations/"] },
-  "rpc": { "provides": ["operations.catalog", "operations.guard"], "consumes": [] },
-  "events": { "publishes": ["operations.action.*"], "subscribes": ["*"] },
-  "data": { "schemas": [], "objectPrefixes": [] },
+  "sourcePaths": [
+    "server/operations-plane.js",
+    "server/endpoints/operations.js",
+    "server/utils/operations/",
+    "server/utils/observability/"
+  ],
+  "capabilities": [
+    "semantic-events",
+    "timeline",
+    "state-graph",
+    "deployment-guard",
+    "module-health-probes",
+    "cross-module-correlation"
+  ],
+  "routes": {
+    "public": ["/api/operations/"],
+    "internal": ["/internal/v1/operations/"]
+  },
+  "rpc": {
+    "provides": [
+      "operations.catalog",
+      "operations.guard",
+      "operations.ingest-batch"
+    ],
+    "consumes": []
+  },
+  "events": {
+    "publishes": ["operations.action.*"],
+    "subscribes": ["*"]
+  },
+  "data": {
+    "schemas": [],
+    "objectPrefixes": []
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/operations-plane",
     "keyDomains": ["audit"],
@@ -35,7 +63,8 @@
       "reader-worker",
       "scheduler",
       "sync-v2",
-      "tool-runtime"
+      "tool-runtime",
+      "responses-runtime"
     ],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 30000

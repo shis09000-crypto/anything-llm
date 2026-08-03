@@ -330,6 +330,20 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
   CMD curl --silent --fail --insecure "https://localhost:${MODEL_GATEWAY_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
+FROM backend-build AS responses-runtime-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=responses-runtime
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV RESPONSES_RUNTIME_PORT=3034
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${RESPONSES_RUNTIME_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
 FROM backend-build AS tool-broker-build
 WORKDIR /app
 ENV NODE_ENV=production

@@ -25,6 +25,11 @@ const {
 } = require("./utils/agents/aibitat/providers/factory");
 const { TASK_REGISTRY } = require("./utils/llmTasks/taskRegistry");
 const {
+  deepSeekResponsesComplete,
+  deepSeekResponsesStream,
+  validateProviderRequest,
+} = require("./utils/modelGateway/deepSeekResponses");
+const {
   MicroModuleServiceHost,
   installStandaloneShutdown,
   secureDatabaseStart,
@@ -91,6 +96,17 @@ function agentCompletionRequest(body = {}) {
   };
 }
 
+function responsesCompletionRequest(body = {}, stream = false) {
+  const input = validateProviderRequest({ ...body, stream });
+  const serialized = JSON.stringify(input.input);
+  if (Buffer.byteLength(serialized) > 1_500_000) {
+    const error = new Error("model_responses_input_too_large");
+    error.httpStatus = 413;
+    throw error;
+  }
+  return input;
+}
+
 const state = {
   accepting: true,
   activeCompletions: 0,
@@ -142,6 +158,25 @@ const host = new MicroModuleServiceHost({
       await new Promise((resolve) => setTimeout(resolve, 25));
   },
   registerRoutes: (app) => {
+    app.get(
+      "/internal/v1/models/responses/capabilities",
+      (_request, response) => {
+        const provider = getLLMProvider({
+          provider: "deepseek",
+          model: "deepseek-v4-flash",
+        });
+        const ready =
+          typeof provider?.openai?.responses?.create === "function" &&
+          typeof provider?.streamGetChatCompletion === "function";
+        response.json({
+          success: true,
+          ready,
+          provider: "deepseek",
+          models: ["deepseek-v4-flash"],
+          protocols: ["responses", "chat_completions"],
+        });
+      }
+    );
     app.get("/internal/v1/models/health", (_request, response) => {
       const provider = getLLMProvider({});
       const ready =
@@ -197,6 +232,47 @@ const host = new MicroModuleServiceHost({
       if (!response.destroyed)
         response.end(`${JSON.stringify({ end: true })}\n`);
     });
+    app.post(
+      "/internal/v1/models/responses/complete",
+      async (request, response) => {
+        const input = responsesCompletionRequest(request.body, false);
+        const result = await withCompletion(input, () =>
+          deepSeekResponsesComplete(input, {
+            providerFactory: (requestInput) =>
+              getLLMProvider({
+                provider: requestInput.provider,
+                model: requestInput.model,
+              }),
+          })
+        );
+        response.json({ success: true, result });
+      }
+    );
+    app.post(
+      "/internal/v1/models/responses/stream",
+      async (request, response) => {
+        const input = responsesCompletionRequest(request.body, true);
+        response.status(200);
+        response.setHeader("Content-Type", "application/x-ndjson");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.flushHeaders?.();
+        await withCompletion(input, async () => {
+          const stream = deepSeekResponsesStream(input, {
+            providerFactory: (requestInput) =>
+              getLLMProvider({
+                provider: requestInput.provider,
+                model: requestInput.model,
+              }),
+          });
+          for await (const event of stream) {
+            if (response.destroyed) break;
+            response.write(`${JSON.stringify({ event })}\n`);
+          }
+        });
+        if (!response.destroyed)
+          response.end(`${JSON.stringify({ end: true })}\n`);
+      }
+    );
     app.post(
       "/internal/v1/models/agent/complete",
       async (request, response) => {

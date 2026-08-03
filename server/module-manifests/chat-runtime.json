@@ -8,12 +8,55 @@
   "owner": "ai-platform",
   "criticality": "critical",
   "runtimeRole": "chat-runtime",
-  "sourcePaths": ["server/endpoints/chat.js", "server/utils/chats/", "server/models/chatStreamRun.js"],
-  "capabilities": ["context", "streaming", "durable-runs", "resume", "thread-memory"],
-  "routes": { "public": ["/api/workspace/:slug/chat"], "internal": ["/internal/v1/chat/runs", "/internal/v1/chat/runs/:id/drain", "/internal/v1/chat/memory/status", "/internal/v1/chat/memory/compact", "/internal/v1/chat/memory/context/resolve"] },
-  "rpc": { "provides": ["chat.submit", "chat.status", "chat.memory.status", "chat.memory.compact", "chat.memory.context.resolve"], "consumes": ["identity.assert", "key-custody.wrap", "key-custody.unwrap", "model.stream", "operations.ingest-batch", "rag.retrieve"] },
-  "events": { "publishes": ["chat.run.*"], "subscribes": ["model.stream.*", "rag.result.*"] },
-  "data": { "schemas": ["chat"], "objectPrefixes": ["chat/content"] },
+  "sourcePaths": [
+    "server/endpoints/chat.js",
+    "server/utils/chats/",
+    "server/models/chatStreamRun.js"
+  ],
+  "capabilities": [
+    "context",
+    "streaming",
+    "durable-runs",
+    "resume",
+    "thread-memory"
+  ],
+  "routes": {
+    "public": ["/api/workspace/:slug/chat"],
+    "internal": [
+      "/internal/v1/chat/runs",
+      "/internal/v1/chat/runs/:id/drain",
+      "/internal/v1/chat/memory/status",
+      "/internal/v1/chat/memory/compact",
+      "/internal/v1/chat/memory/context/resolve"
+    ]
+  },
+  "rpc": {
+    "provides": [
+      "chat.submit",
+      "chat.status",
+      "chat.memory.status",
+      "chat.memory.compact",
+      "chat.memory.context.resolve"
+    ],
+    "consumes": [
+      "identity.assert",
+      "key-custody.wrap",
+      "key-custody.unwrap",
+      "model.stream",
+      "operations.ingest-batch",
+      "rag.retrieve",
+      "responses.create",
+      "responses.stream"
+    ]
+  },
+  "events": {
+    "publishes": ["chat.run.*"],
+    "subscribes": ["model.stream.*", "rag.result.*"]
+  },
+  "data": {
+    "schemas": ["chat"],
+    "objectPrefixes": ["chat/content"]
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/chat-runtime",
     "keyDomains": ["data"],
@@ -29,5 +72,14 @@
     "availabilityTarget": 0.999,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "key-custody", "model-gateway", "rag", "sync-v2", "infra:postgresql", "infra:nats"]
+  "dependsOn": [
+    "authentication",
+    "key-custody",
+    "model-gateway",
+    "rag",
+    "sync-v2",
+    "infra:postgresql",
+    "infra:nats",
+    "responses-runtime"
+  ]
 }

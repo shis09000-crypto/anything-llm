@@ -8,12 +8,42 @@
   "owner": "platform",
   "criticality": "high",
   "runtimeRole": "scheduler",
-  "sourcePaths": ["server/scheduler.js", "server/utils/scheduler/", "server/endpoints/scheduledJobs.js", "server/jobs/run-scheduled-job.js", "server/models/scheduledJob.js"],
-  "capabilities": ["durable-jobs", "owner-binding", "preapproval", "checkpoint", "retry"],
-  "routes": { "public": ["/api/scheduled-jobs/"], "internal": ["/internal/v1/scheduler/jobs/", "/internal/drain"] },
-  "rpc": { "provides": ["scheduler.create", "scheduler.status"], "consumes": ["agent.submit", "tool.invoke"] },
-  "events": { "publishes": ["scheduler.run.*"], "subscribes": ["agent.run.*", "tool.invocation.*"] },
-  "data": { "schemas": ["scheduler"], "objectPrefixes": [] },
+  "sourcePaths": [
+    "server/scheduler.js",
+    "server/utils/scheduler/",
+    "server/endpoints/scheduledJobs.js",
+    "server/jobs/run-scheduled-job.js",
+    "server/models/scheduledJob.js"
+  ],
+  "capabilities": [
+    "durable-jobs",
+    "owner-binding",
+    "preapproval",
+    "checkpoint",
+    "retry"
+  ],
+  "routes": {
+    "public": ["/api/scheduled-jobs/"],
+    "internal": ["/internal/v1/scheduler/jobs/", "/internal/drain"]
+  },
+  "rpc": {
+    "provides": ["scheduler.create", "scheduler.status"],
+    "consumes": [
+      "agent.submit",
+      "tool.invoke",
+      "responses.background.claim",
+      "responses.background.execute",
+      "responses.maintenance"
+    ]
+  },
+  "events": {
+    "publishes": ["scheduler.run.*"],
+    "subscribes": ["agent.run.*", "tool.invocation.*"]
+  },
+  "data": {
+    "schemas": ["scheduler"],
+    "objectPrefixes": []
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/scheduler",
     "keyDomains": ["agent"],
@@ -29,5 +59,12 @@
     "availabilityTarget": 0.995,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "agent-runtime", "tool-runtime", "infra:postgresql", "infra:nats"]
+  "dependsOn": [
+    "authentication",
+    "agent-runtime",
+    "tool-runtime",
+    "infra:postgresql",
+    "infra:nats",
+    "responses-runtime"
+  ]
 }

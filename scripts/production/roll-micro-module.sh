@@ -17,6 +17,7 @@ case "$service" in
   anything-llm-chat-runtime) image_variable=ATHENA_PROD_CHAT_RUNTIME_IMAGE ;;
   anything-llm-agent-runtime) image_variable=ATHENA_PROD_AGENT_RUNTIME_IMAGE ;;
   anything-llm-model-gateway) image_variable=ATHENA_PROD_MODEL_GATEWAY_IMAGE ;;
+  anything-llm-responses-runtime) image_variable=ATHENA_PROD_RESPONSES_RUNTIME_IMAGE ;;
   anything-llm-tool-broker) image_variable=ATHENA_PROD_TOOL_BROKER_IMAGE ;;
   anything-llm-crypto-market) image_variable=ATHENA_PROD_CRYPTO_MARKET_IMAGE ;;
   anything-llm-crypto-account) image_variable=ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE ;;

@@ -52,6 +52,15 @@ function wrapWithModelGateway(
   delegate,
   { provider, model, env = process.env } = {}
 ) {
+  const {
+    wrapWithResponsesRuntime,
+  } = require("../responsesRuntime/chatAdapter");
+  const responsesDelegate = wrapWithResponsesRuntime(delegate, {
+    provider,
+    model,
+    env,
+  });
+  if (responsesDelegate !== delegate) return responsesDelegate;
   if (!gatewayEnabled(env)) return delegate;
   const baseUrl = String(env.ATHENA_MODEL_GATEWAY_URL).replace(/\/+$/, "");
   const callerRole = String(env.ATHENA_RUNTIME_ROLE);

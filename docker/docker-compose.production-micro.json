@@ -34,9 +34,7 @@
         "-c",
         "log_min_duration_statement=750"
       ],
-      "ports": [
-        "127.0.0.1:55432:5432"
-      ],
+      "ports": ["127.0.0.1:55432:5432"],
       "volumes": [
         "${ATHENA_PROD_STATE_DIR:?required}/postgresql:/var/lib/postgresql/data",
         "${ATHENA_PROD_REPO_DIR:?required}/docker/postgresql/init-athena.sh:/docker-entrypoint-initdb.d/10-athena.sh:ro"
@@ -50,9 +48,7 @@
         "timeout": "3s",
         "retries": 30
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "mem_limit": "640m"
     },
     "minio": {
@@ -69,9 +65,7 @@
         "${ATHENA_PROD_SECRETS_DIR:?required}/service-mtls/minio.key:/certs/private.key:ro",
         "${ATHENA_PROD_SECRETS_DIR:?required}/service-mtls/ca.pem:/certs/CAs/ca.pem:ro"
       ],
-      "ports": [
-        "127.0.0.1:59000:9000"
-      ],
+      "ports": ["127.0.0.1:59000:9000"],
       "healthcheck": {
         "test": [
           "CMD",
@@ -85,9 +79,7 @@
         "timeout": "3s",
         "retries": 30
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "mem_limit": "384m"
     },
     "minio-init": {
@@ -98,10 +90,7 @@
           "condition": "service_healthy"
         }
       },
-      "entrypoint": [
-        "/bin/sh",
-        "-ec"
-      ],
+      "entrypoint": ["/bin/sh", "-ec"],
       "command": [
         "mc alias set local https://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" --insecure; mc admin user add local \"$$AWS_ACCESS_KEY_ID\" \"$$AWS_SECRET_ACCESS_KEY\" --insecure || true; mc admin policy attach local readwrite --user \"$$AWS_ACCESS_KEY_ID\" --insecure; mc mb --with-lock --ignore-existing local/athena-production --insecure;"
       ],
@@ -111,9 +100,7 @@
         "AWS_ACCESS_KEY_ID": "${ATHENA_PROD_S3_ACCESS_KEY:?required}",
         "AWS_SECRET_ACCESS_KEY": "${ATHENA_PROD_S3_SECRET_KEY:?required}"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "volumes": []
     },
     "anything-llm-api": {
@@ -156,6 +143,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -275,9 +263,7 @@
         "ATHENA_IOS_HIGH_RISK_PQ_REQUIRED": "true",
         "ATHENA_API_INSTANCE_SLOT": "blue"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_API_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -334,6 +320,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -453,9 +440,7 @@
         "ATHENA_IOS_HIGH_RISK_PQ_REQUIRED": "true",
         "ATHENA_API_INSTANCE_SLOT": "green"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_API_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -479,9 +464,7 @@
         "${ATHENA_PROD_REPO_DIR:?required}/docker/preproduction/api-mtls-proxy.conf:/etc/nginx/nginx.conf:ro",
         "${ATHENA_PROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro"
       ],
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "environment": {},
       "mem_limit": "64m"
     },
@@ -505,14 +488,10 @@
         "ATHENA_KNOWLEDGE_INGEST_UPSTREAM": "https://anything-llm-knowledge-ingest:3027",
         "ATHENA_BROWSER_STREAM_UPSTREAM": "https://anything-llm-browser-worker:3031"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "nginx:1.27-alpine",
       "restart": "unless-stopped",
-      "ports": [
-        "127.0.0.1:3001:3000"
-      ],
+      "ports": ["127.0.0.1:3001:3000"],
       "healthcheck": {
         "test": [
           "CMD",
@@ -551,6 +530,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -651,9 +631,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_EDGE_PROBE_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -705,6 +683,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -812,9 +791,7 @@
         "ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE": "/run/secrets/agent-mldsa65-private.pem",
         "ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE": "/run/secrets/agent-mldsa65-public.pem"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_BACKGROUND_WORKER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -857,6 +834,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -956,9 +934,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_REALTIME_GATEWAY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1005,6 +981,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1104,9 +1081,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_READER_WORKER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1150,6 +1125,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1239,6 +1215,7 @@
         "ATHENA_MTLS_KEY_FILE": "/run/secrets/athena-mtls/scheduler.key",
         "ATHENA_NATS_NKEY_SEED_FILE": "/run/secrets/athena-nats/scheduler.nk",
         "ATHENA_NATS_CONSUMER_NAME": "production-scheduler",
+        "ATHENA_RESPONSES_RUNTIME_URL": "https://anything-llm-responses-runtime:3034",
         "STORAGE_DIR": "/app/server/storage",
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
@@ -1248,9 +1225,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_SCHEDULER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1295,6 +1270,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1389,7 +1365,7 @@
         "ATHENA_CLICKHOUSE_USER": "athena_ops",
         "ATHENA_CLICKHOUSE_PASSWORD_FILE": "/run/secrets/athena_clickhouse_password",
         "ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED": "true",
-        "ATHENA_MODULE_RUNTIME_ENDPOINTS": "{\"athena-api\":\"https://anything-llm-api:3024\",\"authentication\":\"https://anything-llm-identity:3026\",\"background-worker\":\"https://anything-llm-background-worker:3012\",\"chat-runtime\":\"https://anything-llm-chat-runtime:3016\",\"collector\":\"https://anything-llm-collector:8888\",\"crypto-account-access\":\"https://anything-llm-crypto-account:3021\",\"crypto-forecast\":\"https://anything-llm-crypto-forecast:3022\",\"crypto-market\":\"https://anything-llm-crypto-market:3020\",\"edge-web\":\"https://anything-llm-edge-probe:3025\",\"agent-runtime\":\"https://anything-llm-agent-runtime:3017\",\"key-custody\":\"https://anything-llm-key-custody:3023\",\"knowledge-ingest\":\"https://anything-llm-knowledge-ingest:3027\",\"model-gateway\":\"https://anything-llm-model-gateway:3018\",\"operations-shadow-agents\":\"https://anything-llm-operations-shadow-agents:3029\",\"rag\":\"https://anything-llm-rag:3028\",\"reader-worker\":\"https://anything-llm-reader-worker:3011\",\"browser-plane\":\"https://anything-llm-browser-plane:3030\",\"browser-worker\":\"https://anything-llm-browser-worker:3031\",\"scheduler\":\"https://anything-llm-scheduler:3014\",\"sync-v2\":\"https://anything-llm-realtime-gateway:3013\",\"tool-runtime\":\"https://anything-llm-tool-broker:3019\"}",
+        "ATHENA_MODULE_RUNTIME_ENDPOINTS": "{\"athena-api\":\"https://anything-llm-api:3024\",\"authentication\":\"https://anything-llm-identity:3026\",\"background-worker\":\"https://anything-llm-background-worker:3012\",\"chat-runtime\":\"https://anything-llm-chat-runtime:3016\",\"collector\":\"https://anything-llm-collector:8888\",\"crypto-account-access\":\"https://anything-llm-crypto-account:3021\",\"crypto-forecast\":\"https://anything-llm-crypto-forecast:3022\",\"crypto-market\":\"https://anything-llm-crypto-market:3020\",\"edge-web\":\"https://anything-llm-edge-probe:3025\",\"agent-runtime\":\"https://anything-llm-agent-runtime:3017\",\"key-custody\":\"https://anything-llm-key-custody:3023\",\"knowledge-ingest\":\"https://anything-llm-knowledge-ingest:3027\",\"model-gateway\":\"https://anything-llm-model-gateway:3018\",\"responses-runtime\":\"https://anything-llm-responses-runtime:3034\",\"operations-shadow-agents\":\"https://anything-llm-operations-shadow-agents:3029\",\"rag\":\"https://anything-llm-rag:3028\",\"reader-worker\":\"https://anything-llm-reader-worker:3011\",\"browser-plane\":\"https://anything-llm-browser-plane:3030\",\"browser-worker\":\"https://anything-llm-browser-worker:3031\",\"scheduler\":\"https://anything-llm-scheduler:3014\",\"sync-v2\":\"https://anything-llm-realtime-gateway:3013\",\"tool-runtime\":\"https://anything-llm-tool-broker:3019\"}",
         "STORAGE_DIR": "/app/server/storage",
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
@@ -1399,9 +1375,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_OPERATIONS_PLANE_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1448,6 +1422,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1537,6 +1512,8 @@
         "ATHENA_MTLS_KEY_FILE": "/run/secrets/athena-mtls/chat-runtime.key",
         "ATHENA_NATS_NKEY_SEED_FILE": "/run/secrets/athena-nats/chat-runtime.nk",
         "ATHENA_NATS_CONSUMER_NAME": "production-chat-runtime",
+        "ATHENA_RESPONSES_RUNTIME_CUTOVER": "${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}",
+        "ATHENA_RESPONSES_RUNTIME_URL": "https://anything-llm-responses-runtime:3034",
         "STORAGE_DIR": "/app/server/storage",
         "TRUST_PROXY": "true",
         "FORCE_HTTPS": "true",
@@ -1546,9 +1523,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_CHAT_RUNTIME_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1596,6 +1571,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1686,6 +1662,8 @@
         "ATHENA_NATS_NKEY_SEED_FILE": "/run/secrets/athena-nats/agent-runtime.nk",
         "ATHENA_NATS_CONSUMER_NAME": "production-agent-runtime",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
+        "ATHENA_RESPONSES_RUNTIME_CUTOVER": "${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}",
+        "ATHENA_RESPONSES_RUNTIME_URL": "https://anything-llm-responses-runtime:3034",
         "ATHENA_TOOL_BROKER_CUTOVER": "true",
         "ATHENA_TOOL_BROKER_URL": "https://anything-llm-tool-broker:3019",
         "STORAGE_DIR": "/app/server/storage",
@@ -1696,9 +1674,7 @@
         "NODE_ENV": "production",
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_AGENT_RUNTIME_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1742,6 +1718,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1840,9 +1817,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "false"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_MODEL_GATEWAY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -1851,6 +1826,157 @@
         "test": [
           "CMD-SHELL",
           "curl --silent --fail --insecure \"https://127.0.0.1:3018/ready\" >/dev/null"
+        ],
+        "interval": "15s",
+        "timeout": "5s",
+        "start_period": "45s",
+        "retries": 20
+      },
+      "mem_limit": "256m"
+    },
+    "anything-llm-responses-runtime": {
+      "depends_on": {
+        "postgresql": {
+          "condition": "service_healthy"
+        },
+        "anything-llm-key-custody": {
+          "condition": "service_healthy"
+        },
+        "anything-llm-model-gateway": {
+          "condition": "service_healthy"
+        }
+      },
+      "volumes": [
+        "${ATHENA_PROD_RUNTIME_ENV:?required}:/app/server/.env:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro",
+        "${ATHENA_PROD_STORAGE_DIR:?required}:/app/server/storage:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/nats:/run/secrets/athena-nats:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/nats-subject-key:/run/secrets/athena_nats_subject_key:ro",
+        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/metrics-token:/run/secrets/athena_metrics_token:ro"
+      ],
+      "environment": {
+        "APP_ENV": "production",
+        "ATHENA_RUNTIME_TOPOLOGY": "micro-modules",
+        "ATHENA_DATABASE_PROVIDER": "postgresql",
+        "ATHENA_POSTGRES_MAIN_URL": "postgresql://athena_main_api:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main",
+        "ATHENA_POSTGRES_AUTH_URL": "postgresql://athena_auth_api:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth",
+        "ATHENA_POSTGRES_MAIN_MIGRATION_URL": "postgresql://athena_main_migrator:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main",
+        "ATHENA_POSTGRES_AUTH_MIGRATION_URL": "postgresql://athena_auth_migrator:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth",
+        "ATHENA_WORKSPACE_DATABASE_URL": "postgresql://athena_workspace:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_CRYPTO_FORECAST_DATABASE_URL": "postgresql://athena_crypto_forecast:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_BROWSER_DATABASE_URL": "postgresql://athena_browser_plane:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RAG_DATABASE_URL": "postgresql://athena_knowledge_query:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_INGEST_DATABASE_URL": "postgresql://athena_knowledge_ingest:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_READER_DATABASE_URL": "postgresql://athena_knowledge_reader:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_BACKGROUND_DATABASE_URL": "postgresql://athena_maintenance:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_MAINTENANCE_DATABASE_URL": "postgresql://athena_maintenance:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_SCHEDULER_DATABASE_URL": "postgresql://athena_scheduler:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_SYNC_DATABASE_URL": "postgresql://athena_sync:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_MAIN_OBSERVER_DATABASE_URL": "postgresql://athena_main_observer:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_IDENTITY_MAIN_DATABASE_URL": "postgresql://athena_identity:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_KEY_CUSTODY_MAIN_DATABASE_URL": "postgresql://athena_key_custody:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_IDENTITY_DATABASE_URL": "postgresql://athena_identity:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth?schema=public",
+        "ATHENA_KEY_CUSTODY_DATABASE_URL": "postgresql://athena_key_custody:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth?schema=public",
+        "ATHENA_AUTH_OBSERVER_DATABASE_URL": "postgresql://athena_auth_observer:${ATHENA_PROD_POSTGRES_AUTH_PASSWORD:?required}@postgresql:5432/athena_auth?schema=public",
+        "ATHENA_MODULE_SCHEMA_CUTOVER": "true",
+        "ATHENA_SHARED_STORAGE_CUTOVER": "true",
+        "ATHENA_SQLITE_RUNTIME_FALLBACK": "false",
+        "ATHENA_BROADCAST_TRANSPORT": "nats",
+        "ATHENA_MEMORY_TRANSPORT_FALLBACK": "false",
+        "ATHENA_NATS_SERVERS": "tls://nats:4222",
+        "ATHENA_NATS_TLS_CA_FILE": "/run/secrets/athena-mtls/ca.pem",
+        "ATHENA_NATS_TLS_SERVER_NAME": "athena-production-nats",
+        "ATHENA_NATS_SUBJECT_KEY_FILE": "/run/secrets/athena_nats_subject_key",
+        "ATHENA_CONTENT_STORE": "s3",
+        "ATHENA_S3_BUCKET": "athena-production",
+        "ATHENA_S3_PREFIX": "athena/content-objects",
+        "ATHENA_S3_ENDPOINT": "https://minio:9000",
+        "ATHENA_S3_REGION": "us-east-1",
+        "ATHENA_S3_FORCE_PATH_STYLE": "true",
+        "AWS_ACCESS_KEY_ID": "${ATHENA_PROD_S3_ACCESS_KEY:?required}",
+        "AWS_SECRET_ACCESS_KEY": "${ATHENA_PROD_S3_SECRET_KEY:?required}",
+        "NODE_EXTRA_CA_CERTS": "/run/secrets/athena-mtls/ca.pem",
+        "ATHENA_SERVICE_MTLS_REQUIRED": "true",
+        "ATHENA_MTLS_CA_FILE": "/run/secrets/athena-mtls/ca.pem",
+        "ATHENA_READER_WORKER_QUEUE": "true",
+        "ATHENA_READER_WORKER_FALLBACK_IN_PROCESS": "false",
+        "ATHENA_STRICT_READY": "true",
+        "ATHENA_REQUIRE_NODE24_PQ_PROBE": "true",
+        "ATHENA_PQ_RUNTIME_EXPECTED_CAPABILITIES": "ml_kem_768,ml_dsa_65,encapsulation_api,classical_provider_baseline",
+        "ATHENA_KEY_CUSTODY_CUTOVER": "true",
+        "ATHENA_KEY_CUSTODY_URL": "https://anything-llm-key-custody:3023",
+        "ATHENA_OPERATIONS_ENABLED": "true",
+        "ATHENA_OPERATIONS_PLANE_INLINE": "false",
+        "ATHENA_OPERATIONS_INTERNAL_URL": "https://anything-llm-operations-plane:3015",
+        "ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE": "false",
+        "ATHENA_OPERATIONS_SHADOW_AGENTS_URL": "https://anything-llm-operations-shadow-agents:3029",
+        "ATHENA_IDENTITY_URL": "https://anything-llm-identity:3026",
+        "ATHENA_KNOWLEDGE_INGEST_URL": "https://anything-llm-knowledge-ingest:3027",
+        "ATHENA_RAG_CUTOVER": "true",
+        "ATHENA_RAG_URL": "https://anything-llm-rag:3028",
+        "ATHENA_BROWSER_PLANE_URL": "https://anything-llm-browser-plane:3030",
+        "ATHENA_BROWSER_WORKER_URL": "https://anything-llm-browser-worker:3031",
+        "ATHENA_BROWSER_AGENT_ENABLED": "false",
+        "ATHENA_OPERATIONS_HEARTBEAT_ENABLED": "true",
+        "ATHENA_OPERATIONS_HEARTBEAT_MS": "60000",
+        "ATHENA_OPERATIONS_PRODUCER_STALE_MS": "180000",
+        "ATHENA_OPERATIONS_MODULE_POLL_MS": "15000",
+        "ATHENA_OPERATIONS_MODULE_TIMEOUT_MS": "5000",
+        "ATHENA_METRICS_TOKEN_FILE": "/run/secrets/athena_metrics_token",
+        "ATHENA_PLUGIN_CAPABILITY_HYBRID_REQUIRED": "true",
+        "ATHENA_PLUGIN_CAPABILITY_ED25519_KEY_ID": "production-ed25519",
+        "ATHENA_PLUGIN_CAPABILITY_ED25519_PRIVATE_KEY_FILE": "/run/secrets/athena-capability/ed25519-private.pem",
+        "ATHENA_PLUGIN_CAPABILITY_ED25519_PUBLIC_KEY_FILE": "/run/secrets/athena-capability/ed25519-public.pem",
+        "ATHENA_PLUGIN_CAPABILITY_MLDSA65_KEY_ID": "production-mldsa65",
+        "ATHENA_PLUGIN_CAPABILITY_MLDSA65_PRIVATE_KEY_FILE": "/run/secrets/athena-capability/mldsa65-private.pem",
+        "ATHENA_PLUGIN_CAPABILITY_MLDSA65_PUBLIC_KEY_FILE": "/run/secrets/athena-capability/mldsa65-public.pem",
+        "AUTH_TOKEN": "${ATHENA_PROD_AUTH_TOKEN:?required}",
+        "JWT_SECRET": "${ATHENA_PROD_JWT_SECRET:?required}",
+        "SIG_KEY": "${ATHENA_PROD_SIG_KEY:?required}",
+        "SIG_SALT": "${ATHENA_PROD_SIG_SALT:?required}",
+        "ATHENA_SESSION_V2": "true",
+        "ATHENA_SESSION_V2_REQUIRE_MULTI": "true",
+        "ATHENA_REALTIME_REQUIRE_SESSION": "true",
+        "ATHENA_REALTIME_TICKET_STORE": "database",
+        "PUBLIC_APP_URL": "https://athenallm.online",
+        "ATHENA_ALLOWED_ORIGINS": "https://athenallm.online",
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
+        "ATHENA_OTEL_HEALTH_URL": "http://otel-collector:9464/metrics",
+        "ATHENA_MODEL_GATEWAY_URL": "https://anything-llm-model-gateway:3018",
+        "ATHENA_RUNTIME_ROLE": "responses-runtime",
+        "ATHENA_SERVICE_ID": "spiffe://athena/production/responses-runtime",
+        "ATHENA_MTLS_CERT_FILE": "/run/secrets/athena-mtls/responses-runtime.pem",
+        "ATHENA_MTLS_KEY_FILE": "/run/secrets/athena-mtls/responses-runtime.key",
+        "ATHENA_NATS_NKEY_SEED_FILE": "/run/secrets/athena-nats/responses-runtime.nk",
+        "ATHENA_NATS_CONSUMER_NAME": "production-responses-runtime",
+        "ATHENA_CHAT_RUNTIME_URL": "https://anything-llm-chat-runtime:3016",
+        "RESPONSES_RUNTIME_PORT": "3034",
+        "STORAGE_DIR": "/app/server/storage",
+        "TRUST_PROXY": "true",
+        "FORCE_HTTPS": "true",
+        "ATHENA_PASSWORD_PEPPER_FILE": "/run/secrets/athena_password_pepper",
+        "COLLECTOR_ENDPOINT": "https://anything-llm-collector:8888",
+        "NODE_ENV": "production",
+        "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
+        "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
+      },
+      "networks": ["production"],
+      "image": "${ATHENA_PROD_RESPONSES_RUNTIME_IMAGE:?required}",
+      "init": true,
+      "stop_grace_period": "120s",
+      "restart": "unless-stopped",
+      "healthcheck": {
+        "test": [
+          "CMD-SHELL",
+          "curl --silent --fail --insecure \"https://127.0.0.1:3034/ready\" >/dev/null"
         ],
         "interval": "15s",
         "timeout": "5s",
@@ -1887,6 +2013,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -1986,9 +2113,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_TOOL_BROKER_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2027,6 +2152,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -2125,9 +2251,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_CRYPTO_MARKET_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2175,6 +2299,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -2274,9 +2399,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2320,6 +2443,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -2424,9 +2548,7 @@
       "tmpfs": [
         "/tmp/athena-crypto-forecast-cache:rw,nosuid,nodev,noexec,size=512m,mode=0700,uid=1000,gid=1000"
       ],
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_CRYPTO_FORECAST_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2473,6 +2595,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -2578,9 +2701,7 @@
         "ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE": "/run/secrets/audit-mldsa65-public.pem",
         "ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION": "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:?required}"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_KEY_CUSTODY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2627,6 +2748,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -2726,9 +2848,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_IDENTITY_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2780,6 +2900,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -2879,9 +3000,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_KNOWLEDGE_INGEST_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -2931,6 +3050,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -3030,9 +3150,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_RAG_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -3071,6 +3189,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -3171,9 +3290,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_OPERATIONS_SHADOW_AGENTS_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -3222,6 +3339,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -3321,9 +3439,7 @@
         "ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER": "true",
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_BROWSER_PLANE_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
@@ -3347,12 +3463,8 @@
         }
       },
       "init": true,
-      "cap_drop": [
-        "ALL"
-      ],
-      "cap_add": [
-        "SYS_CHROOT"
-      ],
+      "cap_drop": ["ALL"],
+      "cap_add": ["SYS_CHROOT"],
       "security_opt": [
         "no-new-privileges:true",
         "seccomp=./playwright-seccomp-profile.json"
@@ -3379,6 +3491,7 @@
         "ATHENA_CHAT_DATABASE_URL": "postgresql://athena_chat:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_AGENT_DATABASE_URL": "postgresql://athena_agent:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_MODEL_DATABASE_URL": "postgresql://athena_model_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
+        "ATHENA_RESPONSES_DATABASE_URL": "postgresql://athena_responses_runtime:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_TOOL_DATABASE_URL": "postgresql://athena_tools:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_MARKET_DATABASE_URL": "postgresql://athena_crypto_market:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
         "ATHENA_CRYPTO_ACCOUNT_DATABASE_URL": "postgresql://athena_crypto_account:${ATHENA_PROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public",
@@ -3483,9 +3596,7 @@
         "ATHENA_MODEL_GATEWAY_CUTOVER": "true",
         "BROWSER_WORKER_MEMORY_ADMISSION_MODE": "cgroup-isolated"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_BROWSER_WORKER_IMAGE:?required}",
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
@@ -3543,17 +3654,13 @@
         "ATHENA_PLUGIN_CAPABILITY_ED25519_KEY_ID": "production-ed25519",
         "ATHENA_PLUGIN_CAPABILITY_MLDSA65_KEY_ID": "production-mldsa65"
       },
-      "networks": [
-        "production"
-      ],
+      "networks": ["production"],
       "image": "${ATHENA_PROD_COLLECTOR_IMAGE:?required}",
       "init": true,
       "stop_grace_period": "120s",
       "restart": "unless-stopped",
       "mem_limit": "384m",
-      "cap_add": [
-        "SYS_ADMIN"
-      ],
+      "cap_add": ["SYS_ADMIN"],
       "healthcheck": {
         "test": [
           "CMD-SHELL",
@@ -3581,9 +3688,7 @@
         "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/metrics-token:/run/secrets/athena_metrics_token:ro",
         "prometheus-data:/prometheus"
       ],
-      "ports": [
-        "127.0.0.1:59090:9090"
-      ],
+      "ports": ["127.0.0.1:59090:9090"],
       "healthcheck": {
         "test": [
           "CMD",
@@ -3599,9 +3704,7 @@
         "retries": 30
       },
       "mem_limit": "256m",
-      "networks": [
-        "production"
-      ]
+      "networks": ["production"]
     }
   }
 }

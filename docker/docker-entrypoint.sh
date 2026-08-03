@@ -125,6 +125,14 @@ run_model_gateway() {
     exec node /app/server/model-gateway.js
 }
 
+run_responses_runtime() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/responses-runtime.js
+}
+
 run_tool_broker() {
   cd /app/server/ &&
     verify_crypto_runtime &&
@@ -255,6 +263,9 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   model-gateway)
     run_model_gateway
+    ;;
+  responses-runtime)
+    run_responses_runtime
     ;;
   tool-broker)
     run_tool_broker

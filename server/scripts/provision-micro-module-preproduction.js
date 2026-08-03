@@ -27,6 +27,7 @@ const physicalRoles = Object.freeze([
   ["chat-runtime", "anything-llm-chat-runtime"],
   ["agent-runtime", "anything-llm-agent-runtime"],
   ["model-gateway", "anything-llm-model-gateway"],
+  ["responses-runtime", "anything-llm-responses-runtime"],
   ["tool-broker", "anything-llm-tool-broker"],
   ["crypto-market", "anything-llm-crypto-market"],
   ["crypto-account", "anything-llm-crypto-account"],

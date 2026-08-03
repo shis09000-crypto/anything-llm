@@ -2022,6 +2022,117 @@ model agent_run_events {
   @@index([runId, createdAt])
 }
 
+model responses_conversations {
+  id                    String    @id
+  scopeKey              String    @unique
+  workspaceId           Int?
+  threadId              Int?
+  agentRunId            String?
+  ownerUserId           Int?
+  currentHeadResponseId String?
+  status                String    @default("active")
+  createdAt             DateTime  @default(now())
+  lastUpdatedAt         DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  @@index([workspaceId, threadId])
+  @@index([agentRunId])
+  @@index([status, lastUpdatedAt])
+}
+
+model responses {
+  id                    String    @id
+  conversationId        String?
+  previousResponseId    String?
+  chatRunId             String?
+  agentRunId            String?
+  ownerUserId           Int?
+  idempotencyKey        String?   @unique
+  taskPriority          String    @default("P2")
+  taskIntent            String?
+  provider              String
+  model                 String
+  requestedProtocol     String    @default("responses")
+  effectiveProtocol     String?
+  degradedReason        String?
+  status                String    @default("queued")
+  background            Boolean   @default(false)
+  store                 Boolean   @default(true)
+  inputHash             String
+  branchReason          String?
+  usageJson             String?
+  resultSha256          String?
+  errorCode             String?
+  leaseOwner            String?
+  leaseExpiresAt        DateTime?
+  cancelRequestedAt     DateTime?
+  createdAt             DateTime  @default(now())
+  completedAt           DateTime?
+  expiresAt             DateTime?
+  contentPrunedAt       DateTime?
+  lastUpdatedAt         DateTime  @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([previousResponseId])
+  @@index([chatRunId])
+  @@index([agentRunId])
+  @@index([status, background, leaseExpiresAt])
+  @@index([expiresAt])
+  @@index([contentPrunedAt])
+}
+
+model response_items {
+  id                String   @id
+  responseId        String
+  sequence          Int
+  itemType          String
+  role              String?
+  callId            String?
+  status            String?
+  payloadCiphertext String
+  payloadHash       String
+  createdAt         DateTime @default(now())
+
+  @@unique([responseId, sequence])
+  @@index([responseId, createdAt])
+  @@index([callId])
+}
+
+model response_events {
+  id                Int      @id @default(autoincrement())
+  responseId        String
+  sequence          Int
+  eventType         String
+  payloadCiphertext String
+  payloadHash       String
+  createdAt         DateTime @default(now())
+
+  @@unique([responseId, sequence])
+  @@index([responseId, createdAt])
+}
+
+model response_checkpoints {
+  id              Int      @id @default(autoincrement())
+  responseId      String   @unique
+  stateCiphertext String
+  stateHash       String
+  createdAt       DateTime @default(now())
+  lastUpdatedAt   DateTime @updatedAt
+}
+
+model response_compactions {
+  id                String   @id
+  conversationId    String
+  throughResponseId String
+  sourceCapsuleId   String?
+  payloadCiphertext String
+  payloadHash       String
+  createdAt         DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([throughResponseId])
+}
+
 model tool_invocations {
   id                  String    @id @default(uuid())
   approvalRequestId   String    @unique

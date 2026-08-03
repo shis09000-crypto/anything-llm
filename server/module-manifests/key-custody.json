@@ -44,7 +44,10 @@
     "publishes": ["key-custody.rotation.*", "key-custody.quarantine.*"],
     "subscribes": []
   },
-  "data": { "schemas": ["key_custody"], "objectPrefixes": [] },
+  "data": {
+    "schemas": ["key_custody"],
+    "objectPrefixes": []
+  },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/key-custody",
     "keyDomains": [
@@ -71,7 +74,8 @@
       "background-worker",
       "reader-worker",
       "scheduler",
-      "sync-v2"
+      "sync-v2",
+      "responses-runtime"
     ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 10000
