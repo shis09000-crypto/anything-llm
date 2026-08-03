@@ -43,6 +43,7 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "identity.session.validate",
       "model.stream",
       "responses.create",
       "responses.stream",
@@ -313,6 +314,22 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.session.validate",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/identity.session.validate/request/1.0",
+        "responseSchema": "athena://contracts/identity.session.validate/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
         "dataClassification": "confidential"
       },
       {

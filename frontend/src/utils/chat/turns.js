@@ -396,13 +396,17 @@ function shouldRemoveTransientAssistantTurn(
 ) {
   if (!isAssistantTurn(turn) || turn.chatId) return false;
   const hasMeaningfulOutput = hasMeaningfulTransientAssistantOutput(turn);
-  if (turn.status === TURN_STATUSES.failed) return !hasMeaningfulOutput;
-  if (turn.reconnectState === "failed") return !hasMeaningfulOutput;
+  if (turn.status === TURN_STATUSES.failed) {
+    return options.removeFailed === true && !hasMeaningfulOutput;
+  }
+  if (turn.reconnectState === "failed") {
+    return options.removeFailed === true && !hasMeaningfulOutput;
+  }
   if (
     turn.status === TURN_STATUSES.interrupted ||
     turn.reconnectState === "offer"
   ) {
-    return !hasMeaningfulOutput;
+    return options.removeInterrupted === true && !hasMeaningfulOutput;
   }
   if (turn.status !== TURN_STATUSES.running) return false;
   if (options.removeRunning === false) return false;

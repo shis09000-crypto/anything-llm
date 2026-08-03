@@ -67,6 +67,27 @@ describe("AicpContractRegistry", () => {
     }
   });
 
+  test.each(["chat-runtime", "agent-runtime"])(
+    "%s declares the Identity session validation dependency",
+    (callerModule) => {
+      const registry = new AicpContractRegistry();
+      expect(
+        registry.negotiate({
+          callerModule,
+          targetModule: "authentication",
+          capability: "identity.session.validate",
+          version: "1.0",
+          callType: "Query",
+        })
+      ).toMatchObject({
+        state: "negotiated",
+        callerModule,
+        targetModule: "authentication",
+        capability: "identity.session.validate",
+      });
+    }
+  );
+
   test("negotiates legacy v1.0 RPC declarations during rolling migration", () => {
     const registry = new AicpContractRegistry({
       manifests: () => [

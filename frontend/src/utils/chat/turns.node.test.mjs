@@ -41,16 +41,27 @@ function localTurn({
   return { user, assistant, items: [user, assistant] };
 }
 
-test("cleanup removes empty failed transient turn with its local user", () => {
+test("cleanup retains an empty failed turn and its user prompt by default", () => {
   const { items } = localTurn({ status: TURN_STATUSES.failed });
   const result = cleanupTransientDraftItems(items, { removeRunning: false });
+
+  assert.equal(result.items.length, 2);
+  assert.deepEqual(result.removedTurnIds, []);
+});
+
+test("explicit failed-turn cleanup removes the assistant and local user", () => {
+  const { items } = localTurn({ status: TURN_STATUSES.failed });
+  const result = cleanupTransientDraftItems(items, {
+    removeRunning: false,
+    removeFailed: true,
+  });
 
   assert.deepEqual(result.items, []);
   assert.deepEqual(result.removedTurnIds, ["turn:local"]);
   assert.equal(result.removedTurns[0].status, TURN_STATUSES.failed);
 });
 
-test("cleanup removes empty interrupted reconnect offer", () => {
+test("explicit interrupted-turn cleanup removes an empty reconnect offer", () => {
   const { items } = localTurn({
     status: TURN_STATUSES.interrupted,
     reconnectState: "offer",
@@ -61,7 +72,10 @@ test("cleanup removes empty interrupted reconnect offer", () => {
       },
     ],
   });
-  const result = cleanupTransientDraftItems(items, { removeRunning: false });
+  const result = cleanupTransientDraftItems(items, {
+    removeRunning: false,
+    removeInterrupted: true,
+  });
 
   assert.deepEqual(result.items, []);
   assert.deepEqual(result.removedTurnIds, ["turn:local"]);
