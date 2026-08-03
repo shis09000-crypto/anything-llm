@@ -719,6 +719,8 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
   const limitTokens = Number(status?.limitTokens || 0);
   const safeRatio = clampRatio(status?.ratio);
   const compactableMessageCount = Number(status?.compactableMessageCount || 0);
+  const coveredMessageCount = Number(status?.coveredMessageCount || 0);
+  const newRawMessageCount = Number(status?.newRawMessageCount || 0);
   const targetCompactableMessageCount = Number(
     status?.targetCompactableMessageCount ?? compactableMessageCount
   );
@@ -917,6 +919,12 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
               <span>目标可压缩消息</span>
               <span>{degraded ? "--" : targetCompactableMessageCount}</span>
             </div>
+            {!degraded && status?.state === "active" && (
+              <div className="mt-2 flex items-center justify-between text-xs text-white/55 light:text-slate-500">
+                <span>已压缩 {coveredMessageCount} 条</span>
+                <span>压缩后新增 {newRawMessageCount} 条</span>
+              </div>
+            )}
             {!degraded &&
               latestTargetResult?.targetReached === false &&
               latestTargetResult?.ratioAfterCompact !== undefined && (

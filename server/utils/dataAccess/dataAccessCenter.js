@@ -1568,6 +1568,7 @@ const workspaceChatCompaction = {
       latest: "read",
       create: "write",
       where: "read",
+      countAfter: "read",
       deleteForScope: "write",
     },
     workspaceChatCompactionScopeFromArgs

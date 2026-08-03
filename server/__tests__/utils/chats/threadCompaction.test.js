@@ -2,6 +2,7 @@ const mockWorkspaceChatsWhere = jest.fn();
 const mockWorkspaceChatsCount = jest.fn();
 const mockLatest = jest.fn();
 const mockCompactionWhere = jest.fn();
+const mockCompactionCountAfter = jest.fn();
 const mockCreate = jest.fn();
 const mockGetLLMProvider = jest.fn();
 
@@ -39,6 +40,7 @@ jest.mock("../../../models/workspaceChatCompaction", () => ({
     normalizeScope: mockNormalizeScope,
     latest: mockLatest,
     where: mockCompactionWhere,
+    countAfter: mockCompactionCountAfter,
     create: mockCreate,
   },
 }));
@@ -99,6 +101,7 @@ describe("Thread compaction memory", () => {
     mockWorkspaceChatsCount.mockResolvedValue(1);
     mockLatest.mockResolvedValue(null);
     mockCompactionWhere.mockResolvedValue([]);
+    mockCompactionCountAfter.mockResolvedValue(0);
     mockCreate.mockImplementation(async (row) => ({ id: 123, ...row }));
     mockGetLLMProvider.mockReturnValue({
       model: "gpt-4o",
@@ -280,6 +283,7 @@ describe("Thread compaction memory", () => {
     mockCompactionWhere.mockResolvedValue(
       Array.from({ length: 13 }, (_, index) => chat(2254 + index))
     );
+    mockCompactionCountAfter.mockResolvedValue(13);
     const {
       getThreadCompactionStatus,
     } = require("../../../utils/chats/threadCompaction");

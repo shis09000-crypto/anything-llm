@@ -372,6 +372,30 @@ const WorkspaceChatCompaction = {
     }
   },
 
+  async countAfter(scope = {}, { afterChatId = null } = {}) {
+    await ensureTable().catch((error) => {
+      throw threadMemoryError(error, "store");
+    });
+    const scoped = chatScopeWhere(scope, "wc");
+    const params = [...scoped.params];
+    const clauses = [scoped.where];
+    if (afterChatId !== null) {
+      clauses.push(`wc."id" > ?`);
+      params.push(Number(afterChatId));
+    }
+    try {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) AS "count"
+        FROM "workspace_chats" wc
+        WHERE ${clauses.join(" AND ")}`,
+        ...params
+      );
+      return Number(rows?.[0]?.count || 0);
+    } catch (error) {
+      throw threadMemoryError(error, "store");
+    }
+  },
+
   async deleteForScope(scope = {}) {
     await ensureTable();
     const scoped = scopeWhere(scope);

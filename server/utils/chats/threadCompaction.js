@@ -1690,6 +1690,9 @@ async function computeThreadCompactionStatus({ workspace, scope } = {}) {
     limit: null,
     orderBy: "asc",
   });
+  const newRawMessageCount = await WorkspaceChatCompaction.countAfter(scope, {
+    afterChatId: latest?.covered_to_chat_id || null,
+  });
   const keepCount = Math.max(1, Number(config.keepRecentMessages || 10));
   const compactable =
     rawHistory.length > keepCount ? rawHistory.slice(0, -keepCount) : [];
@@ -1731,7 +1734,8 @@ async function computeThreadCompactionStatus({ workspace, scope } = {}) {
     compactionId: latest?.id || null,
     coveredMessageCount: Number(latest?.covered_message_count || 0),
     coveredToChatId: latest?.covered_to_chat_id || null,
-    newRawMessageCount: rawHistory.length,
+    newRawMessageCount,
+    newIncludedMessageCount: rawHistory.length,
     targetRatio: budgets.targetRatio,
     targetTokens: budgets.targetTokens,
     targetBase: budgets.targetBase,

@@ -123,4 +123,30 @@ describe("WorkspaceChatCompaction encryption", () => {
     expect(latestSql).not.toContain('AS "created_at"');
     expect(row.id).toBe(14);
   });
+
+  it("counts every persisted post-compaction chat without filtering include", async () => {
+    mockPrisma.$queryRawUnsafe.mockImplementation(async (sql) =>
+      String(sql).includes("SELECT COUNT(*)") ? [{ count: BigInt(13) }] : []
+    );
+    const {
+      WorkspaceChatCompaction,
+    } = require("../../models/workspaceChatCompaction");
+
+    const count = await WorkspaceChatCompaction.countAfter(
+      {
+        workspace_id: 10,
+        user_id: 20,
+        thread_id: 30,
+        api_session_id: null,
+      },
+      { afterChatId: 2253 }
+    );
+    const countSql = mockPrisma.$queryRawUnsafe.mock.calls
+      .map(([sql]) => String(sql))
+      .find((sql) => sql.includes("SELECT COUNT(*)"));
+
+    expect(count).toBe(13);
+    expect(countSql).toContain('wc."id" > ?');
+    expect(countSql).not.toContain('wc."include" = TRUE');
+  });
 });
