@@ -283,7 +283,11 @@ function getVectorDbClass(getExactly = null) {
  * @param {{provider: string | null, model: string | null} | null} params - Initialize params for LLMs provider
  * @returns {BaseLLMProvider}
  */
-function getLocalLLMProvider({ provider = null, model = null } = {}) {
+function getLocalLLMProvider({
+  provider = null,
+  model = null,
+  credentialMode = "local",
+} = {}) {
   const LLMSelection = provider ?? process.env.LLM_PROVIDER ?? "openai";
   const embedder = getEmbeddingEngineSelection();
 
@@ -350,7 +354,7 @@ function getLocalLLMProvider({ provider = null, model = null } = {}) {
       return new AWSBedrockLLM(embedder, model);
     case "deepseek":
       const { DeepSeekLLM } = require("../AiProviders/deepseek");
-      return new DeepSeekLLM(embedder, model);
+      return new DeepSeekLLM(embedder, model, { credentialMode });
     case "apipie":
       const { ApiPieLLM } = require("../AiProviders/apipie");
       return new ApiPieLLM(embedder, model);
@@ -406,11 +410,31 @@ function getLocalLLMProvider({ provider = null, model = null } = {}) {
 }
 
 function getLLMProvider({ provider = null, model = null } = {}) {
-  const delegate = getLocalLLMProvider({ provider, model });
-  const { wrapWithModelGateway } = require("../modelGateway/remoteProvider");
+  const resolvedProvider = provider ?? process.env.LLM_PROVIDER ?? "openai";
+  const resolvedModel = model ?? null;
+  const {
+    gatewayEnabled,
+    wrapWithModelGateway,
+  } = require("../modelGateway/remoteProvider");
+  const {
+    enabled: responsesRuntimeEnabled,
+  } = require("../responsesRuntime/chatAdapter");
+  const remoteExecution =
+    resolvedProvider === "deepseek" &&
+    (responsesRuntimeEnabled({
+      provider: resolvedProvider,
+      model: resolvedModel,
+      env: process.env,
+    }) ||
+      gatewayEnabled(process.env));
+  const delegate = getLocalLLMProvider({
+    provider: resolvedProvider,
+    model: resolvedModel,
+    credentialMode: remoteExecution ? "remote" : "local",
+  });
   return wrapWithModelGateway(delegate, {
-    provider: provider ?? process.env.LLM_PROVIDER ?? "openai",
-    model: model ?? delegate.model ?? null,
+    provider: resolvedProvider,
+    model: resolvedModel ?? delegate.model ?? null,
   });
 }
 

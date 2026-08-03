@@ -36,6 +36,7 @@ const {
   deepSeekPromptCacheDiagnostics,
   withDeepSeekCacheDiagnosis,
 } = require("../../../utils/AiProviders/deepseek");
+const { getLLMProvider } = require("../../../utils/helpers");
 
 describe("DeepSeekLLM", () => {
   const originalEnv = { ...process.env };
@@ -58,6 +59,54 @@ describe("DeepSeekLLM", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  it("builds a credentialless prompt contract for remote model execution", () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash", {
+      credentialMode: "remote",
+    });
+
+    expect(llm.openai).toBeNull();
+    expect(llm.credentialMode).toBe("remote");
+    expect(llm.promptWindowLimit()).toBe(1_000_000);
+    expect(
+      llm.constructPrompt({
+        systemPrompt: "system",
+        userPrompt: "hello",
+      })
+    ).toEqual([
+      { role: "system", content: "system" },
+      { role: "user", content: "hello" },
+    ]);
+  });
+
+  it("still requires a credential for direct provider execution", () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    expect(() => new DeepSeekLLM(null, "deepseek-v4-flash")).toThrow(
+      "No DeepSeek API key was set."
+    );
+  });
+
+  it("selects the Responses Runtime before constructing a local credentialed client", () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    process.env.ATHENA_RUNTIME_ROLE = "chat-runtime";
+    process.env.ATHENA_RESPONSES_RUNTIME_CUTOVER = "true";
+    process.env.ATHENA_RESPONSES_RUNTIME_URL =
+      "https://responses-runtime.internal:3034";
+    process.env.ATHENA_MODEL_GATEWAY_CUTOVER = "true";
+    process.env.ATHENA_MODEL_GATEWAY_URL =
+      "https://model-gateway.internal:3018";
+    process.env.EMBEDDING_ENGINE = "native";
+
+    const llm = getLLMProvider({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+
+    expect(llm.responsesRuntime).toBe(true);
+    expect(llm.credentialMode).toBe("remote");
+    expect(llm.openai).toBeNull();
   });
 
   it("forwards JSON response_format to DeepSeek chat completions", async () => {

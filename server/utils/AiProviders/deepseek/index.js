@@ -61,16 +61,24 @@ function deepSeekCompletionOptions({
 }
 
 class DeepSeekLLM {
-  constructor(embedder = null, modelPreference = null) {
-    if (!process.env.DEEPSEEK_API_KEY)
+  constructor(
+    embedder = null,
+    modelPreference = null,
+    { credentialMode = "local" } = {}
+  ) {
+    const usesRemoteTransport = credentialMode === "remote";
+    if (!usesRemoteTransport && !process.env.DEEPSEEK_API_KEY)
       throw new Error("No DeepSeek API key was set.");
     this.className = "DeepSeekLLM";
-    const { OpenAI: OpenAIApi } = require("openai");
-
-    this.openai = new OpenAIApi({
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: "https://api.deepseek.com/v1",
-    });
+    this.openai = null;
+    if (!usesRemoteTransport) {
+      const { OpenAI: OpenAIApi } = require("openai");
+      this.openai = new OpenAIApi({
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        baseURL: "https://api.deepseek.com/v1",
+      });
+    }
+    this.credentialMode = credentialMode;
     this.model =
       modelPreference || process.env.DEEPSEEK_MODEL_PREF || "deepseek-chat";
     this.limits = {
