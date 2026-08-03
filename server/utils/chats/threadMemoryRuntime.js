@@ -38,8 +38,8 @@ async function threadMemoryKeyCustodySelfTest(env = process.env) {
 
   const marker = `thread-memory-self-test:${Date.now()}`;
   const context = {
-    purpose: "thread-compaction-memory",
-    domain: "thread-compaction-memory",
+    purpose: "chat-conversation-key",
+    domain: "chat-conversation-key",
     operation: "thread-memory-startup-self-test",
     resource: "thread-memory-readiness-canary",
   };

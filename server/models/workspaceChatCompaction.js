@@ -14,7 +14,10 @@ const {
 const SUMMARY_FORMAT = "thread-compact-markdown-v1";
 const CAPSULE_FORMAT = "conversation-state-capsule-json-v1";
 let tableReady = false;
-const COMPACTION_ENCRYPTION_PURPOSE = "thread-compaction-memory";
+// Thread compaction is part of the Chat Runtime conversation-data domain.
+// Reuse the registered Key Custody purpose instead of creating an undeclared
+// crypto purpose that the custody boundary must (correctly) reject.
+const COMPACTION_ENCRYPTION_PURPOSE = "chat-conversation-key";
 
 class ThreadMemoryError extends Error {
   constructor(code, cause = null) {

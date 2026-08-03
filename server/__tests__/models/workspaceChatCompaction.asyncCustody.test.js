@@ -65,7 +65,7 @@ describe("WorkspaceChatCompaction remote Key Custody boundary", () => {
     expect(mockEncryptSecretAsync).toHaveBeenCalledWith(
       "summary",
       expect.objectContaining({
-        purpose: "thread-compaction-memory",
+        purpose: "chat-conversation-key",
         operation: "thread-memory-write",
       })
     );
