@@ -5,7 +5,9 @@ const {
 const { SyncV2 } = require("./syncV2");
 const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
 const {
+  decodeUserStateValueAsync,
   decodeUserStateValue,
+  encodeUserStateValueAsync,
   encodeUserStateValue,
 } = require("../utils/security/userStateValueProtection");
 const { userStateMergePolicy } = require("../utils/userStatePreferencePolicy");
@@ -22,6 +24,38 @@ function placeholders(values = []) {
 function rowToState(row = {}) {
   if (!row) return null;
   const decodedValue = decodeUserStateValue({
+    userId: row.userId,
+    namespace: row.namespace,
+    scope: row.scope || DEFAULT_SCOPE,
+    storedValue: row.value,
+  });
+  const value =
+    row.monotonicCursor !== null &&
+    row.monotonicCursor !== undefined &&
+    decodedValue &&
+    typeof decodedValue === "object" &&
+    !Array.isArray(decodedValue)
+      ? {
+          ...decodedValue,
+          cursor: Math.max(
+            Number(decodedValue.cursor || 0),
+            Number(row.monotonicCursor || 0)
+          ),
+        }
+      : decodedValue;
+  return {
+    namespace: row.namespace,
+    scope: row.scope || DEFAULT_SCOPE,
+    value,
+    version: row.version || DEFAULT_VERSION,
+    updatedAt: row.updatedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+async function rowToStateAsync(row = {}) {
+  if (!row) return null;
+  const decodedValue = await decodeUserStateValueAsync({
     userId: row.userId,
     namespace: row.namespace,
     scope: row.scope || DEFAULT_SCOPE,
@@ -114,7 +148,7 @@ async function currentStateResult(
     ? await tx.sync_nodes.findUnique({ where: { nodeKey } })
     : null;
   return {
-    ...rowToState(currentRow),
+    ...(await rowToStateAsync(currentRow)),
     ...(existingNode
       ? {
           stateVersion: existingNode.stateVersion,
@@ -210,15 +244,22 @@ const UserStatePreference = {
         ORDER BY "updatedAt" DESC`,
       ...params
     );
-    return rows.map(rowToState).filter(Boolean);
+    return (await Promise.all(rows.map(rowToStateAsync))).filter(Boolean);
   },
 
-  upsertMany: async function ({ userId, states = [], syncContext = {} } = {}) {
+  upsertMany: async function ({
+    userId,
+    states = [],
+    syncContext = {},
+    projectSync = true,
+  } = {}) {
     if (!userId || !Array.isArray(states) || states.length === 0) return [];
     await this.ensureTable();
 
     const syncReady =
-      SyncV2.enabled("preferences") && (await SyncV2.schemaReady());
+      projectSync &&
+      SyncV2.enabled("preferences") &&
+      (await SyncV2.schemaReady());
     return await prisma.$transaction(async (tx) => {
       const now = new Date();
       const saved = [];
@@ -256,7 +297,7 @@ const UserStatePreference = {
           state.version || currentRow?.version || DEFAULT_VERSION
         );
         const currentValue = currentRow
-          ? decodeUserStateValue({
+          ? await decodeUserStateValueAsync({
               userId,
               namespace,
               scope,
@@ -292,7 +333,7 @@ const UserStatePreference = {
           );
           continue;
         }
-        const value = encodeUserStateValue({
+        const value = await encodeUserStateValueAsync({
           userId,
           namespace,
           scope,
@@ -380,6 +421,7 @@ const UserStatePreference = {
     namespace,
     scope = null,
     syncContext = {},
+    projectSync = true,
   } = {}) {
     if (!userId || !namespace) return { count: 0 };
     await this.ensureTable();
@@ -392,7 +434,9 @@ const UserStatePreference = {
     }
 
     const syncReady =
-      SyncV2.enabled("preferences") && (await SyncV2.schemaReady());
+      projectSync &&
+      SyncV2.enabled("preferences") &&
+      (await SyncV2.schemaReady());
     return await prisma.$transaction(async (tx) => {
       const nodeKey = nodeKeys.userPreferences(
         userId,

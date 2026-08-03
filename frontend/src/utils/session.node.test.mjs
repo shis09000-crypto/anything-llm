@@ -17,12 +17,11 @@ function makeLocalStorage() {
 
 async function loadSessionModule({
   checkSessionToken,
-  shouldPreserveLocalAuthOnFailure,
+  terminalReason = null,
 } = {}) {
   globalThis.__athenaCheckSessionToken =
     checkSessionToken || (async () => ({ response: { status: 200 } }));
-  globalThis.__athenaShouldPreserveLocalAuthOnFailure =
-    shouldPreserveLocalAuthOnFailure || (() => false);
+  globalThis.__athenaTerminalReason = terminalReason;
   globalThis.window = { localStorage: makeLocalStorage() };
 
   const source = await readFile(moduleUrl, "utf8");
@@ -36,8 +35,9 @@ async function loadSessionModule({
       'const AUTH_TIMESTAMP = "athena-auth-timestamp";'
     )
     .replace(
-      'import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";',
-      "const shouldPreserveLocalAuthOnFailure = globalThis.__athenaShouldPreserveLocalAuthOnFailure;"
+      /import \{\s*authReasonFrom,\s*isTerminalAuthReason,\s*\} from "@\/utils\/authLifecycleCoordinator";/,
+      `const authReasonFrom = (error, fallback) => error.raw?.reasonCode || error.reasonCode || globalThis.__athenaTerminalReason || fallback;
+const isTerminalAuthReason = (reason) => ["session_revoked", "session_expired"].includes(reason);`
     );
 
   return import(
@@ -63,7 +63,6 @@ test("session validation preserves auth on transient token check failure", async
       error.code = "API_TIMEOUT_ERROR";
       throw error;
     },
-    shouldPreserveLocalAuthOnFailure: () => true,
   });
 
   const result = await mod.validateSessionTokenForUserDetailed();
@@ -81,9 +80,9 @@ test("session validation reports invalid on explicit auth failure", async () => 
     checkSessionToken: async () => {
       const error = new Error("Invalid auth token.");
       error.status = 401;
+      error.raw = { reasonCode: "session_revoked" };
       throw error;
     },
-    shouldPreserveLocalAuthOnFailure: () => false,
   });
 
   const result = await mod.validateSessionTokenForUserDetailed();

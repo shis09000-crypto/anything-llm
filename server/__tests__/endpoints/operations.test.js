@@ -35,6 +35,8 @@ describe("Operations endpoints", () => {
       "/operations/actions/runs/:runId/reconcile",
       "/operations/timeline",
       "/operations/state-graph",
+      "/operations/aicp/topology",
+      "/operations/aicp/traces/:traceId",
       "/operations/flows",
       "/operations/explain",
     ]);
@@ -61,6 +63,7 @@ describe("Operations endpoints", () => {
       eventType: undefined,
       subjectId: undefined,
       operationId: "operation-1",
+      traceId: undefined,
       limit: 100,
     });
   });
@@ -130,6 +133,48 @@ describe("Operations endpoints", () => {
     );
   });
 
+  test("exposes read-only AICP topology and returns 404 for an unknown Trace", async () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    jest.spyOn(localOperationsAccess, "aicpTopology").mockResolvedValueOnce({
+      topology: { summary: { observedLinks: 2, runtimeLinks: 2 } },
+      shadow: { mode: "shadow-read-only", status: "observing" },
+    });
+    jest.spyOn(localOperationsAccess, "aicpTrace").mockResolvedValueOnce({
+      trace: { traceId: "missing-trace", found: false, entries: [] },
+    });
+    const response = {
+      status: jest.fn(() => response),
+      json: jest.fn(),
+    };
+
+    await routes.find(([path]) => path === "/operations/aicp/topology").at(-1)(
+      {},
+      response
+    );
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        topology: { summary: { observedLinks: 2, runtimeLinks: 2 } },
+      })
+    );
+
+    response.status.mockClear();
+    response.json.mockClear();
+    await routes
+      .find(([path]) => path === "/operations/aicp/traces/:traceId")
+      .at(-1)({ params: { traceId: "missing-trace" } }, response);
+    expect(response.status).toHaveBeenCalledWith(404);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: "operations_aicp_trace_not_found",
+    });
+  });
+
   test("accepts redacted iOS native reconnect observations", () => {
     const routes = [];
     operationsEndpoints({
@@ -158,6 +203,43 @@ describe("Operations endpoints", () => {
         invocationId: "invocation-ios",
         runKind: "agent",
         transport: "websocket",
+      },
+    };
+
+    route.at(-1)(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(202);
+    expect(json).toHaveBeenCalledWith({ success: true, accepted: 1 });
+  });
+
+  test("accepts metadata-only Agent ledger recovery observations", () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    const route = routes.find(
+      ([path]) => path === "/operations/client-chat-observations"
+    );
+    const json = jest.fn();
+    const response = {
+      locals: { user: { id: 7, role: "default" } },
+      setHeader: jest.fn(),
+      status: jest.fn(() => response),
+      json,
+    };
+    const request = {
+      headers: { "x-client-id": "web-device" },
+      body: {
+        event: "reconnect_recovered",
+        platform: "desktop_web",
+        visibility: "visible",
+        outcome: "recovered",
+        durationMs: 1,
+        clientTurnId: "turn-agent",
+        invocationId: "invocation-agent",
+        runKind: "agent",
+        transport: "ledger_poll",
       },
     };
 
@@ -245,6 +327,16 @@ describe("Operations endpoints", () => {
             prompt: "must-not-be-recorded",
           },
           {
+            event: "passkey_cross_device_only",
+            surface: "passkey_capability",
+            platform: "desktop_web",
+            visibility: "visible",
+            outcome: "observed",
+            reason: "platform_authenticator_unavailable",
+            requestId: "passkey-capability-request",
+            userAgent: "must-not-be-recorded",
+          },
+          {
             event: "arbitrary_client_event",
             surface: "workspace_overview",
           },
@@ -255,6 +347,6 @@ describe("Operations endpoints", () => {
     route.at(-1)(request, response);
 
     expect(response.status).toHaveBeenCalledWith(202);
-    expect(json).toHaveBeenCalledWith({ success: true, accepted: 1 });
+    expect(json).toHaveBeenCalledWith({ success: true, accepted: 2 });
   });
 });

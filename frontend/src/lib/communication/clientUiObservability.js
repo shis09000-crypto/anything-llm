@@ -4,14 +4,55 @@ const ALLOWED_EVENTS = new Set([
   "overview_preempted",
   "overview_recovered",
   "overview_failed",
+  "auth_reconnecting",
+  "auth_recovered",
+  "auth_terminal",
+  "passkey_local_ready",
+  "passkey_cross_device_only",
+  "passkey_unavailable",
+]);
+const ALLOWED_SURFACES = new Set([
+  "workspace_overview",
+  "auth_lifecycle",
+  "passkey_capability",
 ]);
 const ALLOWED_OUTCOMES = new Set(["observed", "recovered", "failed"]);
 const ALLOWED_REASONS = new Set([
   "scheduler_abort",
   "http_error",
   "network_error",
+  "identity_unavailable",
+  "session_expired",
+  "session_idle_expired",
+  "session_revoked",
+  "session_epoch_incompatible",
+  "account_disabled",
+  "account_suspended",
+  "client_revoked",
+  "device_identity_reauth",
+  "force_reauth",
+  "insecure_context",
+  "rp_id_invalid",
+  "server_passkey_disabled",
+  "webauthn_unavailable",
+  "embedded_webview_unsupported",
+  "platform_authenticator_unavailable",
+  "no_available_authenticator",
+  "webauthn_security_error",
+  "none",
   "unknown",
 ]);
+const OBSERVATION_DEDUPE_PREFIX = "athena.client-observation:";
+
+function shouldRecordOnce(key) {
+  if (!key || typeof window === "undefined") return true;
+  try {
+    const storageKey = `${OBSERVATION_DEDUPE_PREFIX}${key}`;
+    if (window.sessionStorage.getItem(storageKey)) return false;
+    window.sessionStorage.setItem(storageKey, String(Date.now()));
+  } catch {}
+  return true;
+}
 
 function platform() {
   return window.matchMedia?.("(max-width: 768px)")?.matches
@@ -29,10 +70,14 @@ export function recordClientUiObservation(observation = {}) {
     ? observation.event
     : null;
   if (!event) return;
+  const surface = ALLOWED_SURFACES.has(observation.surface)
+    ? observation.surface
+    : "workspace_overview";
+  if (!shouldRecordOnce(observation.onceKey)) return;
 
   const payload = {
     event,
-    surface: "workspace_overview",
+    surface,
     platform: platform(),
     visibility: visibility(),
     outcome: ALLOWED_OUTCOMES.has(observation.outcome)

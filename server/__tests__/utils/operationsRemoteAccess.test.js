@@ -2,6 +2,8 @@
 
 const {
   RemoteOperationsAccess,
+  coordinationLifecycleHealth,
+  coordinationRemoteMode,
   operationsRemoteMode,
   operationsShadowSnapshot,
 } = require("../../utils/operations/access");
@@ -30,11 +32,13 @@ describe("Remote Operations access", () => {
     ).toBe(false);
   });
 
-  test("proxies timeline, graph, flows and actions over the API mTLS identity", async () => {
+  test("proxies timeline, graph, AICP shadow data, flows and actions over the API mTLS identity", async () => {
     const request = jest.fn().mockResolvedValue({ success: true });
     const access = new RemoteOperationsAccess({ env, request });
     await access.timeline({ operationId: "operation-1", limit: 25 });
     await access.stateGraph({ limit: 50 });
+    await access.aicpTopology();
+    await access.aicpTrace("trace-1");
     await access.flows({ operationId: "operation-1" });
     await access.decideAction({
       runId: "run-1",
@@ -53,6 +57,8 @@ describe("Remote Operations access", () => {
     expect(request.mock.calls.map(([input]) => input.url)).toEqual(
       expect.arrayContaining([
         "https://operations-plane:3015/internal/v1/operations/state-graph",
+        "https://operations-plane:3015/internal/v1/operations/aicp/topology",
+        "https://operations-plane:3015/internal/v1/operations/aicp/traces/trace-1",
         "https://operations-plane:3015/internal/v1/operations/flows",
         "https://operations-plane:3015/internal/v1/operations/actions/runs/run-1/decide",
       ])
@@ -83,6 +89,48 @@ describe("Remote Operations access", () => {
       reasonCode: "operations_shadow_agents_unavailable",
       retryable: true,
       lastError: "ECONNREFUSED",
+    });
+  });
+
+  test("observes coordination lifecycle coverage without gating Operations readiness", async () => {
+    const coordinationEnv = {
+      ...env,
+      ATHENA_RUNTIME_ROLE: "operations-plane",
+      ATHENA_COORDINATION_INTERNAL_URL: "https://coordination-plane:3032/",
+    };
+    expect(coordinationRemoteMode(coordinationEnv)).toBe(true);
+    const request = jest.fn().mockResolvedValue({
+      success: true,
+      coverage: { expected: 23, healthy: 23, complete: true },
+    });
+    await expect(
+      coordinationLifecycleHealth(coordinationEnv, request)
+    ).resolves.toEqual({
+      enabled: true,
+      status: "healthy",
+      coverage: { expected: 23, healthy: 23, complete: true },
+    });
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callerRole: "operations-plane",
+        callerModule: "operations-plane",
+        targetModule: "coordination-plane",
+        capability: "coordination.status",
+        method: "GET",
+        url: "https://coordination-plane:3032/internal/v1/coordination/modules",
+      })
+    );
+
+    request.mockRejectedValueOnce(
+      Object.assign(new Error("connect refused"), { code: "ECONNREFUSED" })
+    );
+    await expect(
+      coordinationLifecycleHealth(coordinationEnv, request)
+    ).resolves.toMatchObject({
+      enabled: true,
+      status: "unavailable",
+      reasonCode: "ECONNREFUSED",
+      coverage: null,
     });
   });
 });

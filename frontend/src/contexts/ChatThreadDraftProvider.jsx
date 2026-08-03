@@ -15,7 +15,10 @@ import {
   streamWorkspaceThreadChat,
 } from "@/lib/communication/chatStreamClient";
 import { respondToChatToolApproval } from "@/lib/communication/chatControlClient";
-import { recordChatStreamPaint } from "@/lib/communication/chatStreamObservability";
+import {
+  recordChatStreamPaint,
+  recordChatStreamReconnect,
+} from "@/lib/communication/chatStreamObservability";
 import {
   AgentSessionState,
   canReuseAgentSessionForInvocation,
@@ -1920,7 +1923,7 @@ export function ChatThreadDraftProvider({ children }) {
     (stateSnapshot = {}, extra = {}) => {
       const reconnectState = reconnectStateFromAgentState(stateSnapshot);
       return {
-        ...(reconnectState ? { reconnectState } : {}),
+        reconnectState,
         retryCount: stateSnapshot.retryCount || 0,
         websocketUUID: stateSnapshot.websocketUUID || null,
         agentProvider: stateSnapshot.agentProvider || null,
@@ -2164,6 +2167,13 @@ export function ChatThreadDraftProvider({ children }) {
             clearAgentStartupTimeout(chatKey, turnId);
           }
           handleAgentSessionState(chatKey, turnId, stateSnapshot);
+        },
+        onReconnectPhase: (phase, detail = {}) => {
+          recordChatStreamReconnect(turnId, phase, detail.attempt || 0, {
+            runKind: "agent",
+            transport: detail.transport || "websocket",
+            invocationId: websocketUUID,
+          });
         },
         onReconnectOffer: (reason, interruptedContext, stateSnapshot) =>
           offerAgentReconnect(

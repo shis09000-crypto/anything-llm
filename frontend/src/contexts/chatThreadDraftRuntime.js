@@ -12,6 +12,7 @@ import {
   isUserItem,
   normalizeTurnItems,
   updateAssistantTurnInItems,
+  withoutTransientAgentReconnectEvents,
 } from "@/utils/chat/turns";
 import { storageKeys } from "@/utils/appEnvironment";
 import {
@@ -1144,14 +1145,6 @@ function cleanupTransientDraftState(
   });
 
   return next;
-}
-
-function withoutTransientAgentReconnectEvents(timeline = []) {
-  return (timeline || []).filter((event) => {
-    if (event?.type !== "thought") return true;
-    const content = String(event?.content || "");
-    return !content.startsWith("Agent connection interrupted. Reconnecting");
-  });
 }
 
 function definedPatch(source = {}, fields = []) {

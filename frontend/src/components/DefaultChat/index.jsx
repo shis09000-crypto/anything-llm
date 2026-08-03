@@ -20,6 +20,7 @@ export default function DefaultChatContainer() {
     workspaces: [],
     loading: true,
   });
+  const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -31,25 +32,34 @@ export default function DefaultChatContainer() {
         setWorkspaces({ workspaces: cachedWorkspaces, loading: false });
       }
 
-      const availableWorkspaces =
-        (await workspaceNavigationCache.runInFlight(
-          "workspaces",
-          ({ signal } = {}) =>
-            Workspace.all({
-              signal,
-              communicationScene: "workspace-navigation",
-              task: false,
-            }),
-          {
-            priority: "P0",
-            label: "default-chat:workspaces",
-            scope: { route: "default-chat", surface: "workspaces" },
-            policy: "foreground",
-            emergency: true,
-            intentRank: 0,
-            dedupeKey: "navigation:workspaces",
-          }
-        )) || [];
+      let availableWorkspaces;
+      try {
+        availableWorkspaces =
+          (await workspaceNavigationCache.runInFlight(
+            "workspaces",
+            ({ signal } = {}) =>
+              Workspace.all({
+                signal,
+                communicationScene: "workspace-navigation",
+                task: false,
+                throwOnError: true,
+              }),
+            {
+              priority: "P0",
+              label: "default-chat:workspaces",
+              scope: { route: "default-chat", surface: "workspaces" },
+              policy: "foreground",
+              emergency: true,
+              intentRank: 0,
+              dedupeKey: "navigation:workspaces",
+            }
+          )) || [];
+        setWorkspaceUnavailable(false);
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        setWorkspaceUnavailable(true);
+        availableWorkspaces = cachedWorkspaces || [];
+      }
       if (!mounted) return;
       workspaceNavigationCache.setWorkspaces(availableWorkspaces);
       const serializedLastVisitedWorkspace = localStorage.getItem(
@@ -103,6 +113,17 @@ export default function DefaultChatContainer() {
   }
 
   const hasWorkspaces = workspaces.length > 0;
+  if (workspaceUnavailable && !hasWorkspaces) {
+    return (
+      <Layout>
+        <div className="flex h-full w-full items-center justify-center px-6 text-center">
+          <div className="max-w-sm rounded-2xl border border-amber-400/30 bg-amber-400/10 px-5 py-4 text-sm leading-6 text-amber-100 light:text-amber-800">
+            工作区数据暂时不可用，已保留本地可信状态并等待连接恢复。
+          </div>
+        </div>
+      </Layout>
+    );
+  }
   return (
     <Layout>
       <div className="w-full h-full flex flex-col items-center justify-center overflow-y-auto no-scroll">

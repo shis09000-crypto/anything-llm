@@ -1,6 +1,8 @@
 const { safeJsonParse } = require("../http");
 const {
+  decryptSecretAsync,
   decryptSecret,
+  encryptSecretAsync,
   encryptSecret,
   isEncryptedSecret,
 } = require("./encryption");
@@ -75,10 +77,69 @@ function decodeUserStateValue({ userId, namespace, scope, storedValue } = {}) {
   return payload.value ?? null;
 }
 
+async function encodeUserStateValueAsync({
+  userId,
+  namespace,
+  scope,
+  value,
+} = {}) {
+  if (namespace !== CHAT_DRAFT_NAMESPACE) return JSON.stringify(value ?? null);
+  const binding = storageBinding({ userId, namespace, scope });
+  const envelope = await encryptSecretAsync(
+    JSON.stringify({ ...binding, value: value ?? null }),
+    {
+      domain: "user-state",
+      purpose: CHAT_DRAFT_PURPOSE,
+      operation: "encrypt-chat-draft",
+      resource: `user:${binding.userId}`,
+    }
+  );
+  return JSON.stringify({
+    protectionVersion: PROTECTED_USER_STATE_VERSION,
+    envelope,
+  });
+}
+
+async function decodeUserStateValueAsync({
+  userId,
+  namespace,
+  scope,
+  storedValue,
+} = {}) {
+  const parsed =
+    typeof storedValue === "string"
+      ? safeJsonParse(storedValue, null)
+      : storedValue;
+  if (!isProtectedUserStateValue(parsed)) return parsed;
+  const binding = storageBinding({ userId, namespace, scope });
+  const payload = safeJsonParse(
+    await decryptSecretAsync(parsed.envelope, {
+      domain: "user-state",
+      purpose: CHAT_DRAFT_PURPOSE,
+      operation: "decrypt-chat-draft",
+      resource: `user:${binding.userId}`,
+    }),
+    null
+  );
+  if (
+    !payload ||
+    Number(payload.userId) !== binding.userId ||
+    payload.namespace !== binding.namespace ||
+    payload.scope !== binding.scope
+  ) {
+    const error = new Error("protected_user_state_binding_mismatch");
+    error.code = "protected_user_state_binding_mismatch";
+    throw error;
+  }
+  return payload.value ?? null;
+}
+
 module.exports = {
   CHAT_DRAFT_NAMESPACE,
   PROTECTED_USER_STATE_VERSION,
   decodeUserStateValue,
+  decodeUserStateValueAsync,
   encodeUserStateValue,
+  encodeUserStateValueAsync,
   isProtectedUserStateValue,
 };

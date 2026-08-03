@@ -13,17 +13,20 @@ async function loadAuthSessionMaintenance({
   else delete globalThis.window;
 
   const source = await readFile(moduleUrl, "utf8");
-  const transformed = source.replaceAll(
-    "import.meta.env?.DEV",
-    JSON.stringify(dev)
-  );
+  const transformed = source
+    .replaceAll("import.meta.env?.DEV", JSON.stringify(dev))
+    .replace(
+      /import \{\s*authReasonFrom,\s*isTerminalAuthReason,\s*\} from "@\/utils\/authLifecycleCoordinator";/,
+      `const authReasonFrom = (source = {}) => String(source.reasonCode || source.raw?.reasonCode || source.raw?.reason || source.raw?.error || source.code || "").toLowerCase();
+const isTerminalAuthReason = (reason) => new Set(["session_revoked", "session_expired", "session_idle_expired", "account_suspended", "client_revoked"]).has(String(reason));`
+    );
   const mod = await import(
     `data:text/javascript;base64,${Buffer.from(transformed).toString("base64")}#${Date.now()}-${Math.random()}`
   );
   return mod;
 }
 
-test("classifies successful and explicit auth refresh failures", async () => {
+test("classifies only structured terminal reasons as explicit failures", async () => {
   const mod = await loadAuthSessionMaintenance();
 
   assert.equal(mod.classifyAuthRefreshResult({ success: true }), "valid");
@@ -33,12 +36,12 @@ test("classifies successful and explicit auth refresh failures", async () => {
       status: 401,
       message: "Invalid auth token.",
     }),
-    "invalid"
+    "transient"
   );
   assert.equal(
     mod.classifyAuthRefreshResult({
       success: false,
-      message: "Session expired or invalid.",
+      reasonCode: "session_expired",
     }),
     "invalid"
   );
@@ -66,7 +69,7 @@ test("preserves local auth for transient failures in production and development"
   assert.equal(
     devMod.shouldPreserveLocalAuthOnFailure({
       status: 403,
-      message: "Invalid auth for user.",
+      raw: { reasonCode: "account_suspended" },
     }),
     false
   );
@@ -88,7 +91,7 @@ test("preserves local auth for transient failures in production and development"
   assert.equal(
     prodMod.shouldPreserveLocalAuthOnFailure({
       status: 401,
-      message: "Invalid auth token.",
+      raw: { reasonCode: "session_revoked" },
     }),
     false
   );
@@ -100,4 +103,35 @@ test("retry delay backs off quickly and caps at ten seconds", async () => {
   assert.equal(mod.authMaintenanceRetryDelayMs(0), 1_000);
   assert.equal(mod.authMaintenanceRetryDelayMs(2), 4_000);
   assert.equal(mod.authMaintenanceRetryDelayMs(99), 10_000);
+});
+
+test("distinguishes preflight transport outages from local crypto failures", async () => {
+  const mod = await loadAuthSessionMaintenance();
+
+  assert.deepEqual(
+    mod.classifyDeviceBindingPreflightFailure({
+      status: 503,
+      code: "HTTP_OPEN_ERROR",
+      deviceBindingStage: "transport",
+    }),
+    {
+      status: 503,
+      serviceUnavailable: true,
+      errorCode: "HTTP_OPEN_ERROR",
+      message: "登录服务暂时不可用，请稍后重试。",
+    }
+  );
+  assert.deepEqual(
+    mod.classifyDeviceBindingPreflightFailure({
+      status: 0,
+      message: "browser_hybrid_crypto_unavailable",
+      deviceBindingStage: "local_crypto",
+    }),
+    {
+      status: 0,
+      serviceUnavailable: false,
+      errorCode: "browser_hybrid_crypto_unavailable",
+      message: "无法读取或验证此设备的安全密钥。",
+    }
+  );
 });

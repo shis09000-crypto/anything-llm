@@ -322,7 +322,7 @@ class DrupalWiki {
           attachmentResponse,
           MAX_CONNECTOR_FILE_BYTES
         );
-        const { currentTaskDirectory } = require("../../../../taskContext");
+        const { currentTaskDirectory } = require("../../../taskContext");
         const taskDirectory = currentTaskDirectory();
         if (!taskDirectory) {
           console.error("[DrupalWiki Loader]: Task isolation is unavailable.");

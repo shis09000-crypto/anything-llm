@@ -15,12 +15,18 @@ const MobileWebPwa = React.lazy(() =>
 );
 
 export default function Main() {
-  const { loading, requiresAuth, mode, error } = usePasswordModal();
+  const { loading, requiresAuth, mode, error, bootstrap } = usePasswordModal();
 
   if (loading) return <FullScreenLoader />;
   if (error) return <AuthBootstrapError message={error} />;
   if (requiresAuth !== false)
-    return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
+    return (
+      <>
+        {requiresAuth !== null && (
+          <PasswordModal mode={mode} bootstrap={bootstrap} />
+        )}
+      </>
+    );
 
   if (mobileRuntimeActive()) {
     return (

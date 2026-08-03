@@ -153,6 +153,7 @@ class OptimisticActionCenter {
       maxRetryAttempts,
       meta = {},
       retryAttempt = Number(meta?.retryAttempt || 0) || 0,
+      coordinationContext = null,
     } = options;
 
     if (typeof serverCall !== "function") {
@@ -194,6 +195,7 @@ class OptimisticActionCenter {
       createdAt: nowMs(),
       updatedAt: nowMs(),
       meta: { ...meta },
+      coordinationContext,
       error: null,
       result: null,
       recovery: null,
@@ -214,6 +216,7 @@ class OptimisticActionCenter {
           scope,
           ...detail,
         }),
+      coordinationContext,
     };
 
     const optimisticMeta = {
@@ -350,6 +353,7 @@ class OptimisticActionCenter {
         emergency,
         dedupeKey,
         scope,
+        coordinationContext,
       }
     );
 
@@ -372,6 +376,7 @@ class OptimisticActionCenter {
             rollbackOnSilent: Boolean(optimisticPatch),
             toast: false,
             action,
+            coordinationContext,
             onRecovery: (recoveryResult) => {
               action.recovery = recoveryResult;
               action.updatedAt = nowMs();

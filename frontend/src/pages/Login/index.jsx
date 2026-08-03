@@ -11,6 +11,7 @@ import useSimpleSSO from "@/hooks/useSimpleSSO";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 import { AuthContext } from "@/AuthContext";
 import { mobileRuntimeActive } from "@/utils/mobileRuntime";
+import { consumeAuthReturnRef } from "@/utils/authLifecycleCoordinator";
 
 const MobileLoginRoute = lazy(() => import("./MobileLoginRoute"));
 
@@ -26,10 +27,10 @@ export default function Login() {
   const query = useQuery();
   const auth = useContext(AuthContext);
   const navigate = useNavigate();
-  const { loading: ssoLoading, ssoConfig } = useSimpleSSO();
-  const { loading, requiresAuth, mode, error } = usePasswordModal(
+  const { loading, requiresAuth, mode, error, bootstrap } = usePasswordModal(
     !!query.get("nt")
   );
+  const { loading: ssoLoading, ssoConfig } = useSimpleSSO(bootstrap);
 
   if (loading || ssoLoading) return <FullScreenLoader />;
   if (error) return <AuthBootstrapError message={error} />;
@@ -54,12 +55,13 @@ export default function Login() {
           user={auth?.store?.user}
           onAuthenticated={(user, token) => {
             auth?.actions?.updateUser?.(user, token);
-            navigate(paths.home(), { replace: true });
+            navigate(consumeAuthReturnRef() || paths.home(), { replace: true });
           }}
+          authBootstrap={bootstrap}
         />
       </Suspense>
     );
   }
 
-  return <PasswordModal mode={mode} />;
+  return <PasswordModal mode={mode} bootstrap={bootstrap} />;
 }

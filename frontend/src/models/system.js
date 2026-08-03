@@ -10,7 +10,10 @@ import {
   apiErrorMessage as responseError,
   apiErrorRaw as rawBody,
 } from "@/lib/communication/apiError";
-import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";
+import {
+  classifyDeviceBindingPreflightFailure,
+  shouldPreserveLocalAuthOnFailure,
+} from "@/utils/authSessionMaintenance";
 import {
   BLOB_KINDS,
   requestBlob,
@@ -32,11 +35,16 @@ import {
 } from "@/utils/serverState/adminSystemStateStore";
 import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 import { setAuthToken } from "@/utils/authTokenStorage";
+import { createDeviceBindingAssertion } from "@/utils/security/browserHybridKeys";
 
 let systemKeysCache = null;
 let systemKeysCacheAt = 0;
 let systemKeysInflight = null;
+let authBootstrapCache = null;
+let authBootstrapCacheAt = 0;
+let authBootstrapInflight = null;
 const SYSTEM_KEYS_CACHE_TTL_MS = 30_000;
+const AUTH_BOOTSTRAP_CACHE_TTL_MS = 5_000;
 const SYSTEM_KEYS_TIMEOUT_MS = 20_000;
 const SYSTEM_KEYS_RETRY_DELAYS_MS = [0, 750, 1_500];
 const LOGO_CACHE_TTL_MS = 1000 * 60 * 10;
@@ -177,6 +185,44 @@ const System = {
     })
       .then(({ data }) => data?.online || false)
       .catch(() => false);
+  },
+  authBootstrap: async function ({ force = false, signal } = {}) {
+    const now = Date.now();
+    if (
+      !force &&
+      authBootstrapCache &&
+      now - authBootstrapCacheAt < AUTH_BOOTSTRAP_CACHE_TTL_MS
+    ) {
+      return authBootstrapCache;
+    }
+    if (!force && authBootstrapInflight) return authBootstrapInflight;
+
+    const request = getJson("/auth/bootstrap", {
+      headers: { "X-Athena-Web-Protocol-Version": "1" },
+      includeBaseHeaders: false,
+      cache: "no-store",
+      timeoutMs: 8_000,
+      signal,
+      communicationScene: "auth-bootstrap",
+    })
+      .then(({ data }) => {
+        if (data?.schemaVersion !== "athena.auth.bootstrap.v1") {
+          throw new Error("invalid_auth_bootstrap_contract");
+        }
+        authBootstrapCache = data;
+        authBootstrapCacheAt = Date.now();
+        return data;
+      })
+      .finally(() => {
+        if (authBootstrapInflight === request) authBootstrapInflight = null;
+      });
+    authBootstrapInflight = request;
+    return request;
+  },
+  clearAuthBootstrapCache: function () {
+    authBootstrapCache = null;
+    authBootstrapCacheAt = 0;
+    authBootstrapInflight = null;
   },
   totalIndexes: async function (slug = null) {
     const url = new URL(`${fullApiUrl()}/system/system-vectors`);
@@ -376,14 +422,47 @@ const System = {
     if (valid) window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
     return valid;
   },
+  deviceBindingPreflight: async function () {
+    let challenge;
+    try {
+      challenge = await postJson(
+        "/auth/device-binding/preflight",
+        {},
+        { communicationScene: "auth-login" }
+      ).then(({ data }) => data);
+    } catch (error) {
+      error.deviceBindingStage = "transport";
+      throw error;
+    }
+    if (!challenge?.success) {
+      const error = new Error(
+        challenge?.error || "device_binding_preflight_failed"
+      );
+      error.deviceBindingStage = "transport";
+      throw error;
+    }
+    try {
+      return await createDeviceBindingAssertion(challenge);
+    } catch (error) {
+      error.deviceBindingStage = "local_crypto";
+      throw error;
+    }
+  },
   requestToken: async function (body) {
-    return await postJson(
-      "/request-token",
-      { ...body },
-      {
-        communicationScene: "auth-login",
-      }
-    )
+    let requestBody = { ...body };
+    try {
+      requestBody.deviceBinding =
+        body?.deviceBinding || (await this.deviceBindingPreflight());
+    } catch (error) {
+      const failure = classifyDeviceBindingPreflightFailure(error);
+      return {
+        valid: false,
+        ...failure,
+      };
+    }
+    return await postJson("/request-token", requestBody, {
+      communicationScene: "auth-login",
+    })
       .then(({ data }) => data)
       .catch((e) => {
         const status = Number(e?.status || 0);

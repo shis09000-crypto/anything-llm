@@ -18,7 +18,6 @@ import {
 } from "@/utils/authz";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import AuthBootstrapError from "@/components/Modals/Password/AuthBootstrapError";
-import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import { hasStoredAuthUser } from "@/utils/authUserStorage";
 import {
   clearRouteAuthCache,
@@ -28,6 +27,10 @@ import {
   routeAuthCacheKey,
 } from "@/utils/routeAuthCache";
 import { attemptSessionRecovery } from "@/utils/authRecoveryCoordinator";
+import {
+  hardReloadForRelease,
+  redirectToLogin,
+} from "@/utils/authLifecycleCoordinator";
 
 const EMPTY_AUTH_STATE = {
   isAuthd: null,
@@ -75,31 +78,63 @@ async function validateRouteAuthState() {
     });
   }
 
-  const [onboardingComplete, settings] = await Promise.all([
-    System.isOnboardingComplete(),
-    System.keys(),
-  ]);
-  if (!settings) {
+  let bootstrap;
+  try {
+    bootstrap = await System.authBootstrap();
+  } catch {
+    if (getAuthToken() && hasStoredAuthUser()) {
+      return authResult({
+        isAuthd: true,
+        multiUserMode: true,
+        reconnecting: true,
+        mode: "identity-bootstrap-reconnecting",
+        success: true,
+        cacheable: false,
+      });
+    }
     return authResult({
       isAuthd: false,
       authUnavailable: true,
-      mode: "settings-unavailable",
+      reconnecting: true,
+      mode: "identity-bootstrap-unavailable",
+      cacheable: false,
+    });
+  }
+  if (bootstrap.nextAction === "hard_reload") {
+    hardReloadForRelease(bootstrap.deployment?.releaseId);
+    return authResult({
+      isAuthd: false,
+      authUnavailable: true,
+      reconnecting: true,
+      mode: "web-protocol-reload",
+      cacheable: false,
+    });
+  }
+  if (bootstrap.nextAction === "login") {
+    redirectToLogin({ reason: "force_reauth" });
+    return authResult({
+      isAuthd: false,
+      multiUserMode: bootstrap.authMode === "multi",
+      mode: "identity-force-reauth",
+      success: false,
       cacheable: false,
     });
   }
 
-  const { MultiUserMode, RequiresAuth } = settings;
+  const multiUserMode = bootstrap.authMode === "multi";
+  const requiresAuth = bootstrap.authMode !== "public";
+  const onboardingComplete = await System.isOnboardingComplete();
 
   if (onboardingComplete === false) {
     return authResult({
       isAuthd: true,
       shouldRedirectToOnboarding: true,
-      multiUserMode: MultiUserMode,
+      multiUserMode,
       mode: "onboarding",
     });
   }
 
-  if (!MultiUserMode && !RequiresAuth) {
+  if (!multiUserMode && !requiresAuth) {
     return authResult({
       isAuthd: true,
       multiUserMode: false,
@@ -107,7 +142,7 @@ async function validateRouteAuthState() {
     });
   }
 
-  if (!MultiUserMode && RequiresAuth) {
+  if (!multiUserMode && requiresAuth) {
     const localAuthToken = getAuthToken();
     if (!localAuthToken) {
       markRouteAuthLoginRedirect("single-password", "missing-token");
@@ -136,6 +171,7 @@ async function validateRouteAuthState() {
     if (!isValid) {
       clearRouteAuthCache();
       markRouteAuthExplicitInvalid("single-password", validation.reason);
+      redirectToLogin({ reason: validation.reason });
     }
     return authResult({
       isAuthd: isValid,
@@ -177,6 +213,7 @@ async function validateRouteAuthState() {
       });
     }
     markRouteAuthLoginRedirect("multi", "missing-local-auth");
+    redirectToLogin({ reason: "missing_session_storage" });
     return authResult({
       isAuthd: false,
       multiUserMode: true,
@@ -187,8 +224,8 @@ async function validateRouteAuthState() {
 
   if (localIdleExpired()) {
     clearRouteAuthCache();
-    clearSensitiveClientSession();
     markRouteAuthLoginRedirect("multi-idle-expired", "idle-expired");
+    redirectToLogin({ reason: "session_idle_expired" });
     return authResult({
       isAuthd: false,
       multiUserMode: true,
@@ -214,8 +251,8 @@ async function validateRouteAuthState() {
   const isValid = validation.valid;
   if (!isValid) {
     clearRouteAuthCache();
-    clearSensitiveClientSession();
     markRouteAuthExplicitInvalid("multi", validation.reason);
+    redirectToLogin({ reason: validation.reason });
   }
 
   return authResult({

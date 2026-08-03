@@ -135,6 +135,48 @@ test("server hydration can patch an interrupted local turn", () => {
   assert.equal(merged[1].finalContent, "落库成功回答");
 });
 
+test("completed server hydration removes transient Agent reconnect thoughts", () => {
+  const { items } = localTurn({
+    status: TURN_STATUSES.running,
+    timeline: [
+      {
+        id: "agent-reconnect:invocation",
+        type: "thought",
+        content: "Agent connection interrupted. Reconnecting 1/5...",
+      },
+      {
+        id: "tool-result:market",
+        type: "tool_result",
+        toolName: "crypto_market_snapshot",
+        content: "complete",
+      },
+    ],
+  });
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      { chatId: 45, role: "user", content: "用户问题", sentAt: 100 },
+      { chatId: 45, role: "assistant", content: "完整回答", sentAt: 100 },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.status, TURN_STATUSES.completed);
+  assert.equal(
+    assistant.timeline.some((event) =>
+      String(event.content || "").startsWith(
+        "Agent connection interrupted. Reconnecting"
+      )
+    ),
+    false
+  );
+  assert.equal(
+    assistant.timeline.some((event) => event.type === "tool_result"),
+    true
+  );
+});
+
 test("server hydration preserves an active agent turn during handoff", () => {
   const { items } = localTurn({
     status: TURN_STATUSES.running,

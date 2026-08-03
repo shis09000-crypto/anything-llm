@@ -1,7 +1,6 @@
 import React, { useState, createContext, useEffect } from "react";
 import { AUTH_TIMESTAMP } from "@/utils/constants";
 import System from "./models/system";
-import { useNavigate } from "react-router-dom";
 import {
   CODEX_DEV_AUTH_BYPASS_KEY,
   CODEX_DEV_AUTH_BYPASS_USER_ID,
@@ -22,6 +21,12 @@ import {
   AUTH_SESSION_RECOVERED_EVENT,
   enrollSessionRecovery,
 } from "@/utils/authRecoveryCoordinator";
+import { validateSessionTokenForUserDetailed } from "@/utils/session";
+import {
+  isTerminalAuthReason,
+  redirectToLogin,
+} from "@/utils/authLifecycleCoordinator";
+import { recordClientUiObservation } from "@/lib/communication/clientUiObservability";
 
 export const AuthContext = createContext(null);
 
@@ -55,8 +60,6 @@ export function AuthProvider(props) {
         ? localAuthToken
         : null,
   });
-
-  const navigate = useNavigate();
 
   /* NOTE:
    * 1. There's no reason for these helper functions to be stateful. They could
@@ -140,6 +143,13 @@ export function AuthProvider(props) {
       const refreshState = classifyAuthRefreshResult(refreshResult);
 
       if (refreshState === "transient") {
+        recordClientUiObservation({
+          event: "auth_reconnecting",
+          surface: "auth_lifecycle",
+          outcome: "observed",
+          reason: "identity_unavailable",
+          onceKey: "auth:refresh-user:reconnecting",
+        });
         showToast("本地服务正在恢复，已暂时保留登录状态。", "warning", {
           toastId: DEV_AUTH_REFRESH_TOAST_ID,
           duration: 4_000,
@@ -153,13 +163,37 @@ export function AuthProvider(props) {
       }
 
       if (!success) {
-        clearSensitiveClientSession();
-        setStore({ user: null, authToken: null });
-        navigate("/login");
+        const reason =
+          refreshResult?.reasonCode ||
+          refreshResult?.raw?.reasonCode ||
+          refreshResult?.raw?.reason;
+        if (isTerminalAuthReason(reason)) {
+          recordClientUiObservation({
+            event: "auth_terminal",
+            surface: "auth_lifecycle",
+            outcome: "failed",
+            reason,
+            onceKey: `auth:terminal:${reason}`,
+          });
+          setStore({ user: null, authToken: null });
+          redirectToLogin({ reason });
+          return;
+        }
+        retryTimer = window.setTimeout(
+          () => refreshUser(attempt + 1),
+          authMaintenanceRetryDelayMs(attempt)
+        );
         return;
       }
 
       setStoredAuthUser(refreshedUser);
+      recordClientUiObservation({
+        event: "auth_recovered",
+        surface: "auth_lifecycle",
+        outcome: "recovered",
+        reason: "none",
+        onceKey: "auth:refresh-user:recovered",
+      });
       dismissToast(DEV_AUTH_REFRESH_TOAST_ID);
       setStore((prev) => ({
         ...prev,
@@ -170,6 +204,65 @@ export function AuthProvider(props) {
     return () => {
       cancelled = true;
       if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [store.authToken]);
+
+  useEffect(() => {
+    if (!store.authToken || isCodexDevAuthBypassEnabled()) return;
+    let active = true;
+    let validationPromise = null;
+
+    async function validateIdentitySession() {
+      if (validationPromise) return validationPromise;
+      validationPromise = validateSessionTokenForUserDetailed({ force: true })
+        .then((result) => {
+          if (!active) return result;
+          if (!result.valid && !result.transient) {
+            recordClientUiObservation({
+              event: "auth_terminal",
+              surface: "auth_lifecycle",
+              outcome: "failed",
+              reason: result.reason,
+              onceKey: `auth:terminal:${result.reason}`,
+            });
+            setStore({ user: null, authToken: null });
+            redirectToLogin({ reason: result.reason });
+          } else if (result.transient) {
+            recordClientUiObservation({
+              event: "auth_reconnecting",
+              surface: "auth_lifecycle",
+              outcome: "observed",
+              reason: "identity_unavailable",
+              onceKey: "auth:validation:reconnecting",
+            });
+          } else if (result.valid) {
+            recordClientUiObservation({
+              event: "auth_recovered",
+              surface: "auth_lifecycle",
+              outcome: "recovered",
+              reason: "none",
+              onceKey: "auth:validation:recovered",
+            });
+          }
+          return result;
+        })
+        .finally(() => {
+          validationPromise = null;
+        });
+      return validationPromise;
+    }
+
+    const handleValidationRequired = () => void validateIdentitySession();
+    window.addEventListener(
+      "athena-auth-validation-required",
+      handleValidationRequired
+    );
+    return () => {
+      active = false;
+      window.removeEventListener(
+        "athena-auth-validation-required",
+        handleValidationRequired
+      );
     };
   }, [store.authToken]);
 
@@ -250,9 +343,8 @@ export function AuthProvider(props) {
     function clearWhenIdleVisible() {
       if (document.visibilityState === "hidden") return;
       if (!localIdleExpired()) return;
-      clearSensitiveClientSession();
       setStore({ user: null, authToken: null });
-      navigate("/login?reason=session-expired", { replace: true });
+      redirectToLogin({ reason: "session_idle_expired" });
     }
 
     document.addEventListener("visibilitychange", clearWhenIdleVisible);

@@ -46,6 +46,9 @@ describe("module schema ownership", () => {
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
     expect(ownerForTable("security_key_registry", "main")).toBe("key_custody");
+    expect(ownerForTable("auth_device_recovery_challenges", "main")).toBe(
+      "identity"
+    );
     expect(ownerForTable("user_root_key_envelopes", "auth")).toBe("identity");
     expect(ownerForTable("auth_sessions", "auth")).toBe("identity");
   });

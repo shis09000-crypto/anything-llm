@@ -1,11 +1,69 @@
 import { useSoftSettingsShell } from "@/components/SoftSettings/context";
 import { isPersistentSettingsRoute } from "@/utils/settingsRoutes";
+import "./Preloader.css";
+
+function loaderSize(size) {
+  if (typeof size === "number" && Number.isFinite(size)) return size * 4;
+  const numeric = Number(size);
+  if (Number.isFinite(numeric)) return numeric * 4;
+  return 64;
+}
+
+export function AthenaLoadingMark({ size = 64, compact = false }) {
+  return (
+    <span
+      className={`athena-loading-mark ${compact ? "is-compact" : ""}`}
+      style={{ "--athena-loader-size": `${size}px` }}
+      aria-hidden="true"
+    >
+      <span className="athena-loading-halo" />
+      <span className="athena-loading-orbit athena-loading-orbit-outer">
+        <span className="athena-loading-orbit-node" />
+      </span>
+      <span className="athena-loading-orbit athena-loading-orbit-inner">
+        <span className="athena-loading-orbit-node" />
+      </span>
+      <span className="athena-loading-core">
+        <span className="athena-loading-core-glint" />
+      </span>
+      <span className="athena-loading-ripple" />
+    </span>
+  );
+}
 
 export default function PreLoader({ size = "16" }) {
+  const sizePx = loaderSize(size);
+  return (
+    <span className="athena-inline-loader" role="status" aria-label="正在加载">
+      <AthenaLoadingMark size={sizePx} compact={sizePx <= 28} />
+    </span>
+  );
+}
+
+function LoaderSurface({ embedded = false, settings = false }) {
   return (
     <div
-      className={`h-${size} w-${size} animate-spin rounded-full border-4 border-solid border-primary border-t-transparent`}
-    ></div>
+      id={embedded ? undefined : "preloader"}
+      className={`athena-loader-surface ${embedded ? "is-embedded" : "is-fullscreen"} ${settings ? "is-settings" : ""}`}
+      role="status"
+      aria-live="polite"
+      aria-label="正在准备 Athena"
+    >
+      <div className="athena-loader-ambient" aria-hidden="true" />
+      <div className="athena-loader-content">
+        <AthenaLoadingMark size={embedded ? 48 : settings ? 56 : 64} />
+        {!embedded ? (
+          <div className="athena-loader-copy" aria-hidden="true">
+            <span className="athena-loader-wordmark">ATHENA</span>
+            <span className="athena-loader-progress-pulses">
+              <span />
+              <span />
+              <span />
+            </span>
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -17,30 +75,8 @@ export function FullScreenLoader({ surface = null }) {
       isPersistentSettingsRoute(window.location.pathname));
 
   if (hasPersistentSettingsShell) {
-    return (
-      <div className="flex h-full min-h-[320px] w-full items-center justify-center bg-transparent">
-        <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-[var(--theme-loader)] border-t-transparent"></div>
-      </div>
-    );
+    return <LoaderSurface embedded settings />;
   }
 
-  if (isSettingsSurface) {
-    return (
-      <div
-        id="preloader"
-        className="fixed left-0 top-0 z-999999 flex h-screen w-screen items-center justify-center bg-[#f5f5f7]"
-      >
-        <div className="h-14 w-14 animate-spin rounded-full border-4 border-solid border-slate-300 border-t-slate-500"></div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      id="preloader"
-      className="fixed left-0 top-0 z-999999 flex h-screen w-screen items-center justify-center bg-theme-bg-primary"
-    >
-      <div className="h-16 w-16 animate-spin rounded-full border-4 border-solid border-[var(--theme-loader)] border-t-transparent"></div>
-    </div>
-  );
+  return <LoaderSurface settings={isSettingsSurface} />;
 }

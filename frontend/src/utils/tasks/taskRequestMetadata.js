@@ -1,4 +1,5 @@
 import { currentTaskContext, taskScheduler } from "./taskScheduler.js";
+import { createCoordinationContext } from "../coordination/coordinationContext.js";
 
 export const TASK_PRIORITIES = {
   activeIntent: "P0",
@@ -319,6 +320,7 @@ function inheritedTaskDefaults(parentTask) {
       parentTaskId: parentTask.id,
       parentKind: parentTask.kind,
     },
+    coordinationContext: parentTask.coordinationContext || null,
   };
 }
 
@@ -406,6 +408,14 @@ export function inferTaskMetadata({
       kind,
       priority,
     });
+  const coordinationContext =
+    explicitTask.coordinationContext ||
+    createCoordinationContext({
+      center: "task",
+      priority,
+      timeoutMs: explicitTask.deadlineMs || 30_000,
+      idempotencyKey: explicitTask.idempotencyKey,
+    });
 
   return {
     enabled: true,
@@ -437,6 +447,7 @@ export function inferTaskMetadata({
     intentRank: explicitTask.intentRank,
     onAbort: explicitTask.onAbort,
     onResume: explicitTask.onResume,
+    coordinationContext,
     inherited: Boolean(parentTask && task === undefined),
     inferred: !task && !parentTask,
   };

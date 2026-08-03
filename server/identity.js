@@ -34,6 +34,9 @@ const {
   authSessionRecoveryEndpoints,
 } = require("./endpoints/authSessionRecovery");
 const {
+  deviceBindingRecoveryEndpoints,
+} = require("./endpoints/deviceBindingRecovery");
+const {
   MicroModuleServiceHost,
   installStandaloneShutdown,
   registerCompatibleApi,
@@ -46,17 +49,30 @@ const {
 const {
   assertPrincipalFromSession,
   attachClientFromSession,
+  capabilityProbe,
   consumeRealtimeTicketAsOwner,
+  deleteUserStateAsOwner,
+  readUserStateAsOwner,
   sessionFromToken,
+  upsertUserStateAsOwner,
 } = require("./utils/authz/identityOwnerOperations");
 const { verifyRequestSigningDescriptor } = require("./utils/requestSigning");
 const { DataAccessCenter } = require("./utils/dataAccess");
-const { USER_STATE_NAMESPACES } = require("./utils/userStatePreferencePolicy");
 const prisma = require("./utils/prisma");
 const {
   queueUserDomainWrap,
 } = require("./utils/security/userDomainWrapService");
 const { EventLogs } = require("./models/eventLogs");
+const {
+  startSecurityAuditMaintenance,
+  stopSecurityAuditMaintenance,
+  securityAuditMaintenanceSnapshot,
+} = require("./utils/security/auditLedgerRuntime");
+const {
+  startAuthSessionSyncReconciler,
+  stopAuthSessionSyncReconciler,
+  authSessionSyncReconcilerSnapshot,
+} = require("./utils/security/authSessionSyncReconciler");
 
 const role = "identity";
 const state = {
@@ -106,16 +122,65 @@ const host = new MicroModuleServiceHost({
   role,
   port: Number(process.env.IDENTITY_PORT || 3026),
   parseJson: false,
-  readiness: () => ({ ...state }),
+  internalRouteCapabilities: {
+    "/internal/v1/session/introspect": "identity.introspect",
+    "/internal/v1/principal/assert": "identity.assert",
+    "/internal/v1/client-identity/attach": "identity.client.attach",
+    "/internal/v1/realtime/tickets/consume": "identity.realtime-ticket.consume",
+    "/internal/v1/request-signing/verify": "identity.request-signing.verify",
+    "/internal/v1/session/validate": "identity.session.validate",
+    "/internal/v1/session/touch": "identity.session.touch",
+    "/internal/v1/audit/append": "identity.audit.append",
+    "/internal/v1/user-state/read": "identity.user-state.read",
+    "/internal/v1/user-state/upsert": "identity.user-state.upsert",
+    "/internal/v1/user-state/delete": "identity.user-state.delete",
+    "/internal/v1/user-domain-wraps/queue": "identity.user-domain-wrap.queue",
+  },
+  readiness: () => {
+    const securityAudit = securityAuditMaintenanceSnapshot();
+    const authSessions = authSessionSyncReconcilerSnapshot();
+    const maintenanceReady =
+      securityAudit.running &&
+      securityAudit.healthy &&
+      authSessions.running &&
+      authSessions.healthy;
+    return {
+      ...state,
+      ready: state.ready && maintenanceReady,
+      status: state.ready && maintenanceReady ? "running" : "degraded",
+      maintenance: {
+        securityAudit: {
+          running: securityAudit.running,
+          healthy: securityAudit.healthy,
+        },
+        authSessions: {
+          running: authSessions.running,
+          healthy: authSessions.healthy,
+        },
+      },
+    };
+  },
   onStart: async () => {
     await secureDatabaseStart(role);
     state.database = "ready";
-    state.status = "running";
-    state.ready = true;
+    try {
+      await startAuthSessionSyncReconciler();
+      await startSecurityAuditMaintenance();
+      state.status = "running";
+      state.ready = true;
+    } catch (error) {
+      state.ready = false;
+      state.status = "maintenance_start_failed";
+      await stopSecurityAuditMaintenance();
+      await stopAuthSessionSyncReconciler();
+      throw error;
+    }
   },
   onDrain: async () => {
     state.ready = false;
     state.status = "draining";
+    await stopSecurityAuditMaintenance();
+    await stopAuthSessionSyncReconciler();
   },
   registerRoutes: (app) => {
     registerCompatibleApi(app, (api) => {
@@ -130,6 +195,7 @@ const host = new MicroModuleServiceHost({
       authTrustedDeviceEndpoints(api);
       authZkLoginEndpoints(api);
       authSessionRecoveryEndpoints(api);
+      deviceBindingRecoveryEndpoints(api);
     });
     app.post("/internal/v1/session/introspect", async (request, response) => {
       if (request.body?.probe === true) {
@@ -158,6 +224,8 @@ const host = new MicroModuleServiceHost({
     app.post(
       "/internal/v1/client-identity/attach",
       async (request, response) => {
+        if (request.body?.probe === true)
+          return response.json(capabilityProbe("identity.client.attach"));
         const result = await attachClientFromSession({
           token: request.body?.token,
           client: request.body?.client,
@@ -283,85 +351,22 @@ const host = new MicroModuleServiceHost({
       return response.status(200).json({ success: true, ...result });
     });
     app.post("/internal/v1/user-state/read", async (request, response) => {
-      if (request.body?.probe === true) {
-        return response.status(200).json({ success: true, available: true });
-      }
-      const session = await sessionFromToken(request.body?.token, {
-        requireClient: true,
-      });
-      if (!session.active) return response.status(200).json(session);
-      const namespaces = Array.isArray(request.body?.namespaces)
-        ? request.body.namespaces
-            .map(String)
-            .filter((value) => USER_STATE_NAMESPACES.has(value))
-        : null;
-      const scopes = Array.isArray(request.body?.scopes)
-        ? request.body.scopes.map((value) => String(value).slice(0, 512))
-        : null;
-      const states = await DataAccessCenter.userState.where({
-        userId: session.principal.userId,
-        namespaces,
-        scopes,
-      });
-      return response.status(200).json({ success: true, states });
+      if (request.body?.probe === true)
+        return response.json(capabilityProbe("identity.user-state.read"));
+      const result = await readUserStateAsOwner(request.body);
+      return response.status(200).json({ success: true, ...result });
     });
     app.post("/internal/v1/user-state/upsert", async (request, response) => {
-      if (request.body?.probe === true) {
-        return response.status(200).json({ success: true, available: true });
-      }
-      const session = await sessionFromToken(request.body?.token, {
-        requireClient: true,
-      });
-      if (!session.active) return response.status(200).json(session);
-      const states = Array.isArray(request.body?.states)
-        ? request.body.states
-            .filter((state) => USER_STATE_NAMESPACES.has(state?.namespace))
-            .slice(0, 64)
-        : [];
-      if (!states.length) {
-        return response.status(400).json({
-          success: false,
-          error: "user_state_input_required",
-        });
-      }
-      const saved = await DataAccessCenter.userState.upsertMany({
-        userId: session.principal.userId,
-        states,
-        syncContext: {
-          ...(request.body?.syncContext || {}),
-          originClientId: session.principal.clientId || null,
-        },
-      });
-      return response.status(200).json({ success: true, states: saved });
+      if (request.body?.probe === true)
+        return response.json(capabilityProbe("identity.user-state.upsert"));
+      const result = await upsertUserStateAsOwner(request.body);
+      return response.status(200).json({ success: true, ...result });
     });
     app.post("/internal/v1/user-state/delete", async (request, response) => {
-      if (request.body?.probe === true) {
-        return response.status(200).json({ success: true, available: true });
-      }
-      const session = await sessionFromToken(request.body?.token, {
-        requireClient: true,
-      });
-      if (!session.active) return response.status(200).json(session);
-      const namespace = String(request.body?.namespace || "");
-      if (!USER_STATE_NAMESPACES.has(namespace)) {
-        return response.status(400).json({
-          success: false,
-          error: "invalid_namespace",
-        });
-      }
-      const deleted = await DataAccessCenter.userState.delete({
-        userId: session.principal.userId,
-        namespace,
-        scope: request.body?.scope || null,
-        syncContext: {
-          ...(request.body?.syncContext || {}),
-          originClientId: session.principal.clientId || null,
-        },
-      });
-      return response.status(200).json({
-        success: true,
-        deletedCount: Number(deleted?.count || 0),
-      });
+      if (request.body?.probe === true)
+        return response.json(capabilityProbe("identity.user-state.delete"));
+      const result = await deleteUserStateAsOwner(request.body);
+      return response.status(200).json({ success: true, ...result });
     });
   },
 });

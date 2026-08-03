@@ -3,6 +3,7 @@ const { normalizeAllowedEnvs, normalizeRole } = require("./authz/accountRoles");
 const crypto = require("crypto");
 const { lazyDataAccessFacade } = require("./dataAccess/lazyFacade");
 const AdminSystem = lazyDataAccessFacade("adminSystem");
+const { currentAuthEpoch } = require("./authz/authCompatibility");
 
 const IDLE_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const USER_ACTION_REFRESH_THROTTLE_MS = 60 * 1000;
@@ -78,6 +79,7 @@ function issueUserSessionToken(
       username: user.username,
       role: normalizeRole(user.role),
       allowedEnvs: normalizeAllowedEnvs(user.allowedEnvs, user.role),
+      authEpoch: currentAuthEpoch(),
       lastUserActionAt: Number(lastUserActionAt),
       ...(clientId ? { clientId } : {}),
       ...(sessionId ? { sessionId } : {}),
@@ -150,6 +152,7 @@ async function createSingleUserSessionToken(options = {}) {
       sid: session.sessionId,
       jti: crypto.randomUUID(),
       tokenVersion: session.tokenVersion,
+      authEpoch: currentAuthEpoch(),
     },
     process.env.JWT_EXPIRY
   );

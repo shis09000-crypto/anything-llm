@@ -51,6 +51,9 @@ const {
   authSessionRecoveryEndpoints,
 } = require("./endpoints/authSessionRecovery");
 const {
+  deviceBindingRecoveryEndpoints,
+} = require("./endpoints/deviceBindingRecovery");
+const {
   drainWorkspaceDeleteJobs,
   workspaceEndpoints,
 } = require("./endpoints/workspaces");
@@ -259,6 +262,7 @@ authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);
 authZkLoginEndpoints(apiRouter);
 authSessionRecoveryEndpoints(apiRouter);
+deviceBindingRecoveryEndpoints(apiRouter);
 extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
 workspaceHealthEndpoints(apiRouter);
@@ -333,6 +337,9 @@ const {
   startAuthSessionSyncReconciler,
   stopAuthSessionSyncReconciler,
 } = require("./utils/security/authSessionSyncReconciler");
+const {
+  identityMaintenanceOwnedLocally,
+} = require("./utils/security/identityMaintenanceOwnership");
 const { operationsPlane } = require("./utils/operations/operationsPlane");
 const {
   operationsShadowRuntime,
@@ -368,6 +375,17 @@ runtimeCoordinator.register({
   stopOrder: 5,
   start: async () => apiProbeHost?.start(),
   stop: async () => apiProbeHost?.stop(),
+});
+runtimeCoordinator.register({
+  name: "application-capability-closure",
+  order: 3,
+  stopOrder: 6,
+  start: async () => {
+    const {
+      assertApplicationCapabilityClosure,
+    } = require("./utils/coordination/applicationCapabilityClosure");
+    await assertApplicationCapabilityClosure();
+  },
 });
 runtimeCoordinator.register({
   name: "sync-v2-outbox",
@@ -430,15 +448,27 @@ runtimeCoordinator.register({
   name: "security-audit-maintenance",
   order: 14,
   stopOrder: 74,
-  start: async () => startSecurityAuditMaintenance(),
-  stop: stopSecurityAuditMaintenance,
+  start: async () =>
+    identityMaintenanceOwnedLocally()
+      ? startSecurityAuditMaintenance()
+      : undefined,
+  stop: async () =>
+    identityMaintenanceOwnedLocally()
+      ? stopSecurityAuditMaintenance()
+      : undefined,
 });
 runtimeCoordinator.register({
   name: "auth-session-sync-reconciler",
   order: 13,
   stopOrder: 73,
-  start: async () => startAuthSessionSyncReconciler(),
-  stop: stopAuthSessionSyncReconciler,
+  start: async () =>
+    identityMaintenanceOwnedLocally()
+      ? startAuthSessionSyncReconciler()
+      : undefined,
+  stop: async () =>
+    identityMaintenanceOwnedLocally()
+      ? stopAuthSessionSyncReconciler()
+      : undefined,
 });
 runtimeCoordinator.register({
   name: "crypto-forecasting",

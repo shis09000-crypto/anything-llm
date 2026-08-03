@@ -61,13 +61,13 @@ function edgeRouteTargets({ origin, healthUrl }) {
     },
     {
       id: "identity-public-route",
-      url: new URL("/api/auth/registration/config", origin).toString(),
+      url: new URL("/api/auth/bootstrap", origin).toString(),
       validate: ({ statusCode, body }) => {
         const payload = safeJson(body);
         return (
           statusCode === 200 &&
-          payload?.success === true &&
-          typeof payload?.allowPublicRegistration === "boolean"
+          payload?.schemaVersion === "athena.auth.bootstrap.v1" &&
+          ["ready", "updating", "degraded"].includes(payload?.serviceStatus)
         );
       },
     },

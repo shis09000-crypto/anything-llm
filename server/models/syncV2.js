@@ -709,6 +709,16 @@ const SyncV2 = {
     return await canAccessNode(prisma, options.nodeKey, options);
   },
 
+  async nodeExists({ nodeKey } = {}) {
+    const parsed = classifyNodeKey(nodeKey);
+    if (!parsed) return false;
+    const node = await prisma.sync_nodes.findUnique({
+      where: { nodeKey: parsed.nodeKey },
+      select: { nodeKey: true },
+    });
+    return Boolean(node);
+  },
+
   async recordNodeChange(tx, options = {}) {
     const parsed = classifyNodeKey(options.nodeKey);
     if (!parsed) throw new Error("sync_node_unregistered");
@@ -866,6 +876,12 @@ const SyncV2 = {
     error.requiresFullSync = false;
     error.conflictReason = "changed_paths_overlap";
     throw error;
+  },
+
+  async assertNodeMutationVersion(options = {}) {
+    return prisma.$transaction((tx) =>
+      this.assertMutationVersion(tx, options)
+    );
   },
 
   async reconcileNode({ nodeKey, content, emitOnCreate = false, ...options }) {

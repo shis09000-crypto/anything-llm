@@ -14,7 +14,9 @@ jest.mock("../../utils/prisma", () => mockPrisma);
 jest.mock("../../models/syncV2", () => ({ SyncV2: mockSyncV2 }));
 jest.mock("../../utils/security/userStateValueProtection", () => ({
   decodeUserStateValue: ({ storedValue }) => storedValue,
+  decodeUserStateValueAsync: async ({ storedValue }) => storedValue,
   encodeUserStateValue: ({ value }) => JSON.stringify(value),
+  encodeUserStateValueAsync: async ({ value }) => JSON.stringify(value),
 }));
 
 const {
