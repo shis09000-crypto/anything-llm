@@ -21,6 +21,21 @@ const TERMINAL_AGENT_STATUSES = new Set([
 
 const AGENT_RUN_EVENT_PURPOSE = "agent-run-event";
 
+function resolveRunTransition(
+  currentStatus,
+  requestedStatus,
+  terminal = false
+) {
+  const alreadyTerminal = TERMINAL_AGENT_STATUSES.has(currentStatus);
+  return {
+    alreadyTerminal,
+    terminal: alreadyTerminal || Boolean(terminal),
+    status: alreadyTerminal
+      ? currentStatus
+      : String(requestedStatus || currentStatus || "running").slice(0, 80),
+  };
+}
+
 function agentRunEventContext(invocationId, operation) {
   return {
     purpose: AGENT_RUN_EVENT_PURPOSE,
@@ -199,7 +214,11 @@ const AgentRun = {
         const currentRun = await tx.agent_runs.findUnique({
           where: { id: run.id },
         });
-        const terminal = Boolean(state.terminal);
+        const transition = resolveRunTransition(
+          currentRun?.status,
+          state.status,
+          state.terminal
+        );
         return tx.agent_runs.update({
           where: { id: run.id },
           data: {
@@ -207,9 +226,7 @@ const AgentRun = {
               Number(currentRun?.latestSequence || 0),
               sequence
             ),
-            status: String(
-              state.status || currentRun?.status || run.status
-            ).slice(0, 80),
+            status: transition.status,
             finalChatId:
               state.finalChatId ||
               currentRun?.finalChatId ||
@@ -223,14 +240,14 @@ const AgentRun = {
             errorCode: state.errorCode
               ? String(state.errorCode).slice(0, 160)
               : currentRun?.errorCode || run.errorCode,
-            ownerId: terminal
+            ownerId: transition.terminal
               ? null
               : ownerId || currentRun?.ownerId || run.ownerId,
-            leaseExpiresAt: terminal
+            leaseExpiresAt: transition.terminal
               ? null
               : currentRun?.leaseExpiresAt || run.leaseExpiresAt,
-            completedAt: terminal
-              ? new Date()
+            completedAt: transition.terminal
+              ? currentRun?.completedAt || new Date()
               : currentRun?.completedAt || run.completedAt,
           },
         });
@@ -291,11 +308,15 @@ const AgentRun = {
     try {
       const run = await this.ensure({ invocationId, ownerId });
       if (!run) return null;
-      const terminal = Boolean(state.terminal);
+      const transition = resolveRunTransition(
+        run.status,
+        state.status,
+        state.terminal
+      );
       return await prisma.agent_runs.update({
         where: { id: run.id },
         data: {
-          status: String(state.status || run.status).slice(0, 80),
+          status: transition.status,
           latestSequence: Math.max(
             Number(run.latestSequence || 0),
             Number(state.latestSeq || 0)
@@ -306,9 +327,11 @@ const AgentRun = {
           errorCode: state.errorCode
             ? String(state.errorCode).slice(0, 160)
             : run.errorCode,
-          ownerId: terminal ? null : ownerId || run.ownerId,
-          leaseExpiresAt: terminal ? null : run.leaseExpiresAt,
-          completedAt: terminal ? new Date() : run.completedAt,
+          ownerId: transition.terminal ? null : ownerId || run.ownerId,
+          leaseExpiresAt: transition.terminal ? null : run.leaseExpiresAt,
+          completedAt: transition.terminal
+            ? run.completedAt || new Date()
+            : run.completedAt,
         },
       });
     } catch (error) {
@@ -353,5 +376,6 @@ module.exports = {
     agentRunEventContext,
     decryptAgentRunEvent,
     encryptAgentRunEvent,
+    resolveRunTransition,
   },
 };

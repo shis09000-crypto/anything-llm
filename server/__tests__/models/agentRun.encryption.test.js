@@ -56,4 +56,21 @@ describe("AgentRun event encryption boundary", () => {
     ).resolves.toBe("legacy");
     expect(mockDecryptChatFieldCompat).toHaveBeenCalledWith("chat:v2:legacy");
   });
+
+  test("never regresses a terminal run when delayed stream writes arrive", () => {
+    expect(
+      _internals.resolveRunTransition("completed", "running", false)
+    ).toEqual({
+      alreadyTerminal: true,
+      terminal: true,
+      status: "completed",
+    });
+    expect(
+      _internals.resolveRunTransition("stopped", "finalizing", false)
+    ).toEqual({
+      alreadyTerminal: true,
+      terminal: true,
+      status: "stopped",
+    });
+  });
 });
