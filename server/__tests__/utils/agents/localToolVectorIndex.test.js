@@ -1,4 +1,5 @@
 const {
+  agentReasoningEffort,
   LocalToolVectorIndex,
   simpleAgentRequest,
 } = require("../../../utils/agents/aibitat/utils/localToolVectorIndex");
@@ -52,7 +53,7 @@ describe("local Agent tool vector index", () => {
     expect(withFile.tools.map((tool) => tool.name)).toContain("read_document");
   });
 
-  test("uses low reasoning only for simple no-tool conversation", () => {
+  test("identifies only simple no-tool conversation for the fast path", () => {
     expect(simpleAgentRequest("哈咯", { selectedTools: [] })).toBe(true);
     expect(simpleAgentRequest("@agent 哈咯", { selectedTools: [] })).toBe(
       false
@@ -60,5 +61,21 @@ describe("local Agent tool vector index", () => {
     expect(
       simpleAgentRequest("搜索并分析这个网页", { selectedTools: [] })
     ).toBe(false);
+  });
+
+  test("disables hidden reasoning only for the simple Agent fast path", () => {
+    expect(agentReasoningEffort("哈咯", { selectedTools: [] })).toBe("none");
+    expect(agentReasoningEffort("@agent 哈咯", { selectedTools: [] })).toBe(
+      "high"
+    );
+    expect(
+      agentReasoningEffort("帮我搜索并比较最新资料", { selectedTools: [] })
+    ).toBe("high");
+    expect(
+      agentReasoningEffort("请概括附件", {
+        selectedTools: [],
+        context: { hasAttachments: true },
+      })
+    ).toBe("high");
   });
 });

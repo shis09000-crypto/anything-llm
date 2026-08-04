@@ -8,8 +8,8 @@ const {
 const { v4 } = require("uuid");
 const { ToolReranker } = require("./utils/toolReranker.js");
 const {
+  agentReasoningEffort,
   LocalToolVectorIndex,
-  simpleAgentRequest,
 } = require("./utils/localToolVectorIndex.js");
 const {
   storeToolRun,
@@ -1031,7 +1031,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       ...this.defaultProvider,
       ...fromConfig,
     });
-    this.handlerProps.agentReasoningEffort = simpleAgentRequest(
+    this.handlerProps.agentReasoningEffort = agentReasoningEffort(
       this.handlerProps?.invocation?.prompt || userPrompt,
       {
         selectedTools: functions || [],
@@ -1042,9 +1042,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           ),
         },
       }
-    )
-      ? "low"
-      : "high";
+    );
     provider.attachHandlerProps(this.handlerProps);
 
     let content;

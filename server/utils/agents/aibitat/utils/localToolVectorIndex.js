@@ -147,6 +147,13 @@ function simpleAgentRequest(query, { selectedTools = [], context = {} } = {}) {
   );
 }
 
+function agentReasoningEffort(query, options = {}) {
+  // DeepSeek documents `none` as the supported way to disable thinking.
+  // Once Athena has classified a turn as simple and tool-free, another hidden
+  // reasoning pass only delays the first visible token.
+  return simpleAgentRequest(query, options) ? "none" : "high";
+}
+
 class LocalToolVectorIndex {
   static instance = null;
 
@@ -235,6 +242,7 @@ module.exports = {
   DEFAULT_TIMEOUT_MS,
   DEFAULT_TOOL_LIMIT,
   LocalToolVectorIndex,
+  agentReasoningEffort,
   cosine,
   forcedToolNames,
   simpleAgentRequest,
