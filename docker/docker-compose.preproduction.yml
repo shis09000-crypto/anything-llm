@@ -638,6 +638,7 @@ services:
       postgresql: { condition: service_healthy }
       nats: { condition: service_healthy }
       anything-llm-key-custody: { condition: service_healthy }
+      anything-llm-chat-runtime: { condition: service_healthy }
     volumes:
       - ./preproduction.empty.env:/app/server/.env:ro
       - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
@@ -657,6 +658,7 @@ services:
       ATHENA_NATS_CONSUMER_NAME: preproduction-agent-runtime
       ATHENA_MODEL_GATEWAY_CUTOVER: "true"
       ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
       ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
       ATHENA_TOOL_BROKER_CUTOVER: "true"

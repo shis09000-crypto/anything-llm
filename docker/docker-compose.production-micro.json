@@ -1804,6 +1804,9 @@
         },
         "anything-llm-key-custody": {
           "condition": "service_healthy"
+        },
+        "anything-llm-chat-runtime": {
+          "condition": "service_healthy"
         }
       },
       "volumes": [
@@ -1919,6 +1922,7 @@
         "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
         "ATHENA_OTEL_HEALTH_URL": "http://otel-collector:9464/metrics",
         "ATHENA_MODEL_GATEWAY_URL": "https://anything-llm-model-gateway:3018",
+        "ATHENA_CHAT_RUNTIME_URL": "https://anything-llm-chat-runtime:3016",
         "ATHENA_RUNTIME_ROLE": "agent-runtime",
         "ATHENA_REALTIME_GATEWAY_URL": "https://anything-llm-realtime-gateway:3013",
         "ATHENA_SERVICE_ID": "spiffe://athena/production/agent-runtime",
