@@ -1,4 +1,7 @@
 const crypto = require("crypto");
+const {
+  stripCurrentDateTimePromptBlock,
+} = require("../chats/currentDateTimeContext");
 const { normalizeHostedTools } = require("./hostedTools");
 
 const FLASH_MODEL = "deepseek-v4-flash";
@@ -62,6 +65,20 @@ function sha256(value) {
     .createHash("sha256")
     .update(typeof value === "string" ? value : canonicalJson(value))
     .digest("hex");
+}
+
+function stateItemFingerprint(item) {
+  if (
+    item?.type === "message" &&
+    item?.role === "user" &&
+    typeof item.content === "string"
+  ) {
+    return sha256({
+      ...item,
+      content: stripCurrentDateTimePromptBlock(item.content),
+    });
+  }
+  return sha256(item);
 }
 
 function responseId() {
@@ -128,7 +145,10 @@ function commonPrefixLength(left = [], right = []) {
   const limit = Math.min(left.length, right.length);
   let index = 0;
   for (; index < limit; index += 1) {
-    if (sha256(left[index]) !== sha256(right[index])) break;
+    if (
+      stateItemFingerprint(left[index]) !== stateItemFingerprint(right[index])
+    )
+      break;
   }
   return index;
 }
@@ -259,5 +279,6 @@ module.exports = {
   normalizeUsage,
   responseId,
   sha256,
+  stateItemFingerprint,
   validateCreateRequest,
 };
