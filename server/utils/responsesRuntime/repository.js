@@ -3,7 +3,7 @@ const {
   wrapMaterial,
   unwrapMaterial,
 } = require("../security/keyCustody/remoteClient");
-const { canonicalJson, sha256 } = require("./contract");
+const { canonicalJson, sha256, stateItemFingerprint } = require("./contract");
 
 const CHUNK_BYTES = 36 * 1024;
 
@@ -163,7 +163,8 @@ class ResponsesRepository {
       )
         continue;
       const identical = candidateInput.every(
-        (item, index) => sha256(item) === sha256(input[index])
+        (item, index) =>
+          stateItemFingerprint(item) === stateItemFingerprint(input[index])
       );
       if (identical) return { responseId: candidate.id, input: candidateInput };
     }

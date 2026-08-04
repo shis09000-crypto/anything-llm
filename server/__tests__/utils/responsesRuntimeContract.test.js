@@ -2,6 +2,7 @@ const {
   canonicalJson,
   commonPrefixLength,
   normalizeUsage,
+  stateItemFingerprint,
   validateCreateRequest,
 } = require("../../utils/responsesRuntime/contract");
 const {
@@ -14,9 +15,7 @@ const {
   isRecoverableResponsesFailure,
   validateProviderRequest,
 } = require("../../utils/modelGateway/deepSeekResponses");
-const {
-  toChatStream,
-} = require("../../utils/responsesRuntime/chatAdapter");
+const { toChatStream } = require("../../utils/responsesRuntime/chatAdapter");
 
 describe("managed Responses protocol contracts", () => {
   const baseRequest = {
@@ -61,10 +60,35 @@ describe("managed Responses protocol contracts", () => {
     ).toBe(1);
   });
 
+  test("ignores the managed current datetime block for state continuity", () => {
+    const persisted = {
+      type: "message",
+      role: "user",
+      content: "hello",
+    };
+    const current = {
+      ...persisted,
+      content:
+        "hello\n\n<current_datetime>\n" +
+        "Use this as the current date and time for this request.\n" +
+        "Current date: 2026-08-04\n" +
+        "Current time: 10:00:00\n" +
+        "Time zone: Asia/Shanghai\n" +
+        "ISO timestamp: 2026-08-04T02:00:00.000Z\n" +
+        "</current_datetime>",
+    };
+
+    expect(stateItemFingerprint(current)).toBe(stateItemFingerprint(persisted));
+    expect(commonPrefixLength([current], [persisted])).toBe(1);
+    expect(stateItemFingerprint({ ...current, content: "edited" })).not.toBe(
+      stateItemFingerprint(persisted)
+    );
+  });
+
   test("canonical JSON follows JSON semantics for undefined values", () => {
-    expect(
-      canonicalJson({ z: undefined, b: [1, undefined], a: "kept" })
-    ).toBe('{"a":"kept","b":[1,null]}');
+    expect(canonicalJson({ z: undefined, b: [1, undefined], a: "kept" })).toBe(
+      '{"a":"kept","b":[1,null]}'
+    );
     expect(() =>
       JSON.parse(canonicalJson({ temperature: undefined }))
     ).not.toThrow();
