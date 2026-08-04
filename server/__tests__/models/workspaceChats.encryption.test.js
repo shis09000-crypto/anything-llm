@@ -551,6 +551,8 @@ describe("WorkspaceChats chat history encryption", () => {
     );
     expect(tailQueries).toHaveLength(1);
     expect(tailQueries[0][0]).not.toContain(` IS ?`);
+    expect(tailQueries[0][0]).toContain(`CAST(? AS INTEGER)`);
+    expect(tailQueries[0][0]).toContain(`CAST(? AS TEXT)`);
     expect(tailQueries[0].slice(2)).toEqual([
       10,
       2,
@@ -619,6 +621,8 @@ describe("WorkspaceChats chat history encryption", () => {
       ([sql]) => String(sql).includes(`WITH "predecessor_metadata" AS`)
     );
     expect(predecessorQuery[0]).not.toContain(` IS ?`);
+    expect(predecessorQuery[0]).toContain(`CAST(? AS INTEGER)`);
+    expect(predecessorQuery[0]).toContain(`CAST(? AS TEXT)`);
     expect(predecessorQuery.slice(3)).toEqual([
       10,
       2,
