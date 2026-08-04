@@ -10,7 +10,10 @@ COPY --chown=1000:1000 server/utils/requestSigning/index.js /app/server/utils/re
 
 RUN cd /app/server \
   && node -c utils/requestSigning/index.js \
-  && node -e 'const signing = require("./utils/requestSigning"); if (typeof signing.verifyDeviceSignature !== "function") throw new Error("device_signature_verifier_export_missing")'
+  && SIG_KEY=identity-build-verification-key \
+     SIG_SALT=identity-build-verification-salt \
+     ENCRYPTION_MASTER_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+     node -e 'const signing = require("./utils/requestSigning"); if (typeof signing.verifyDeviceSignature !== "function") throw new Error("device_signature_verifier_export_missing")'
 
 LABEL athena.release.id="identity-device-signature-export-v2.5.76" \
       athena.release.scope="identity-device-binding-recovery" \
