@@ -130,9 +130,9 @@ describe("WorkspaceChats chat history encryption", () => {
               (row) =>
                 Number(row.workspaceId) === Number(params[2]) &&
                 (row.user_id ?? null) === (params[3] ?? null) &&
-                (row.thread_id ?? null) === (params[4] ?? null) &&
-                (row.api_session_id ?? null) === (params[5] ?? null) &&
-                Number(row.id) < Number(params[6])
+                (row.thread_id ?? null) === (params[5] ?? null) &&
+                (row.api_session_id ?? null) === (params[7] ?? null) &&
+                Number(row.id) < Number(params[9])
             )
             .sort((left, right) => Number(right.id) - Number(left.id))[0];
           return Promise.resolve([
@@ -550,6 +550,17 @@ describe("WorkspaceChats chat history encryption", () => {
       String(sql).includes(`WITH "tail" AS`)
     );
     expect(tailQueries).toHaveLength(1);
+    expect(tailQueries[0][0]).not.toContain(` IS ?`);
+    expect(tailQueries[0].slice(2)).toEqual([
+      10,
+      2,
+      2,
+      3,
+      3,
+      "bulk-session",
+      "bulk-session",
+      50,
+    ]);
     expect(mockPrisma.workspace_chats.findMany).not.toHaveBeenCalled();
   });
 
@@ -604,6 +615,20 @@ describe("WorkspaceChats chat history encryption", () => {
     });
 
     expect(result).toMatchObject({ rebuilt: 3, fallback: false });
+    const predecessorQuery = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => String(sql).includes(`WITH "predecessor_metadata" AS`)
+    );
+    expect(predecessorQuery[0]).not.toContain(` IS ?`);
+    expect(predecessorQuery.slice(3)).toEqual([
+      10,
+      2,
+      2,
+      3,
+      3,
+      "suffix-session",
+      "suffix-session",
+      1000,
+    ]);
     expect(mockPrisma.workspace_chats.findMany).toHaveBeenCalledWith({
       where: expect.objectContaining({ id: { gte: 1000 } }),
       orderBy: { id: "asc" },
