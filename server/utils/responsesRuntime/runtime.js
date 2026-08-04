@@ -8,8 +8,9 @@ const {
   sha256,
   validateCreateRequest,
 } = require("./contract");
-const { ResponsesRepository } = require("./repository");
+const { ResponsesRepository, mapConcurrent } = require("./repository");
 const ModelClient = require("./modelClient");
+const { DurableEventBatcher } = require("./eventBatcher");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 const { requestInternalService } = require("../microModules");
 
@@ -96,6 +97,8 @@ class ResponsesRuntime {
     this.completed = 0;
     this.failed = 0;
     this.pruned = 0;
+    this.persistedEventBatches = 0;
+    this.persistedEventCount = 0;
   }
 
   snapshot() {
@@ -106,6 +109,9 @@ class ResponsesRuntime {
       completedResponses: this.completed,
       failedResponses: this.failed,
       prunedResponses: this.pruned,
+      persistedEventBatches: this.persistedEventBatches,
+      persistedEventCount: this.persistedEventCount,
+      ...(this.repository.snapshot?.() || {}),
     };
   }
 
@@ -280,34 +286,39 @@ class ResponsesRuntime {
     });
     if (request.store) {
       const suffix = effectiveInput.slice(prefixLength);
-      let sequence = 0;
-      for (const item of suffix) {
-        await this.repository.appendItem({
-          responseId: id,
-          sequence: sequence++,
-          itemType: item.type || "message",
-          role: item.role || null,
-          callId: item.call_id || item.tool_call_id || null,
-          status: "completed",
-          payload: item,
-        });
+      const initialPersistence = [
+        mapConcurrent(suffix, 4, (item, sequence) =>
+          this.repository.appendItem({
+            responseId: id,
+            sequence,
+            itemType: item.type || "message",
+            role: item.role || null,
+            callId: item.call_id || item.tool_call_id || null,
+            status: "completed",
+            payload: item,
+          })
+        ),
+        this.repository.writeCheckpoint(id, {
+          input: effectiveInput,
+          instructions: request.instructions,
+          tools: request.tools,
+          reasoning: request.reasoning,
+          temperature: request.temperature,
+          maxOutputTokens: request.maxOutputTokens,
+          inputPrefixLength: prefixLength,
+          historyChanged,
+        }),
+        this.persistEvent(id, 0, "response.created", { response }),
+      ];
+      if (!request.background) {
+        response.status = "in_progress";
+        initialPersistence.push(
+          this.persistEvent(id, 1, "response.in_progress", { response })
+        );
       }
-      await this.repository.writeCheckpoint(id, {
-        input: effectiveInput,
-        instructions: request.instructions,
-        tools: request.tools,
-        reasoning: request.reasoning,
-        temperature: request.temperature,
-        maxOutputTokens: request.maxOutputTokens,
-        inputPrefixLength: prefixLength,
-        historyChanged,
-      });
-      await this.persistEvent(id, 0, "response.created", { response });
-    }
-    if (!request.background) {
+      await Promise.all(initialPersistence);
+    } else if (!request.background) {
       response.status = "in_progress";
-      if (request.store)
-        await this.persistEvent(id, 1, "response.in_progress", { response });
     }
     return { request: executionRequest, scope, conversation, response };
   }
@@ -389,7 +400,11 @@ class ResponsesRuntime {
   }
 
   async *stream(body = {}) {
+    const runtimeStartedAt = Date.now();
+    const batchesAtStart = this.persistedEventBatches;
+    const custodyAtStart = this.repository.snapshot?.() || {};
     const created = await this.create({ ...body, background: false });
+    const preprocessingMs = Date.now() - runtimeStartedAt;
     const { request, conversation, response } = created;
     if (created.replay) {
       const events = response.conversation
@@ -417,14 +432,42 @@ class ResponsesRuntime {
     let protocol = "responses";
     let degradedReason = null;
     let providerStatus = "completed";
+    let providerStartedAt = null;
+    let providerFirstEventAt = null;
+    let firstVisibleDeltaAt = null;
+    let providerProjectionMs = null;
+    let rawStream = null;
+    const eventBatcher = request.store
+      ? new DurableEventBatcher({
+          responseId: response.id,
+          persist: (batch) => this.repository.appendEventBatch(batch),
+          observe: ({ eventCount }) => {
+            this.persistedEventBatches += 1;
+            this.persistedEventCount += eventCount;
+          },
+          onError: () => rawStream?.destroy?.(),
+        })
+      : null;
+    const activeResponse = this.active.get(response.id);
+    if (activeResponse) activeResponse.eventBatcher = eventBatcher;
     try {
-      const rawStream = await this.modelClient.stream(request);
+      providerStartedAt = Date.now();
+      rawStream = await this.modelClient.stream(request);
       const active = this.active.get(response.id);
       if (active && typeof rawStream?.destroy === "function")
         active.abort = () => rawStream.destroy();
       for await (const providerEvent of this.modelClient.events(rawStream)) {
+        const providerEventAt = Date.now();
+        eventBatcher?.throwIfFailed();
         if (this.active.get(response.id)?.cancelled)
           throw runtimeError("response_cancelled", 409);
+        if (
+          ["response.created", "response.in_progress"].includes(
+            providerEvent.type
+          )
+        )
+          continue;
+        providerFirstEventAt ||= providerEventAt;
         const event = {
           ...providerEvent,
           sequence_number: sequence,
@@ -432,6 +475,14 @@ class ResponsesRuntime {
         };
         if (providerEvent.type === "response.output_text.delta")
           outputText += providerEvent.delta || "";
+        if (
+          providerEvent.type === "response.output_text.delta" &&
+          providerEvent.delta &&
+          firstVisibleDeltaAt === null
+        ) {
+          firstVisibleDeltaAt = Date.now();
+          providerProjectionMs = firstVisibleDeltaAt - providerEventAt;
+        }
         if (
           providerEvent.type === "response.output_item.done" &&
           providerEvent.item
@@ -470,10 +521,19 @@ class ResponsesRuntime {
           continue;
         }
         if (request.store)
-          await this.persistEvent(response.id, sequence, event.type, event);
+          eventBatcher.append(event, {
+            boundary: [
+              "response.output_item.added",
+              "response.output_item.done",
+              "response.content_part.added",
+              "response.content_part.done",
+              "response.function_call_arguments.done",
+            ].includes(event.type),
+          });
         yield event;
         sequence += 1;
       }
+      if (request.store) await eventBatcher.drain();
       const result = {
         output: collectedOutput,
         output_text: outputText,
@@ -481,6 +541,22 @@ class ResponsesRuntime {
         effectiveProtocol: protocol,
         degradedReason,
         status: providerStatus,
+        runtimeMetrics: {
+          preprocessingMs,
+          providerTtftMs:
+            providerFirstEventAt === null || providerStartedAt === null
+              ? null
+              : providerFirstEventAt - providerStartedAt,
+          firstVisibleDeltaMs:
+            firstVisibleDeltaAt === null
+              ? null
+              : firstVisibleDeltaAt - runtimeStartedAt,
+          providerProjectionMs,
+          persistedEventBatches: this.persistedEventBatches - batchesAtStart,
+          keyCustodyWrapCalls:
+            (this.repository.snapshot?.().keyCustodyWrapCalls || 0) -
+            (custodyAtStart.keyCustodyWrapCalls || 0),
+        },
       };
       const finalized = await this.finalize({
         response,
@@ -504,10 +580,18 @@ class ResponsesRuntime {
       yield event;
       this.completed += 1;
     } catch (error) {
+      let persistenceError = null;
+      if (request.store && eventBatcher) {
+        try {
+          await eventBatcher.drain();
+        } catch (batchError) {
+          persistenceError = batchError;
+        }
+      }
       const failureError = this.active.get(response.id)?.cancelled
         ? runtimeError("response_cancelled", 409)
-        : error;
-      const failed = await this.fail(response, request, failureError, sequence);
+        : persistenceError || error;
+      const failed = await this.fail(response, request, failureError, null);
       yield {
         type:
           failed.status === "cancelled"
@@ -515,10 +599,12 @@ class ResponsesRuntime {
             : "response.failed",
         sequence_number: sequence,
         response: failed,
-        error: { code: error.code || error.message },
+        error: {
+          code: failureError.code || failureError.message,
+        },
       };
       this.failed += 1;
-      throw error;
+      throw failureError;
     } finally {
       this.active.delete(response.id);
     }
@@ -603,6 +689,12 @@ class ResponsesRuntime {
         cacheMissTokens: usage.input_tokens_details.cache_miss_tokens,
         inputTokens: usage.input_tokens,
         outputTokens: usage.output_tokens,
+        preprocessingMs: result.runtimeMetrics?.preprocessingMs,
+        providerTtftMs: result.runtimeMetrics?.providerTtftMs,
+        firstVisibleDeltaMs: result.runtimeMetrics?.firstVisibleDeltaMs,
+        providerProjectionMs: result.runtimeMetrics?.providerProjectionMs,
+        persistedEventBatches: result.runtimeMetrics?.persistedEventBatches,
+        keyCustodyWrapCalls: result.runtimeMetrics?.keyCustodyWrapCalls,
       }
     );
     return finalized;
@@ -681,6 +773,20 @@ class ResponsesRuntime {
   async retrieve(id, athena, options = {}) {
     const row = await this.authorizeResponse(id, athena, options);
     return this.hydrateResponse(row);
+  }
+
+  async agentRunStatus(agentRunId) {
+    const row =
+      await this.repository.findLatestResponseByAgentRunId(agentRunId);
+    if (!row) return null;
+    return {
+      responseId: row.id,
+      agentRunId: row.agentRunId,
+      status: row.status,
+      completedAt: row.completedAt,
+      errorCode: row.errorCode,
+      resultSha256: row.resultSha256,
+    };
   }
 
   async cancel(id, athena, options = {}) {
@@ -875,10 +981,14 @@ class ResponsesRuntime {
 
   async stop() {
     this.accepting = false;
+    const drains = [];
     for (const active of this.active.values()) {
       active.cancelled = true;
       active.abort?.();
+      if (active.eventBatcher) drains.push(active.eventBatcher.drain());
     }
+    await Promise.allSettled(drains);
+    this.repository.clearCheckpointCache?.();
   }
 }
 

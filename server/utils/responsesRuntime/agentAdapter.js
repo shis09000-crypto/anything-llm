@@ -107,7 +107,12 @@ function createResponsesAgentProvider({
         background: false,
         tools: responsesTools(formatFunctionsToTools(functions)),
         tool_choice: functions.length ? "auto" : null,
-        reasoning: { effort: options?.reasoningEffort || "high" },
+        reasoning: {
+          effort:
+            options?.reasoningEffort ||
+            this.handlerProps?.agentReasoningEffort ||
+            "high",
+        },
         ...(options?.maxTokens != null
           ? { max_output_tokens: options.maxTokens }
           : {}),

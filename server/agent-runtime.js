@@ -34,12 +34,14 @@ const { DataAccessCenter } = require("./utils/dataAccess");
 const {
   submitAgentInvocation,
 } = require("./utils/agents/invocationCapability");
+const { startAgentRunRecovery } = require("./utils/agents/agentRunRecovery");
 
 const role = "agent-runtime";
 const port = Number(process.env.AGENT_RUNTIME_PORT || 3017);
 const drainTimeoutMs = Number(
   process.env.ATHENA_RUNTIME_DRAIN_TIMEOUT_MS || 120_000
 );
+let stopAgentRunRecovery = null;
 
 const host = new MicroModuleServiceHost({
   manifestId: "agent-runtime",
@@ -49,7 +51,11 @@ const host = new MicroModuleServiceHost({
   parseJson: false,
   readiness: agentRuntimeSnapshot,
   onStart: () => secureDatabaseStart(role),
-  onDrain: () => drainAgentRuntime({ timeoutMs: drainTimeoutMs }),
+  onDrain: async () => {
+    stopAgentRunRecovery?.();
+    stopAgentRunRecovery = null;
+    return drainAgentRuntime({ timeoutMs: drainTimeoutMs });
+  },
   registerRoutes: (app) => {
     registerCompatibleApi(app, agentWebsocket);
     app.post("/internal/v1/agent/invocations", async (request, response) => {
@@ -103,9 +109,10 @@ const host = new MicroModuleServiceHost({
 installStandaloneShutdown(host, { name: "AgentRuntime" });
 host
   .start()
-  .then((snapshot) =>
-    console.log(`[AgentRuntime] listening on ${host.port}`, snapshot)
-  )
+  .then((snapshot) => {
+    stopAgentRunRecovery = startAgentRunRecovery();
+    console.log(`[AgentRuntime] listening on ${host.port}`, snapshot);
+  })
   .catch((error) => {
     console.error("[AgentRuntime] failed to start", error);
     process.exitCode = 1;

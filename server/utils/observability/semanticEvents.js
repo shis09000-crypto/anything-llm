@@ -10,11 +10,18 @@ const MAX_RECENT = 100;
 const queue = [];
 const recent = [];
 const sinks = new Set();
+const SAFE_NUMERIC_METADATA_KEYS = new Set([
+  "cachedTokens",
+  "cacheMissTokens",
+  "inputTokens",
+  "outputTokens",
+]);
 let flushTimer = null;
 let flushing = null;
 
 function compact(value, max = 240) {
-  const normalized = String(value || "").trim();
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
   return normalized ? normalized.slice(0, max) : null;
 }
 
@@ -166,6 +173,22 @@ function semanticEvent(input = {}) {
         "center",
         "priority",
         "escalationLevel",
+        "requestedProtocol",
+        "effectiveProtocol",
+        "degradedReason",
+        "cachedTokens",
+        "cacheMissTokens",
+        "inputTokens",
+        "outputTokens",
+        "preprocessingMs",
+        "providerTtftMs",
+        "firstVisibleDeltaMs",
+        "providerProjectionMs",
+        "persistedEventBatches",
+        "keyCustodyWrapCalls",
+        "selectedCount",
+        "availableCount",
+        "responseStatus",
       ],
       160
     ),
@@ -270,6 +293,10 @@ function scheduleFlush() {
 function emitSemanticEvent(input = {}) {
   const event = semanticEvent(input);
   const safeEvent = sanitizeLogArgs([event])[0];
+  for (const key of SAFE_NUMERIC_METADATA_KEYS) {
+    const value = event.metadata?.[key];
+    if (/^\d+$/.test(String(value || ""))) safeEvent.metadata[key] = value;
+  }
   recent.push(safeEvent);
   if (recent.length > MAX_RECENT) recent.splice(0, recent.length - MAX_RECENT);
   metrics.semanticEvents.inc({

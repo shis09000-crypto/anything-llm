@@ -1259,6 +1259,7 @@ const agentRun = makeRepositoryFacade(
     eventsAfter: "read",
     updateState: "write",
     renewLease: "write",
+    expiredLeases: "maintenance",
   },
   repositoryBoundaryScopeFromArgs
 );

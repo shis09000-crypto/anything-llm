@@ -8,6 +8,10 @@ const {
 const { v4 } = require("uuid");
 const { ToolReranker } = require("./utils/toolReranker.js");
 const {
+  LocalToolVectorIndex,
+  simpleAgentRequest,
+} = require("./utils/localToolVectorIndex.js");
+const {
   storeToolRun,
   prepareToolResultForModel,
 } = require("../toolResultStore.js");
@@ -62,6 +66,16 @@ function continuationProviderConfigForFunction(fn = {}) {
     taskName,
     ...resolveTaskProviderModel(taskName),
   };
+}
+
+function providerUsesManagedResponses(config = {}, env = process.env) {
+  return (
+    env.ATHENA_RESPONSES_RUNTIME_CUTOVER === "true" &&
+    Boolean(String(env.ATHENA_RESPONSES_RUNTIME_URL || "").trim()) &&
+    String(env.ATHENA_RUNTIME_ROLE || "") === "agent-runtime" &&
+    String(config.provider || "") === "deepseek" &&
+    String(config.model || "") === "deepseek-v4-flash"
+  );
 }
 
 /**
@@ -936,10 +950,67 @@ ${this.getHistory({ to: route.to })
       ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
       .filter((a) => !!a);
 
-    // Rerank tools based on user prompt if enabled
-    if (ToolReranker.isEnabled() && functions?.length) {
+    const userPrompt = this.#extractUserPrompt(messages);
+    // Flash uses a warm, local vector index so its tool schema stays bounded.
+    // The legacy cross-encoder remains available for non-Responses providers.
+    if (
+      providerUsesManagedResponses({
+        ...this.defaultProvider,
+        ...fromConfig,
+      }) &&
+      functions?.length
+    ) {
+      const selection = new LocalToolVectorIndex().select(
+        userPrompt,
+        functions,
+        {
+          messages,
+          hasAttachments: Boolean(
+            this.handlerProps?.displayAttachments?.length ||
+              this.handlerProps?.visionAnalysisContext
+          ),
+        }
+      );
+      functions = selection.tools;
+      this.handlerProps.agentToolSelection = {
+        durationMs: selection.durationMs,
+        selectedCount: selection.selectedCount,
+        degradedReason: selection.degradedReason,
+      };
+      try {
+        emitSemanticEvent({
+          eventId: v4(),
+          eventType: "agent.tools.selected",
+          category: "agent",
+          severity: selection.degradedReason ? "warning" : "info",
+          outcome: selection.degradedReason ? "degraded" : "success",
+          subject: {
+            type: "agent-run",
+            id: this.handlerProps?.invocation?.uuid || "unknown",
+            component: "agent-runtime",
+            operation: "tool-selection",
+          },
+          impact: {
+            scope: "deepseek-v4-flash",
+            status: selection.degradedReason || "selected",
+          },
+          metadata: {
+            durationMs: selection.durationMs,
+            selectedCount: selection.selectedCount,
+            availableCount: fromConfig.functions?.length || functions.length,
+            degradedReason: selection.degradedReason,
+          },
+          sensitivity: "metadata_only",
+        });
+      } catch {
+        // Tool selection never depends on observability delivery.
+      }
+      if (selection.degradedReason)
+        this.handlerProps.log?.(
+          `[ToolSelection] ${selection.degradedReason}; using the complete tool registry.`
+        );
+    } else if (ToolReranker.isEnabled() && functions?.length) {
       const toolReranker = new ToolReranker();
-      const userPrompt = this.#extractUserPrompt(messages);
       if (userPrompt)
         functions = await toolReranker.rerank(userPrompt, functions);
     } else {
@@ -960,6 +1031,20 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       ...this.defaultProvider,
       ...fromConfig,
     });
+    this.handlerProps.agentReasoningEffort = simpleAgentRequest(
+      this.handlerProps?.invocation?.prompt || userPrompt,
+      {
+        selectedTools: functions || [],
+        context: {
+          hasAttachments: Boolean(
+            this.handlerProps?.displayAttachments?.length ||
+              this.handlerProps?.visionAnalysisContext
+          ),
+        },
+      }
+    )
+      ? "low"
+      : "high";
     provider.attachHandlerProps(this.handlerProps);
 
     let content;

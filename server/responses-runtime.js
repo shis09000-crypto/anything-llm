@@ -108,6 +108,8 @@ const internalRouteCapabilities = {
   "/internal/v1/responses": "responses.create",
   "/internal/v1/responses/stream": "responses.stream",
   "GET /internal/v1/responses/:responseId": "responses.retrieve",
+  "GET /internal/v1/responses/agent-runs/:agentRunId/status":
+    "responses.agent-run.status",
   "DELETE /internal/v1/responses/:responseId": "responses.delete",
   "/internal/v1/responses/:responseId/cancel": "responses.cancel",
   "/internal/v1/responses/:responseId/input-items":
@@ -178,6 +180,17 @@ const host = new MicroModuleServiceHost({
         }
         if (!response.destroyed)
           response.end(`${JSON.stringify({ end: true })}\n`);
+      })
+    );
+    app.get(
+      "/internal/v1/responses/agent-runs/:agentRunId/status",
+      asyncRoute(async (request, response) => {
+        const status = await runtime.agentRunStatus(request.params.agentRunId);
+        response.status(status ? 200 : 404).json({
+          success: Boolean(status),
+          response: status,
+          ...(!status ? { error: "response_not_found" } : {}),
+        });
       })
     );
     app.get(

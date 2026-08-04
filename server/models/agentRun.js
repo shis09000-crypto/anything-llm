@@ -365,6 +365,21 @@ const AgentRun = {
       throwModelDataAccessError("agentRun.renewLease", error);
     }
   },
+
+  expiredLeases: async function ({ now = new Date(), limit = 25 } = {}) {
+    try {
+      return await prisma.agent_runs.findMany({
+        where: {
+          status: { notIn: [...TERMINAL_AGENT_STATUSES] },
+          leaseExpiresAt: { lte: now },
+        },
+        orderBy: { leaseExpiresAt: "asc" },
+        take: Math.max(1, Math.min(Number(limit) || 25, 100)),
+      });
+    } catch (error) {
+      throwModelDataAccessError("agentRun.expiredLeases", error);
+    }
+  },
 };
 
 module.exports = {

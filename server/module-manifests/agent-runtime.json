@@ -55,6 +55,7 @@
       "model.stream",
       "responses.create",
       "responses.stream",
+      "responses.agent-run.status",
       "sync.events.append",
       "operations.ingest-batch",
       "tool.invoke"
@@ -413,6 +414,21 @@
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
+      },
+      {
+        "id": "responses.agent-run.status",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/responses.agent-run.status/request/1.0",
+        "responseSchema": "athena://contracts/responses.agent-run.status/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "response_not_found"
+        ],
+        "timeoutMs": 5000,
+        "idempotency": "none",
+        "dataClassification": "internal"
       },
       {
         "id": "coordination.lifecycle.event",
