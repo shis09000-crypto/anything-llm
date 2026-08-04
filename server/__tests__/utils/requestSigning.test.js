@@ -65,6 +65,7 @@ const {
   rotateAllSigningSecrets,
   rotateSigningSecret,
   sha256Base64Url,
+  verifyDeviceSignature,
   verifySignedRequest,
   verifySignedWebSocketMessage,
   _hybridInternals,
@@ -194,6 +195,10 @@ function deviceSignedHeaders({
 }
 
 describe("request signing", () => {
+  test("exports the device signature verifier for identity recovery", () => {
+    expect(typeof verifyDeviceSignature).toBe("function");
+  });
+
   const originalNodeEnv = process.env.NODE_ENV;
   const originalWarnOnly = process.env.ATHENA_SIGNING_WARN_ONLY;
   const originalRequireSigned = process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;

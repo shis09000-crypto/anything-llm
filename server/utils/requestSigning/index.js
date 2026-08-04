@@ -1960,6 +1960,7 @@ module.exports = {
   sha256Base64Url,
   signingWarnOnly,
   signingDescriptorForRequest,
+  verifyDeviceSignature,
   verifyRequestSigningDescriptor,
   verifySignedRequest,
   verifySignedWebSocketMessage,
