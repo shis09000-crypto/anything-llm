@@ -3,6 +3,7 @@ const {
   requestInternalService,
   requestInternalStream,
 } = require("../microModules");
+const { createProviderAdapter } = require("../AiProviders/providerAdapter");
 
 function gatewayEnabled(env = process.env) {
   const role = String(env.ATHENA_RUNTIME_ROLE || "").toLowerCase();
@@ -64,38 +65,38 @@ function wrapWithModelGateway(
   if (!gatewayEnabled(env)) return delegate;
   const baseUrl = String(env.ATHENA_MODEL_GATEWAY_URL).replace(/\/+$/, "");
   const callerRole = String(env.ATHENA_RUNTIME_ROLE);
-  const remote = Object.create(delegate);
-  remote.className = delegate.className;
-  remote.model = delegate.model || model;
-  remote.modelGateway = true;
-  remote.getChatCompletion = async (messages, options = {}) => {
-    const response = await requestInternalService({
-      callerRole,
-      url: `${baseUrl}/internal/v1/models/complete`,
-      body: requestBody(provider, model, messages, options),
-      idempotencyKey: crypto
-        .createHash("sha256")
-        .update(JSON.stringify({ provider, model, messages, options }))
-        .digest("hex"),
-      env,
-      timeoutMs: Number(env.ATHENA_MODEL_GATEWAY_TIMEOUT_MS || 120_000),
-    });
-    return response.result;
-  };
-  remote.streamGetChatCompletion = async (messages, options = {}) => {
-    const response = await requestInternalStream({
-      callerRole,
-      url: `${baseUrl}/internal/v1/models/stream`,
-      body: requestBody(provider, model, messages, options),
-      idempotencyKey: crypto.randomUUID(),
-      env,
-      timeoutMs: Number(env.ATHENA_MODEL_GATEWAY_TIMEOUT_MS || 300_000),
-    });
-    const stream = ndjsonChunks(response);
-    stream.endMeasurement = () => {};
-    return stream;
-  };
-  return remote;
+  return createProviderAdapter(delegate, {
+    className: delegate.className,
+    model: delegate.model || model,
+    modelGateway: true,
+    getChatCompletion: async (messages, options = {}) => {
+      const response = await requestInternalService({
+        callerRole,
+        url: `${baseUrl}/internal/v1/models/complete`,
+        body: requestBody(provider, model, messages, options),
+        idempotencyKey: crypto
+          .createHash("sha256")
+          .update(JSON.stringify({ provider, model, messages, options }))
+          .digest("hex"),
+        env,
+        timeoutMs: Number(env.ATHENA_MODEL_GATEWAY_TIMEOUT_MS || 120_000),
+      });
+      return response.result;
+    },
+    streamGetChatCompletion: async (messages, options = {}) => {
+      const response = await requestInternalStream({
+        callerRole,
+        url: `${baseUrl}/internal/v1/models/stream`,
+        body: requestBody(provider, model, messages, options),
+        idempotencyKey: crypto.randomUUID(),
+        env,
+        timeoutMs: Number(env.ATHENA_MODEL_GATEWAY_TIMEOUT_MS || 300_000),
+      });
+      const stream = ndjsonChunks(response);
+      stream.endMeasurement = () => {};
+      return stream;
+    },
+  });
 }
 
 module.exports = {

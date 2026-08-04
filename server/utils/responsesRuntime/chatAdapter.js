@@ -3,6 +3,7 @@ const {
   requestInternalService,
   requestInternalStream,
 } = require("../microModules");
+const { createProviderAdapter } = require("../AiProviders/providerAdapter");
 const { FLASH_MODEL } = require("./contract");
 
 function enabled({ provider, model, env = process.env } = {}) {
@@ -195,56 +196,56 @@ function wrapWithResponsesRuntime(
   if (!enabled({ provider, model, env })) return delegate;
   const baseUrl = runtimeUrl(env);
   const callerRole = String(env.ATHENA_RUNTIME_ROLE);
-  const remote = Object.create(delegate);
-  remote.responsesRuntime = true;
-  remote.getChatCompletion = async (messages, options = {}) => {
-    const body = requestBody(messages, options, options.runtimeContext || {});
-    const result = await requestInternalService({
-      callerRole,
-      targetModule: "responses-runtime",
-      capability: "responses.create",
-      contractVersion: "1.0",
-      url: `${baseUrl}/internal/v1/responses`,
-      body,
-      idempotencyKey: crypto
-        .createHash("sha256")
-        .update(JSON.stringify(body))
-        .digest("hex"),
-      env,
-      timeoutMs: Number(env.ATHENA_RESPONSES_RUNTIME_TIMEOUT_MS || 300_000),
-    });
-    const response = result.response;
-    return {
-      textResponse: response.output_text || "",
-      metrics: {
-        ...chatUsage(response.usage),
-        requested_protocol: response.athena?.requestedProtocol,
-        effective_protocol: response.athena?.effectiveProtocol,
-        degraded_reason: response.athena?.degradedReason,
-        response_id: response.id,
-        conversation_id: response.conversation?.id || null,
-      },
-    };
-  };
-  remote.streamGetChatCompletion = async (messages, options = {}) => {
-    const body = requestBody(messages, options, options.runtimeContext || {});
-    const response = await requestInternalStream({
-      callerRole,
-      targetModule: "responses-runtime",
-      capability: "responses.stream",
-      contractVersion: "1.0",
-      url: `${baseUrl}/internal/v1/responses/stream`,
-      body,
-      idempotencyKey: crypto
-        .createHash("sha256")
-        .update(JSON.stringify(body))
-        .digest("hex"),
-      env,
-      timeoutMs: Number(env.ATHENA_RESPONSES_RUNTIME_TIMEOUT_MS || 300_000),
-    });
-    return toChatStream(responseEvents(response));
-  };
-  return remote;
+  return createProviderAdapter(delegate, {
+    responsesRuntime: true,
+    getChatCompletion: async (messages, options = {}) => {
+      const body = requestBody(messages, options, options.runtimeContext || {});
+      const result = await requestInternalService({
+        callerRole,
+        targetModule: "responses-runtime",
+        capability: "responses.create",
+        contractVersion: "1.0",
+        url: `${baseUrl}/internal/v1/responses`,
+        body,
+        idempotencyKey: crypto
+          .createHash("sha256")
+          .update(JSON.stringify(body))
+          .digest("hex"),
+        env,
+        timeoutMs: Number(env.ATHENA_RESPONSES_RUNTIME_TIMEOUT_MS || 300_000),
+      });
+      const response = result.response;
+      return {
+        textResponse: response.output_text || "",
+        metrics: {
+          ...chatUsage(response.usage),
+          requested_protocol: response.athena?.requestedProtocol,
+          effective_protocol: response.athena?.effectiveProtocol,
+          degraded_reason: response.athena?.degradedReason,
+          response_id: response.id,
+          conversation_id: response.conversation?.id || null,
+        },
+      };
+    },
+    streamGetChatCompletion: async (messages, options = {}) => {
+      const body = requestBody(messages, options, options.runtimeContext || {});
+      const response = await requestInternalStream({
+        callerRole,
+        targetModule: "responses-runtime",
+        capability: "responses.stream",
+        contractVersion: "1.0",
+        url: `${baseUrl}/internal/v1/responses/stream`,
+        body,
+        idempotencyKey: crypto
+          .createHash("sha256")
+          .update(JSON.stringify(body))
+          .digest("hex"),
+        env,
+        timeoutMs: Number(env.ATHENA_RESPONSES_RUNTIME_TIMEOUT_MS || 300_000),
+      });
+      return toChatStream(responseEvents(response));
+    },
+  });
 }
 
 module.exports = {
