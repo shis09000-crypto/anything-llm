@@ -83,4 +83,25 @@ describe("WorkspaceSupplement", () => {
       "doc-guide"
     );
   });
+
+  it("qualifies list projections and ordering for PostgreSQL", async () => {
+    const { WorkspaceSupplement } = require("../../models/workspaceSupplement");
+
+    await WorkspaceSupplement.list({
+      workspaceId: 6,
+      scopeType: "book",
+      primaryDocumentId: "doc-primary",
+    });
+
+    const [sql] = mockQueryRawUnsafe.mock.calls.find(([statement]) =>
+      statement.includes('FROM "WorkspaceSupplement"')
+    );
+    expect(sql).toContain('FROM "WorkspaceSupplement" AS ws');
+    expect(sql).toContain('ws."workspaceId" = ?');
+    expect(sql).toContain('ws."scopeType" = ?');
+    expect(sql).toContain('ws."primaryDocumentId" = ?');
+    expect(sql).toContain(
+      'ORDER BY ws."priority" DESC, ws."updatedAt" DESC, ws."id" DESC'
+    );
+  });
 });

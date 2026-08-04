@@ -1869,23 +1869,64 @@ async function verifySignedWebSocketMessage(request, rawMessage) {
     signatureVersion: parsed.envelope.signatureVersion,
   };
   const candidates = canonicalWebSocketPathCandidates(request);
+  const identityClient = require("../authz/identityOperationsClient");
+  const delegateToIdentity = identityClient.remoteIdentityOperationsEnabled();
   let result;
   let canonicalPathMode = candidates[0].mode;
   for (const candidate of candidates) {
-    result = await verifySignatureParts({
-      request,
-      method: "WS",
-      canonicalPath: candidate.path,
-      bodyString: payloadString,
-      signed,
-    });
+    if (delegateToIdentity) {
+      const context = getClientContext(request);
+      const remote = await identityClient.verifyRequestSigningViaIdentity({
+        request,
+        claims: request?.realtimePrincipal?.claims || null,
+        descriptor: {
+          method: "WS",
+          canonicalPath: candidate.path,
+          bodySha256: sha256Base64Url(payloadString),
+          signed,
+          client: {
+            clientId: compactString(context.clientId, 256),
+            platform: compactString(context.platform, 32),
+            appVersion: compactString(context.appVersion, 128),
+            requestId: compactString(context.requestId, 128),
+            trustLevel: compactString(context.trustLevel, 32),
+            capabilitySource: compactString(context.capabilitySource, 32),
+            capabilities:
+              context.capabilities && typeof context.capabilities === "object"
+                ? context.capabilities
+                : null,
+            capabilityProfile:
+              context.capabilityProfile &&
+              typeof context.capabilityProfile === "object"
+                ? context.capabilityProfile
+                : null,
+            legacy: context.legacy === true,
+          },
+        },
+        idempotencyKey: `identity-ws-signature:${compactString(
+          signed.requestId || signed.nonce,
+          128
+        )}:${sha256Base64Url(candidate.path).slice(0, 16)}`,
+      });
+      result = remote?.result || remote;
+    } else {
+      result = await verifySignatureParts({
+        request,
+        method: "WS",
+        canonicalPath: candidate.path,
+        bodyString: payloadString,
+        signed,
+      });
+    }
     canonicalPathMode = candidate.mode;
     if (result.ok || result.reasonCode !== "signature_mismatch") break;
   }
-  await recordSigningAudit(request, result, {
-    transport: "websocket",
-    canonicalPathMode,
-  });
+  if (!delegateToIdentity) {
+    await recordSigningAudit(request, result, {
+      transport: "websocket",
+      canonicalPathMode,
+    });
+  }
 
   return {
     ...result,
