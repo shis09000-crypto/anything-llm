@@ -602,6 +602,11 @@ export function createAgentWebSocketSession({
       reconnectDueAt: null,
     });
     onFinal?.(session.finalChatId, normalized, applied, snapshot());
+    transition(AgentSessionState.FINALIZED, "assistant_final", {
+      finalChatId: session.finalChatId,
+      finalPublicChatId: session.finalPublicChatId,
+    });
+    safeClose(socket);
     return applied;
   }
 

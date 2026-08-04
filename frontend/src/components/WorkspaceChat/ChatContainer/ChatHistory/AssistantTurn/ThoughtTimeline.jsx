@@ -196,10 +196,10 @@ export default function ThoughtTimeline({
             <div className="text-zinc-200 light:text-slate-800 font-mono text-sm leading-[18px]">
               {!isExpanded ? (
                 <span className="block w-full truncate">
-                  {currentEvent?.displayContent ||
-                    (isRunning
-                      ? t("chat_window.toolTimeline.status.working")
-                      : t("chat_window.toolTimeline.status.finished"))}
+                  {isRunning
+                    ? currentEvent?.displayContent ||
+                      t("chat_window.toolTimeline.status.working")
+                    : t("chat_window.toolTimeline.agentComplete")}
                 </span>
               ) : (
                 <div className="space-y-2">

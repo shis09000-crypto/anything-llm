@@ -355,7 +355,7 @@ test("Agent session ignores duplicate final and blocks reconnect/feedback after 
   }
 });
 
-test("Agent ledger final cancels a scheduled reconnect without a false reconnect thought", async () => {
+test("Agent ledger final terminates a scheduled reconnect without a false reconnect thought", async () => {
   const { mod, tmpDir } = await loadAgentClient();
   try {
     const events = [];
@@ -411,8 +411,9 @@ test("Agent ledger final cancels a scheduled reconnect without a false reconnect
     );
     assert.equal(
       controller.getState().state,
-      mod.AgentSessionState.WAITING_ON_INPUT
+      mod.AgentSessionState.FINALIZED
     );
+    assert.equal(mod.getAgentSessionActive(), false);
     controller.close("test_cleanup");
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
