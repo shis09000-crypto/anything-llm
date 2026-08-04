@@ -376,7 +376,7 @@ test("server hydration removes an older unpersisted orphan after newer authorita
   const oldAt = Date.parse("2026-08-04T08:59:00.000Z");
   orphan.user.createdAt = oldAt;
   orphan.assistant.createdAt = oldAt + 1;
-  orphan.assistant.updatedAt = oldAt + 1;
+  orphan.assistant.updatedAt = Date.parse("2026-08-04T14:00:00.000Z");
 
   const merged = mergeServerHistoryIntoTurns(
     [

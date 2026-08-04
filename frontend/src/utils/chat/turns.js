@@ -709,8 +709,12 @@ export function pruneSupersededUnpersistedTurns(
     if (turnItems.some(itemHasServerIdentity)) continue;
     if (!turnItems.some(isAssistantTurn)) continue;
 
+    // A restore or cross-tab reconciliation can refresh updatedAt on an
+    // otherwise abandoned turn. createdAt is immutable and is therefore the
+    // only safe value for deciding whether authoritative server history has
+    // superseded this local-only turn.
     const latestLocalAt = turnItems.reduce((latest, item) => {
-      const timestamp = Number(item?.updatedAt || item?.createdAt || 0);
+      const timestamp = Number(item?.createdAt || 0);
       return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
     }, 0);
     if (!latestLocalAt) continue;
