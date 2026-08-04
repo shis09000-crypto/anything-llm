@@ -44,6 +44,14 @@ const WEBSOCKET_BAIL_COMMANDS = [
   "/reset", // Will not reset but will bail. Powerusers always do this and the LLM responds.
 ];
 
+function closeStoppedAgentSocket(socket) {
+  // A bail command can arrive while askForFeedback owns the message handler.
+  // Mark the durable bridge before closing so the endpoint persists `stopped`
+  // instead of treating the intentional pause as a retryable disconnect.
+  socket.__clientStopped = true;
+  socket.close();
+}
+
 function recordAgentEvent(aibitat, event = {}) {
   if (!event.type) return;
   if (!Array.isArray(aibitat._agentEvents)) aibitat._agentEvents = [];
@@ -660,7 +668,7 @@ const websocket = {
             node
           );
           if (WEBSOCKET_BAIL_COMMANDS.includes(feedback)) {
-            socket.close();
+            closeStoppedAgentSocket(socket);
             return;
           }
 
@@ -726,4 +734,5 @@ const websocket = {
 module.exports = {
   websocket,
   WEBSOCKET_BAIL_COMMANDS,
+  closeStoppedAgentSocket,
 };
