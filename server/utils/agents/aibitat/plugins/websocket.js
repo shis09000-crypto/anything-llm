@@ -663,6 +663,10 @@ const websocket = {
         });
 
         aibitat.onInterrupt(async (node) => {
+          // A persisted assistant response completes one Athena invocation.
+          // The chat-history plugin will terminate the socket after its upsert;
+          // do not enter the legacy five-minute feedback wait in between.
+          if (aibitat._terminalTurnPending) return;
           const { feedback, attachments } = await socket.askForFeedback(
             socket,
             node

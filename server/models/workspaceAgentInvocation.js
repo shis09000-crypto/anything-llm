@@ -121,6 +121,8 @@ const WorkspaceAgentInvocation = {
     user = null,
     thread = null,
     clientTurnId = null,
+    requestedProvider = null,
+    requestedModel = null,
   }) {
     try {
       const normalizedClientTurnId = String(clientTurnId || "").trim() || null;
@@ -144,6 +146,8 @@ const WorkspaceAgentInvocation = {
         prompt: String(prompt),
         user_id: user?.id,
         thread_id: thread?.id,
+        requestedProvider: String(requestedProvider || "").trim() || null,
+        requestedModel: String(requestedModel || "").trim() || null,
       };
       const invocation = (await agentSyncReady())
         ? await prisma.$transaction(async (tx) => {

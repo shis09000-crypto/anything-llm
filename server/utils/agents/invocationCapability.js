@@ -11,6 +11,17 @@ function optionalPositiveInteger(value, field) {
   return parsed;
 }
 
+function optionalBoundedString(value, field, maxLength) {
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = String(value).trim();
+  if (!normalized || normalized.length > maxLength) {
+    const error = new Error(`agent_submit_${field}_invalid`);
+    error.code = "AGENT_SUBMIT_CONTRACT_INVALID";
+    throw error;
+  }
+  return normalized;
+}
+
 function normalizedSubmission(body = {}) {
   const prompt = String(body.prompt || "").trim();
   if (!prompt || Buffer.byteLength(prompt, "utf8") > 1_048_576) {
@@ -36,6 +47,16 @@ function normalizedSubmission(body = {}) {
     userId: optionalPositiveInteger(body.userId, "user_id"),
     threadId: optionalPositiveInteger(body.threadId, "thread_id"),
     clientTurnId,
+    requestedProvider: optionalBoundedString(
+      body.requestedProvider,
+      "requested_provider",
+      80
+    ),
+    requestedModel: optionalBoundedString(
+      body.requestedModel,
+      "requested_model",
+      160
+    ),
   };
 }
 
@@ -50,6 +71,8 @@ async function submitAgentInvocation(
     user: submission.userId ? { id: submission.userId } : null,
     thread: submission.threadId ? { id: submission.threadId } : null,
     clientTurnId: submission.clientTurnId,
+    requestedProvider: submission.requestedProvider,
+    requestedModel: submission.requestedModel,
   });
   if (!result?.invocation?.uuid) {
     const error = new Error(

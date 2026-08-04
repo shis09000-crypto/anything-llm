@@ -27,6 +27,8 @@ describe("WorkspaceAgentInvocation client turn idempotency", () => {
       user: { id: 7 },
       thread: { id: 11 },
       clientTurnId: "turn-agent-1",
+      requestedProvider: "deepseek",
+      requestedModel: "deepseek-v4-flash",
     });
 
     expect(result.replayed).toBe(false);
@@ -36,6 +38,8 @@ describe("WorkspaceAgentInvocation client turn idempotency", () => {
         workspace_id: 4,
         user_id: 7,
         thread_id: 11,
+        requestedProvider: "deepseek",
+        requestedModel: "deepseek-v4-flash",
       }),
     });
   });

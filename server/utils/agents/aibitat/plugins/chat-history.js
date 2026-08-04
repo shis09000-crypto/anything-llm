@@ -137,6 +137,7 @@ const chatHistory = {
             // We need a full conversation reply with prev being from
             // the USER and the last being from anyone other than the user.
             if (prev.from !== "USER" || last.from === "USER") return;
+            aibitat._terminalTurnPending = true;
 
             const isVisionPreAnalyzedTurn = Boolean(
               aibitat.handlerProps?.visionAnalysisContext &&
@@ -184,6 +185,8 @@ const chatHistory = {
               trackedChatId: aibitat.trackedChatId || null,
             });
             this._cleanup(aibitat);
+            aibitat._terminalTurnPending = false;
+            aibitat.terminate();
           }
         });
       },
@@ -227,6 +230,8 @@ const chatHistory = {
           );
         }
         this._cleanup(aibitat);
+        aibitat._terminalTurnPending = false;
+        aibitat.terminate();
       },
       _storeSpecial: async function (
         aibitat,
@@ -280,6 +285,8 @@ const chatHistory = {
         }
         options?.postSave();
         this._cleanup(aibitat);
+        aibitat._terminalTurnPending = false;
+        aibitat.terminate();
       },
 
       _autoRenameThread: async function (aibitat) {

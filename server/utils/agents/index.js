@@ -58,6 +58,13 @@ function agentCacheStableHistoryStrategyFor({
   });
 }
 
+function requestedAgentExecutionTarget(invocation = null) {
+  const provider = String(invocation?.requestedProvider || "").trim();
+  const model = String(invocation?.requestedModel || "").trim();
+  if (!provider || !model) return null;
+  return { provider, model };
+}
+
 class AgentHandler {
   #invocationUUID;
   #funcsToLoad = [];
@@ -497,8 +504,14 @@ class AgentHandler {
   }
 
   #providerSetupAndCheck() {
-    this.provider = this.invocation.workspace.agentProvider ?? null; // set provider to workspace agent provider if it exists
-    this.model = this.#fetchModel();
+    const requestedTarget = requestedAgentExecutionTarget(this.invocation);
+    if (requestedTarget) {
+      this.provider = requestedTarget.provider;
+      this.model = requestedTarget.model;
+    } else {
+      this.provider = this.invocation.workspace.agentProvider ?? null; // set provider to workspace agent provider if it exists
+      this.model = this.#fetchModel();
+    }
     const resolved = resolveTaskProviderModel("agent_task", {
       workspace: this.invocation.workspace,
       provider: this.provider,
@@ -936,3 +949,4 @@ module.exports.agentCacheStableHistoryStrategyFor =
   agentCacheStableHistoryStrategyFor;
 module.exports.deepSeekAgentExecutionAvailable =
   deepSeekAgentExecutionAvailable;
+module.exports.requestedAgentExecutionTarget = requestedAgentExecutionTarget;

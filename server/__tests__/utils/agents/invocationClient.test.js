@@ -35,7 +35,12 @@ describe("Chat to Agent invocation client", () => {
       createRemoteAgentInvocation(
         {
           prompt: "hello",
-          workspace: { id: 4, name: "not-forwarded" },
+          workspace: {
+            id: 4,
+            name: "not-forwarded",
+            chatProvider: "deepseek",
+            chatModel: "deepseek-v4-flash",
+          },
           user: { id: 7, username: "not-forwarded" },
           thread: { id: 11, name: "not-forwarded" },
           clientTurnId: "turn-1",
@@ -61,6 +66,8 @@ describe("Chat to Agent invocation client", () => {
           userId: 7,
           threadId: 11,
           clientTurnId: "turn-1",
+          requestedProvider: "deepseek",
+          requestedModel: "deepseek-v4-flash",
         },
       })
     );

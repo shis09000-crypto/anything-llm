@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { requestInternalService } = require("../microModules");
 const { distributedTopology } = require("../microModules/serviceHost");
+const { providerForThreadChatModel } = require("../chats/threadChatModel");
 
 function agentRuntimeUrl(env = process.env) {
   const configured = String(env.ATHENA_AGENT_RUNTIME_URL || "").trim();
@@ -33,6 +34,11 @@ async function createRemoteAgentInvocation(
     userId: user?.id ?? null,
     threadId: thread?.id ?? null,
     clientTurnId,
+    requestedProvider:
+      providerForThreadChatModel(workspace?.chatModel) ||
+      workspace?.chatProvider ||
+      null,
+    requestedModel: workspace?.chatModel || null,
   };
   const response = await requestInternalService({
     callerRole: "chat-runtime",

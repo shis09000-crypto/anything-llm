@@ -12,6 +12,8 @@ describe("Agent invocation capability", () => {
         userId: 7,
         threadId: 11,
         clientTurnId: "turn-1",
+        requestedProvider: "deepseek",
+        requestedModel: "deepseek-v4-flash",
       })
     ).toEqual({
       prompt: "hello",
@@ -19,6 +21,8 @@ describe("Agent invocation capability", () => {
       userId: 7,
       threadId: 11,
       clientTurnId: "turn-1",
+      requestedProvider: "deepseek",
+      requestedModel: "deepseek-v4-flash",
     });
   });
 
@@ -43,6 +47,8 @@ describe("Agent invocation capability", () => {
           userId: 7,
           threadId: 11,
           clientTurnId: "turn-1",
+          requestedProvider: "deepseek",
+          requestedModel: "deepseek-v4-flash",
         },
         { workspaceAgentInvocation }
       )
@@ -56,6 +62,19 @@ describe("Agent invocation capability", () => {
       user: { id: 7 },
       thread: { id: 11 },
       clientTurnId: "turn-1",
+      requestedProvider: "deepseek",
+      requestedModel: "deepseek-v4-flash",
     });
+  });
+
+  test("rejects an oversized model snapshot", () => {
+    expect(() =>
+      normalizedSubmission({
+        prompt: "hello",
+        workspaceId: 4,
+        requestedProvider: "deepseek",
+        requestedModel: "x".repeat(161),
+      })
+    ).toThrow("agent_submit_requested_model_invalid");
   });
 });
