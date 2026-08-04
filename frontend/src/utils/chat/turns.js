@@ -423,17 +423,23 @@ function shouldRemoveTransientAssistantTurn(
   }
   if (turn.status !== TURN_STATUSES.running) return false;
   if (options.removeRunning === false) return false;
+
+  // A restored running turn has no live transport attached yet. Once it is
+  // older than the storage grace window it is an orphan even when a partial
+  // answer was rendered. Checking meaningful output before age used to exempt
+  // these turns forever, leaving the composer and Agent timeline stuck after
+  // reloads.
+  if (Number.isFinite(Number(options.runningMaxAgeMs))) {
+    const timestamp = Number(turn.updatedAt || turn.createdAt || 0);
+    const ageMs = timestamp > 0 ? now - timestamp : Infinity;
+    if (ageMs > Number(options.runningMaxAgeMs)) return true;
+  }
+
   if (hasMeaningfulOutput) return false;
 
   if (turn.reconnectState === "retrying") {
     if (!turn.websocketUUID) return true;
     return isAgentReconnectAttemptStale(turn, now);
-  }
-
-  if (Number.isFinite(Number(options.runningMaxAgeMs))) {
-    const timestamp = Number(turn.updatedAt || turn.createdAt || 0);
-    const ageMs = timestamp > 0 ? now - timestamp : Infinity;
-    return ageMs > Number(options.runningMaxAgeMs);
   }
 
   return true;
@@ -660,6 +666,55 @@ export function pruneServerBackedTurnsOutsideHistory(
         preserveTurnIds,
       })
     ) {
+      removedTurnIds.add(turnId);
+    }
+  }
+
+  if (!removedTurnIds.size) return normalized;
+  return normalizeTurnItems(
+    normalized.filter((item) => !removedTurnIds.has(item.turnId))
+  );
+}
+
+const SUPERSEDED_UNPERSISTED_TURN_GRACE_MS = 60_000;
+
+export function pruneSupersededUnpersistedTurns(
+  items = [],
+  history = [],
+  options = {}
+) {
+  if (!history.length) return normalizeTurnItems(items);
+  const normalized = normalizeTurnItems(items);
+  const newestServerAtMs = history.reduce((latest, message) => {
+    const sentAt = Number(message?.sentAt || 0);
+    return Number.isFinite(sentAt) && sentAt > 0
+      ? Math.max(latest, sentAt * 1000)
+      : latest;
+  }, 0);
+  if (!newestServerAtMs) return normalized;
+
+  const graceMs = Math.max(
+    0,
+    Number(options.supersededUnpersistedTurnGraceMs) ||
+      SUPERSEDED_UNPERSISTED_TURN_GRACE_MS
+  );
+  const preserveTurnIds = new Set([
+    ...(options.preserveTurnIds || []),
+    ...(options.preserveRunningTurnIds || []),
+  ]);
+  const removedTurnIds = new Set();
+
+  for (const [turnId, turnItems] of groupTurnItems(normalized)) {
+    if (!turnId || preserveTurnIds.has(turnId)) continue;
+    if (turnItems.some(itemHasServerIdentity)) continue;
+    if (!turnItems.some(isAssistantTurn)) continue;
+
+    const latestLocalAt = turnItems.reduce((latest, item) => {
+      const timestamp = Number(item?.updatedAt || item?.createdAt || 0);
+      return Number.isFinite(timestamp) ? Math.max(latest, timestamp) : latest;
+    }, 0);
+    if (!latestLocalAt) continue;
+    if (latestLocalAt + graceMs < newestServerAtMs) {
       removedTurnIds.add(turnId);
     }
   }
@@ -915,7 +970,11 @@ export function mergeServerHistoryIntoTurns(
     }
   }
 
-  const normalized = normalizeTurnItems(merged);
+  const normalized = pruneSupersededUnpersistedTurns(
+    normalizeTurnItems(merged),
+    history,
+    options
+  );
   if (options.pruneServerBackedItemsOutsideHistory) {
     return pruneServerBackedTurnsOutsideHistory(normalized, history, options);
   }

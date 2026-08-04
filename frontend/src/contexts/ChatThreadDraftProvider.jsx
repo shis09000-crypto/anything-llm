@@ -45,6 +45,7 @@ import {
   persistedHydratedChatHistory,
 } from "@/utils/chat/persistedTurn";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import {
   applyChatStreamRevision,
@@ -1139,6 +1140,7 @@ export function ChatThreadDraftProvider({ children }) {
           },
           { cleanupReason: reason }
         );
+        threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
         return true;
       } catch (error) {
         debugRuntime("mergeLatestPersistedHistory:error", {
@@ -1515,6 +1517,10 @@ export function ChatThreadDraftProvider({ children }) {
             historyLength: history.length,
             hydratedChatIds: hydration?.hydratedChatIds || [],
           });
+          threadHistoryCache.invalidateThread(
+            draft.workspaceSlug,
+            draft.threadSlug
+          );
           return true;
         }
 
