@@ -10,6 +10,7 @@ import {
   SAVE_LLM_SELECTOR_EVENT,
 } from "@/utils/chat/llmSelectorEvents";
 import Workspace from "@/models/workspace";
+import WorkspaceThread from "@/models/workspaceThread";
 import System from "@/models/system";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";
 import { canSeeAdmin } from "@/utils/authz";
@@ -31,6 +32,15 @@ function modelChromeRequestOptions(labelPrefix, slug, scope, signal) {
         surface: "llm-selector-workspace",
       }),
     },
+    thread: {
+      signal,
+      communicationScene: "llm-model-chrome-preload",
+      task: chatSecondaryTask(`${labelPrefix}:thread`, {
+        workspaceSlug: slug,
+        ...scope,
+        surface: "llm-selector-thread",
+      }),
+    },
     settings: {
       sections: ["llm"],
       signal,
@@ -46,7 +56,7 @@ function modelChromeRequestOptions(labelPrefix, slug, scope, signal) {
 
 async function fetchModelChrome(
   slug,
-  { labelPrefix, signal, scope = {} } = {}
+  { labelPrefix, signal, scope = {}, threadSlug = null } = {}
 ) {
   if (!slug) {
     return {
@@ -64,7 +74,7 @@ async function fetchModelChrome(
     signal
   );
 
-  const [workspace, settingsResponse] = await Promise.all([
+  const [workspace, settingsResponse, threadResponse] = await Promise.all([
     Workspace.bySlug(slug, options.workspace).catch((error) => {
       if (error?.name === "AbortError") throw error;
       console.error(error);
@@ -75,18 +85,33 @@ async function fetchModelChrome(
       console.error(error);
       return null;
     }),
+    threadSlug
+      ? WorkspaceThread.all(slug, options.thread).catch((error) => {
+          if (error?.name === "AbortError") throw error;
+          console.error(error);
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
   const settings = settingsResponse?.settings || {};
-  const resolved = resolveModelChromeState({ workspace, settings });
+  const thread =
+    threadResponse?.threads?.find((item) => item?.slug === threadSlug) || null;
+  const resolved = resolveModelChromeState({ thread, workspace, settings });
+  const threadHasModel =
+    typeof thread?.chatModel === "string" && thread.chatModel.trim();
   const workspaceHasModel =
     typeof workspace?.chatModel === "string" && workspace.chatModel.trim();
   const settingsResolved = !!settingsResponse?.settings;
   return {
     workspace,
+    thread,
     settings,
     ...resolved,
     hasResolvedSource:
-      !!resolved.modelName || settingsResolved || !!workspaceHasModel,
+      !!resolved.modelName ||
+      settingsResolved ||
+      !!workspaceHasModel ||
+      !!threadHasModel,
   };
 }
 
@@ -130,9 +155,14 @@ export default function WorkspaceModelPicker({
   useEffect(() => {
     if (initialModelName) {
       setModelName(initialModelName);
-      return;
     }
-    if (!slug || isMobileShell || !canUseModelPicker) return;
+    if (
+      !slug ||
+      isMobileShell ||
+      !canUseModelPicker ||
+      (initialModelName && !threadSlug)
+    )
+      return;
 
     let active = true;
     const controller = new AbortController();
@@ -140,6 +170,7 @@ export default function WorkspaceModelPicker({
       signal: controller.signal,
       labelPrefix: "llm-selector:model-label-bootstrap",
       scope: { surface: "llm-selector" },
+      threadSlug,
     })
       .then(({ modelName: resolvedModel, hasResolvedSource }) => {
         if (!active || controller.signal.aborted) return;
@@ -154,7 +185,13 @@ export default function WorkspaceModelPicker({
       active = false;
       controller.abort();
     };
-  }, [slug, initialModelName, isMobileShell, canUseModelPicker]);
+  }, [
+    slug,
+    threadSlug,
+    initialModelName,
+    isMobileShell,
+    canUseModelPicker,
+  ]);
 
   useEffect(() => {
     if (!modelName || modelLabelMarkedRef.current) return;
@@ -201,6 +238,7 @@ export default function WorkspaceModelPicker({
             signal: controller.signal,
             labelPrefix: "llm-selector:model-chrome",
             scope,
+            threadSlug: detail.threadSlug || threadSlug,
           }
         );
         if (!active || controller.signal.aborted) return;
@@ -237,7 +275,7 @@ export default function WorkspaceModelPicker({
         preloadModelChrome
       );
     };
-  }, [slug, isMobileShell, canUseModelPicker]);
+  }, [slug, threadSlug, isMobileShell, canUseModelPicker]);
 
   // Close selector and refresh model name when model is saved
   useEffect(() => {
@@ -262,6 +300,7 @@ export default function WorkspaceModelPicker({
         signal: controller.signal,
         labelPrefix: "llm-selector:model-label-save",
         scope: { surface: "llm-selector" },
+        threadSlug,
       })
         .then(({ modelName: resolvedModel, hasResolvedSource }) => {
           if (!active || controller.signal.aborted) return;
@@ -282,7 +321,7 @@ export default function WorkspaceModelPicker({
       controllers.clear();
       window.removeEventListener(SAVE_LLM_SELECTOR_EVENT, handleSave);
     };
-  }, [slug]);
+  }, [slug, threadSlug]);
 
   // Handle provider setup request
   useEffect(() => {
