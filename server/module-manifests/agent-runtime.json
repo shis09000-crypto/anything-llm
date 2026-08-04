@@ -48,6 +48,8 @@
       "identity.realtime-ticket.consume",
       "identity.request-signing.verify",
       "identity.session.validate",
+      "key-custody.wrap",
+      "key-custody.unwrap",
       "model.stream",
       "responses.create",
       "responses.stream",
@@ -300,6 +302,38 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.wrap",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.wrap/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.wrap/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.unwrap",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.unwrap/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.unwrap/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
         "dataClassification": "confidential"
       },
       {

@@ -56,6 +56,53 @@ describe("Key Custody isolated service runtime", () => {
     });
   });
 
+  test("unwraps a valid envelope whose base64 expansion exceeds 64 KiB", () => {
+    const caller = "spiffe://athena/production/responses-runtime";
+    const context = {
+      purpose: "responses-state",
+      domain: "responses-runtime",
+      resource: "large-checkpoint:0",
+    };
+    const plaintext = Buffer.alloc(36 * 1024, 7).toString("base64");
+    const wrapped = wrapMaterial(
+      { plaintext, context },
+      { caller, env: { NODE_ENV: "production" } }
+    );
+
+    expect(Buffer.byteLength(wrapped.wrapped, "utf8")).toBeGreaterThan(
+      64 * 1024
+    );
+    expect(
+      unwrapMaterial(
+        { wrapped: wrapped.wrapped, context },
+        { caller, env: { NODE_ENV: "production" } }
+      )
+    ).toEqual({
+      version: "athena-key-custody-rpc:v1",
+      plaintext,
+    });
+  });
+
+  test("allows Agent Runtime to use the governed chat conversation key", () => {
+    const caller = "spiffe://athena/production/agent-runtime";
+    const context = {
+      purpose: "chat-conversation-key",
+      domain: "chat-history",
+      resource: "workspace-1:thread-1",
+    };
+    const wrapped = wrapMaterial(
+      { plaintext: "agent-conversation-key", context },
+      { caller, env: { NODE_ENV: "production" } }
+    );
+
+    expect(
+      unwrapMaterial(
+        { wrapped: wrapped.wrapped, context },
+        { caller, env: { NODE_ENV: "production" } }
+      ).plaintext
+    ).toBe("agent-conversation-key");
+  });
+
   test("rejects a purpose outside the caller allowlist", () => {
     expect(() =>
       wrapMaterial(

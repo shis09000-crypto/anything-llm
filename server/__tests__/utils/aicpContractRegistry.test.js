@@ -88,6 +88,27 @@ describe("AicpContractRegistry", () => {
     }
   );
 
+  test.each(["key-custody.wrap", "key-custody.unwrap"])(
+    "negotiates the Agent Runtime %s dependency",
+    (capability) => {
+      const registry = new AicpContractRegistry();
+      expect(
+        registry.negotiate({
+          callerModule: "agent-runtime",
+          targetModule: "key-custody",
+          capability,
+          version: "1.0",
+          callType: "Call",
+        })
+      ).toMatchObject({
+        state: "negotiated",
+        callerModule: "agent-runtime",
+        targetModule: "key-custody",
+        capability,
+      });
+    }
+  );
+
   test("negotiates legacy v1.0 RPC declarations during rolling migration", () => {
     const registry = new AicpContractRegistry({
       manifests: () => [
