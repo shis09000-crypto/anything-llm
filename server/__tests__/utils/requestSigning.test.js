@@ -900,6 +900,59 @@ describe("request signing", () => {
     });
   });
 
+  it("delegates websocket verification to Identity without claiming a local nonce", async () => {
+    mockRemoteIdentityOperationsEnabled.mockReturnValue(true);
+    const payload = { type: "awaitingFeedback", feedback: "/exit" };
+    const body = JSON.stringify(payload);
+    const path = "/api/agent-invocation/uuid";
+    const headers = signedHeaders({
+      method: "WS",
+      path,
+      body,
+      nonce: "ws_remote_identity",
+    });
+    const request = requestDouble({ method: "GET", path, body: "", headers });
+    request.realtimePrincipal = {
+      claims: { id: 10, sid: "session-1", clientId: "client_abc" },
+    };
+
+    await expect(
+      verifySignedWebSocketMessage(
+        request,
+        JSON.stringify({
+          type: "athenaSignedMessage",
+          signatureVersion: SIGNATURE_VERSION,
+          signed: {
+            clientId: headers["X-Athena-Client-Id"],
+            requestId: headers["X-Athena-Request-Id"],
+            timestamp: headers["X-Athena-Timestamp"],
+            nonce: headers["X-Athena-Nonce"],
+            bodySha256: headers["X-Athena-Body-SHA256"],
+            signature: headers["X-Athena-Signature"],
+          },
+          payload,
+        })
+      )
+    ).resolves.toMatchObject({ ok: true, payload, rawMessage: body });
+
+    expect(mockVerifyRequestSigningViaIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request,
+        claims: request.realtimePrincipal.claims,
+        descriptor: expect.objectContaining({
+          method: "WS",
+          canonicalPath: path,
+          bodySha256: sha256Base64Url(body),
+          signed: expect.objectContaining({
+            clientId: "client_abc",
+            nonce: "ws_remote_identity",
+          }),
+        }),
+      })
+    );
+    expect(mockNonceCreate).not.toHaveBeenCalled();
+  });
+
   it("verifies websocket envelopes against stable path when connection has query params", async () => {
     const payload = {
       type: "clarificationResponse",

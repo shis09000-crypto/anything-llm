@@ -110,22 +110,22 @@ const WorkspaceSupplement = {
   }) {
     await ensureTable();
     if (!workspaceId) return [];
-    const clauses = [`"workspaceId" = ?`];
+    const clauses = [`ws."workspaceId" = ?`];
     const params = [Number(workspaceId)];
     if (scopeType) {
-      clauses.push(`"scopeType" = ?`);
+      clauses.push(`ws."scopeType" = ?`);
       params.push(normalizeScopeType(scopeType));
     }
     if (primaryDocumentId !== undefined) {
-      clauses.push(`"primaryDocumentId" = ?`);
+      clauses.push(`ws."primaryDocumentId" = ?`);
       params.push(normalizePrimaryDocumentId(primaryDocumentId));
     }
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT *, CAST("createdAt" AS TEXT) AS "createdAt",
-        CAST("updatedAt" AS TEXT) AS "updatedAt"
-      FROM "WorkspaceSupplement"
+      `SELECT ws.*, CAST(ws."createdAt" AS TEXT) AS "createdAt",
+        CAST(ws."updatedAt" AS TEXT) AS "updatedAt"
+      FROM "WorkspaceSupplement" AS ws
       WHERE ${clauses.join(" AND ")}
-      ORDER BY "priority" DESC, "updatedAt" DESC, "id" DESC
+      ORDER BY ws."priority" DESC, ws."updatedAt" DESC, ws."id" DESC
       LIMIT ?`,
       ...params,
       Number(limit || 100)
