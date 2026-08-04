@@ -1,8 +1,10 @@
 /* global jest, describe, beforeEach, test, expect */
 
 const mockIntrospectSessionToken = jest.fn();
+const mockIntrospectSessionClaims = jest.fn();
 const mockRegisterClient = jest.fn();
 const mockConsumeLocal = jest.fn();
+const mockTouchUserAction = jest.fn();
 const mockShadowGet = jest.fn();
 const mockFilterFields = jest.fn((user) => ({
   id: user.id,
@@ -11,6 +13,7 @@ const mockFilterFields = jest.fn((user) => ({
 }));
 
 jest.mock("../../utils/authz/sessionIntrospection", () => ({
+  introspectSessionClaims: mockIntrospectSessionClaims,
   introspectSessionToken: mockIntrospectSessionToken,
 }));
 jest.mock("../../utils/clientIdentity", () => ({
@@ -18,7 +21,10 @@ jest.mock("../../utils/clientIdentity", () => ({
 }));
 jest.mock("../../utils/dataAccess", () => ({
   DataAccessCenter: {
-    adminSystem: { realtimeTicket: { consumeLocal: mockConsumeLocal } },
+    adminSystem: {
+      authSession: { touchUserAction: mockTouchUserAction },
+      realtimeTicket: { consumeLocal: mockConsumeLocal },
+    },
     authIdentity: {
       shadowUser: {
         _get: mockShadowGet,
@@ -32,6 +38,8 @@ const {
   assertPrincipalFromSession,
   attachClientFromSession,
   consumeRealtimeTicketAsOwner,
+  touchSessionAsOwner,
+  validateSessionAsOwner,
 } = require("../../utils/authz/identityOwnerOperations");
 
 describe("Identity owner operations", () => {
@@ -87,6 +95,47 @@ describe("Identity owner operations", () => {
       consumeRealtimeTicketAsOwner("rt-secret")
     ).resolves.toMatchObject({ purpose: "broadcast" });
     expect(mockConsumeLocal).toHaveBeenCalledWith("rt-secret");
+  });
+
+  test("validates a realtime ticket session from claims without requiring the original token", async () => {
+    const claims = {
+      id: 10,
+      sid: "sess-realtime",
+      clientId: "client-browser",
+      tokenVersion: 1,
+    };
+    mockIntrospectSessionClaims.mockResolvedValueOnce({
+      success: true,
+      active: true,
+      principal: {
+        userId: 10,
+        sessionId: "sess-realtime",
+        clientId: "client-browser",
+      },
+    });
+
+    await expect(validateSessionAsOwner({ claims })).resolves.toMatchObject({
+      active: true,
+      principal: { sessionId: "sess-realtime" },
+    });
+    expect(mockIntrospectSessionClaims).toHaveBeenCalledWith(claims);
+    expect(mockIntrospectSessionToken).not.toHaveBeenCalled();
+  });
+
+  test("touches the same claims-backed session used by realtime transports", async () => {
+    const claims = { id: 10, sid: "sess-realtime" };
+    mockIntrospectSessionClaims.mockResolvedValueOnce({
+      success: true,
+      active: true,
+      principal: { userId: 10, sessionId: "sess-realtime" },
+    });
+    mockTouchUserAction.mockResolvedValueOnce(1);
+
+    await expect(touchSessionAsOwner({ claims })).resolves.toMatchObject({
+      active: true,
+      touched: true,
+    });
+    expect(mockTouchUserAction).toHaveBeenCalledWith("sess-realtime");
   });
 
   test("returns a filtered principal projection from the Identity owner", async () => {

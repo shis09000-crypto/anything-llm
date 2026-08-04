@@ -54,10 +54,11 @@ const {
   deleteUserStateAsOwner,
   readUserStateAsOwner,
   sessionFromToken,
+  touchSessionAsOwner,
   upsertUserStateAsOwner,
+  validateSessionAsOwner,
 } = require("./utils/authz/identityOwnerOperations");
 const { verifyRequestSigningDescriptor } = require("./utils/requestSigning");
-const { DataAccessCenter } = require("./utils/dataAccess");
 const prisma = require("./utils/prisma");
 const {
   queueUserDomainWrap,
@@ -269,8 +270,9 @@ const host = new MicroModuleServiceHost({
       if (request.body?.probe === true) {
         return response.status(200).json({ success: true, available: true });
       }
-      const result = await sessionFromToken(request.body?.token, {
-        requireClient: true,
+      const result = await validateSessionAsOwner({
+        token: request.body?.token,
+        claims: request.body?.claims,
       });
       return response.status(200).json(result);
     });
@@ -278,14 +280,11 @@ const host = new MicroModuleServiceHost({
       if (request.body?.probe === true) {
         return response.status(200).json({ success: true, available: true });
       }
-      const session = await sessionFromToken(request.body?.token, {
-        requireClient: true,
+      const session = await touchSessionAsOwner({
+        token: request.body?.token,
+        claims: request.body?.claims,
       });
-      if (!session.active) return response.status(200).json(session);
-      await DataAccessCenter.adminSystem.authSession.touchUserAction(
-        session.principal.sessionId
-      );
-      return response.status(200).json({ ...session, touched: true });
+      return response.status(200).json(session);
     });
     app.post(
       "/internal/v1/user-domain-wraps/queue",
