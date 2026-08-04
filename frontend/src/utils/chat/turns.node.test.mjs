@@ -377,6 +377,7 @@ test("server hydration removes an older unpersisted orphan after newer authorita
   orphan.user.createdAt = oldAt;
   orphan.assistant.createdAt = oldAt + 1;
   orphan.assistant.updatedAt = Date.parse("2026-08-04T14:00:00.000Z");
+  orphan.assistant.websocketUUID = "completed-agent-websocket";
 
   const merged = mergeServerHistoryIntoTurns(
     [

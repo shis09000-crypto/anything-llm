@@ -2907,24 +2907,15 @@ export function ChatThreadDraftProvider({ children }) {
             {
               chatKey,
               pruneServerBackedItemsOutsideHistory,
-              preserveTurnIds: [
-                restoredDraft.activeTurnId,
-                ...preserveTurnIds,
-              ].filter(Boolean),
-              preserveRunningTurnIds: [
-                activeAgentTurnId,
-                restoredDraft.isAgentRunning
-                  ? restoredDraft.activeTurnId
-                  : null,
-                ...restoredDraft.items
-                  .filter(
-                    (item) =>
-                      item.type === "assistant_turn" &&
-                      item.status === TURN_STATUSES.running &&
-                      item.websocketUUID
-                  )
-                  .map((item) => item.turnId),
-              ].filter(Boolean),
+              preserveTurnIds: preserveTurnIds.filter(Boolean),
+              // A stored websocket UUID or isAgentRunning flag only proves
+              // that this turn ran in the past. It does not prove that a live
+              // Agent session still owns the turn. Preserving those restored
+              // markers indefinitely prevents authoritative server history
+              // from pruning abandoned local-only turns. Only the in-memory
+              // session currently attached to this provider may exempt a
+              // running turn from superseded-orphan cleanup.
+              preserveRunningTurnIds: [activeAgentTurnId].filter(Boolean),
             }
           );
           const next = {

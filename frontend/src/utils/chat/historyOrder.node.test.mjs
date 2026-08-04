@@ -83,7 +83,10 @@ test("mergeServerHistoryIntoTurns repairs out-of-order server and draft items", 
       { chatId: 2, role: "assistant", content: "a2", sentAt: 200 },
     ],
     [localUser, localAssistant],
-    { chatKey: "workspace:thread" }
+    {
+      chatKey: "workspace:thread",
+      preserveRunningTurnIds: ["turn:local"],
+    }
   );
 
   assert.deepEqual(
