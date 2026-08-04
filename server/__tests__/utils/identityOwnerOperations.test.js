@@ -40,6 +40,7 @@ const {
   consumeRealtimeTicketAsOwner,
   touchSessionAsOwner,
   validateSessionAsOwner,
+  verifyRequestSigningAsOwner,
 } = require("../../utils/authz/identityOwnerOperations");
 
 describe("Identity owner operations", () => {
@@ -120,6 +121,40 @@ describe("Identity owner operations", () => {
     });
     expect(mockIntrospectSessionClaims).toHaveBeenCalledWith(claims);
     expect(mockIntrospectSessionToken).not.toHaveBeenCalled();
+  });
+
+  test("verifies websocket signing through claims-backed Identity ownership", async () => {
+    const claims = {
+      id: 10,
+      sid: "sess-realtime",
+      clientId: "client-browser",
+      tokenVersion: 1,
+    };
+    const principal = {
+      userId: 10,
+      sessionId: "sess-realtime",
+      clientId: "client-browser",
+    };
+    const descriptor = {
+      method: "WS",
+      canonicalPath: "/agent-invocation/run-1",
+    };
+    const verifyDescriptor = jest.fn().mockResolvedValueOnce({ ok: true });
+    mockIntrospectSessionClaims.mockResolvedValueOnce({
+      success: true,
+      active: true,
+      principal,
+    });
+
+    await expect(
+      verifyRequestSigningAsOwner(
+        { claims, descriptor },
+        { verifyDescriptor }
+      )
+    ).resolves.toEqual({ ok: true });
+    expect(mockIntrospectSessionClaims).toHaveBeenCalledWith(claims);
+    expect(mockIntrospectSessionToken).not.toHaveBeenCalled();
+    expect(verifyDescriptor).toHaveBeenCalledWith({ descriptor, principal });
   });
 
   test("touches the same claims-backed session used by realtime transports", async () => {

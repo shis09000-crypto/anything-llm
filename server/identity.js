@@ -57,8 +57,8 @@ const {
   touchSessionAsOwner,
   upsertUserStateAsOwner,
   validateSessionAsOwner,
+  verifyRequestSigningAsOwner,
 } = require("./utils/authz/identityOwnerOperations");
-const { verifyRequestSigningDescriptor } = require("./utils/requestSigning");
 const prisma = require("./utils/prisma");
 const {
   queueUserDomainWrap,
@@ -247,23 +247,26 @@ const host = new MicroModuleServiceHost({
         if (request.body?.probe === true) {
           return response.status(200).json({ success: true, available: true });
         }
-        const session = await sessionFromToken(request.body?.token, {
-          requireClient: true,
-        });
-        if (!session.active) {
+        try {
+          // WebSocket callers authenticate with a single-use realtime ticket,
+          // so they intentionally do not carry the original bearer token.
+          // Re-validate the ticket's bounded session claims in Identity instead
+          // of forcing the Realtime Gateway to regain direct database access.
+          const result = await verifyRequestSigningAsOwner({
+            token: request.body?.token,
+            claims: request.body?.claims,
+            descriptor: request.body?.descriptor,
+          });
+          return response.status(200).json({ success: true, result });
+        } catch (error) {
           return response.status(200).json({
             success: true,
             result: {
               ok: false,
-              reasonCode: session.reasonCode || "session_invalid",
+              reasonCode: error?.code || error?.message || "session_invalid",
             },
           });
         }
-        const result = await verifyRequestSigningDescriptor({
-          descriptor: request.body?.descriptor,
-          principal: session.principal,
-        });
-        return response.status(200).json({ success: true, result });
       }
     );
     app.post("/internal/v1/session/validate", async (request, response) => {

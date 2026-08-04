@@ -169,6 +169,17 @@ async function validateSessionAsOwner({ token = null, claims = null } = {}) {
   return result;
 }
 
+async function verifyRequestSigningAsOwner(
+  { token = null, claims = null, descriptor = null } = {},
+  { verifyDescriptor = null } = {}
+) {
+  const session = await validateSessionAsOwner({ token, claims });
+  const verify =
+    verifyDescriptor ||
+    require("../requestSigning").verifyRequestSigningDescriptor;
+  return verify({ descriptor, principal: session.principal });
+}
+
 async function touchSessionAsOwner({ token = null, claims = null } = {}) {
   const result = await validateSessionAsOwner({ token, claims });
   const sessionId = result.principal?.sessionId;
@@ -297,4 +308,5 @@ module.exports = {
   touchSessionAsOwner,
   upsertUserStateAsOwner,
   validateSessionAsOwner,
+  verifyRequestSigningAsOwner,
 };
