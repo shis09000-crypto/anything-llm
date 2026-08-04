@@ -658,9 +658,9 @@ async function rebuildChatCryptoChainFromChatId(
               SELECT "id"
                 FROM "workspace_chats"
                WHERE "workspaceId" = ?
-                 AND ("user_id" = ? OR ("user_id" IS NULL AND ? IS NULL))
-                 AND ("thread_id" = ? OR ("thread_id" IS NULL AND ? IS NULL))
-                 AND ("api_session_id" = ? OR ("api_session_id" IS NULL AND ? IS NULL))
+                 AND ("user_id" = CAST(? AS INTEGER) OR ("user_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("thread_id" = CAST(? AS INTEGER) OR ("thread_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("api_session_id" = CAST(? AS TEXT) OR ("api_session_id" IS NULL AND CAST(? AS TEXT) IS NULL))
                  AND "id" < ?
                ORDER BY "id" DESC
                LIMIT 1
@@ -806,9 +806,9 @@ async function appendChatCryptoMetadataForRows(
               SELECT "id"
                 FROM "workspace_chats"
                WHERE "workspaceId" = ?
-                 AND ("user_id" = ? OR ("user_id" IS NULL AND ? IS NULL))
-                 AND ("thread_id" = ? OR ("thread_id" IS NULL AND ? IS NULL))
-                 AND ("api_session_id" = ? OR ("api_session_id" IS NULL AND ? IS NULL))
+                 AND ("user_id" = CAST(? AS INTEGER) OR ("user_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("thread_id" = CAST(? AS INTEGER) OR ("thread_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("api_session_id" = CAST(? AS TEXT) OR ("api_session_id" IS NULL AND CAST(? AS TEXT) IS NULL))
                  AND "id" < ?
                ORDER BY "id" DESC
                LIMIT 1
