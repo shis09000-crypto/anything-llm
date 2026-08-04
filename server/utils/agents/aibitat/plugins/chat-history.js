@@ -10,6 +10,11 @@ const {
 } = require("../../../chats/workspaceSyncEvents");
 const { compactAgentEvents } = require("../../toolResultStore.js");
 const { promptForHistory } = require("../../../chats/displayPrompt");
+const {
+  finalizeAgentChatTurn,
+  remoteAgentChatPersistenceEnabled,
+  reserveAgentChatTurn,
+} = require("../../agentChatPersistenceClient");
 
 async function publishAgentChatFinalized(aibitat, chatId = null) {
   const invocation = aibitat?.handlerProps?.invocation;
@@ -98,21 +103,35 @@ const chatHistory = {
               }
             }
 
-            const { chat } = await WorkspaceChats.new({
+            const input = {
               workspaceId: Number(aibitat.handlerProps.invocation.workspace_id),
-              user: { id: aibitat.handlerProps.invocation.user_id || null },
+              userId: aibitat.handlerProps.invocation.user_id || null,
               threadId: aibitat.handlerProps.invocation.thread_id || null,
-              include: false,
               prompt: promptForHistory({
                 message: userMessage,
                 displayPrompt: aibitat.handlerProps?.displayPrompt,
               }),
-              response: {},
               clientTurnId:
                 aibitat.handlerProps.invocation.clientTurnId || null,
-              sourceChannel: "agent",
-            });
-            if (chat) aibitat.registerChatId(chat.id, chat.public_id || null);
+            };
+            const result = remoteAgentChatPersistenceEnabled()
+              ? await reserveAgentChatTurn(input)
+              : await WorkspaceChats.new({
+                  workspaceId: input.workspaceId,
+                  user: { id: input.userId },
+                  threadId: input.threadId,
+                  include: false,
+                  prompt: input.prompt,
+                  response: {},
+                  clientTurnId: input.clientTurnId,
+                  sourceChannel: "agent",
+                });
+            const chat = result?.chat || null;
+            if (chat)
+              aibitat.registerChatId(
+                chat.id,
+                chat.publicId || chat.public_id || null
+              );
           })().finally(() => {
             pendingTrackedChatIdPromise = null;
           });
@@ -194,44 +213,27 @@ const chatHistory = {
         aibitat,
         { prompt, response, attachments = [], imageAnalysis = null } = {}
       ) {
-        const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
         const clarifyingQuestions =
           aibitat._pendingClarifyingQuestionSurveys ?? [];
         const agentEvents = compactAgentEvents(aibitat._agentEvents ?? []);
-        await WorkspaceChats.upsert(aibitat.trackedChatId, {
-          workspaceId: Number(invocation.workspace_id),
-          prompt,
-          response: {
-            text: response,
-            sources: citations,
-            type: "chat",
-            attachments,
-            metrics,
-            ...(imageAnalysis ? { imageAnalysis } : {}),
-            ...(outputs.length > 0 ? { outputs } : {}),
-            ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
-            ...(agentEvents.length > 0 ? { agentEvents } : {}),
-          },
-          user: { id: invocation?.user_id || null },
-          threadId: invocation?.thread_id || null,
-          include: true,
-          clientTurnId: invocation?.clientTurnId || null,
-          sourceChannel: "agent",
-        });
-        await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
-
-        if (!aibitat._threadRenamed) {
-          aibitat._threadRenamed = await this._autoRenameThread(
-            aibitat,
-            prompt
-          );
-        }
+        const storedResponse = {
+          text: response,
+          sources: citations,
+          type: "chat",
+          attachments,
+          metrics,
+          ...(imageAnalysis ? { imageAnalysis } : {}),
+          ...(outputs.length > 0 ? { outputs } : {}),
+          ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
+          ...(agentEvents.length > 0 ? { agentEvents } : {}),
+        };
+        await this._persistFinal(aibitat, { prompt, response: storedResponse });
         this._cleanup(aibitat);
         aibitat._terminalTurnPending = false;
-        aibitat.terminate();
+        aibitat.terminate?.();
       },
       _storeSpecial: async function (
         aibitat,
@@ -243,7 +245,6 @@ const chatHistory = {
           options = {},
         } = {}
       ) {
-        const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
@@ -251,42 +252,74 @@ const chatHistory = {
           aibitat._pendingClarifyingQuestionSurveys ?? [];
         const agentEvents = compactAgentEvents(aibitat._agentEvents ?? []);
         const existingSources = options?.sources ?? [];
-        await WorkspaceChats.upsert(aibitat.trackedChatId, {
+        const storedResponse = {
+          sources: [...existingSources, ...citations],
+          // when we have a _storeSpecial called the options param can include a storedResponse() function
+          // that will override the text property to store extra information in, depending on the special type of chat.
+          text: options.hasOwnProperty("storedResponse")
+            ? options.storedResponse(response)
+            : response,
+          type: options?.saveAsType ?? "chat",
+          attachments,
+          metrics,
+          ...(imageAnalysis ? { imageAnalysis } : {}),
+          ...(outputs.length > 0 ? { outputs } : {}),
+          ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
+          ...(agentEvents.length > 0 ? { agentEvents } : {}),
+        };
+        await this._persistFinal(aibitat, { prompt, response: storedResponse });
+        options?.postSave();
+        this._cleanup(aibitat);
+        aibitat._terminalTurnPending = false;
+        aibitat.terminate?.();
+      },
+
+      _persistFinal: async function (aibitat, { prompt, response } = {}) {
+        const invocation = aibitat.handlerProps.invocation;
+        if (!aibitat.trackedChatId) {
+          await aibitat.ensureTrackedChatId?.({
+            from: "USER",
+            content: prompt,
+          });
+        }
+        if (!aibitat.trackedChatId)
+          throw new Error("agent_chat_reservation_missing");
+
+        if (remoteAgentChatPersistenceEnabled()) {
+          await finalizeAgentChatTurn({
+            chatId: aibitat.trackedChatId,
+            publicChatId: aibitat.trackedPublicChatId || null,
+            workspaceId: Number(invocation.workspace_id),
+            prompt,
+            response,
+            userId: invocation?.user_id || null,
+            threadId: invocation?.thread_id || null,
+            clientTurnId: invocation?.clientTurnId || null,
+            renameThread: !aibitat._threadRenamed,
+          });
+          aibitat._threadRenamed = true;
+          return;
+        }
+
+        const persisted = await WorkspaceChats.upsert(aibitat.trackedChatId, {
           workspaceId: Number(invocation.workspace_id),
           prompt,
-          response: {
-            sources: [...existingSources, ...citations],
-            // when we have a _storeSpecial called the options param can include a storedResponse() function
-            // that will override the text property to store extra information in, depending on the special type of chat.
-            text: options.hasOwnProperty("storedResponse")
-              ? options.storedResponse(response)
-              : response,
-            type: options?.saveAsType ?? "chat",
-            attachments,
-            metrics,
-            ...(imageAnalysis ? { imageAnalysis } : {}),
-            ...(outputs.length > 0 ? { outputs } : {}),
-            ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
-            ...(agentEvents.length > 0 ? { agentEvents } : {}),
-          },
+          response,
           user: { id: invocation?.user_id || null },
           threadId: invocation?.thread_id || null,
           include: true,
           clientTurnId: invocation?.clientTurnId || null,
           sourceChannel: "agent",
         });
+        if (persisted?.chat === null)
+          throw new Error(persisted.message || "agent_chat_persistence_failed");
         await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
-
         if (!aibitat._threadRenamed) {
           aibitat._threadRenamed = await this._autoRenameThread(
             aibitat,
             prompt
           );
         }
-        options?.postSave();
-        this._cleanup(aibitat);
-        aibitat._terminalTurnPending = false;
-        aibitat.terminate();
       },
 
       _autoRenameThread: async function (aibitat) {

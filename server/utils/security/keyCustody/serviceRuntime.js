@@ -26,7 +26,11 @@ const CALLER_PURPOSES = Object.freeze({
     "security-audit-checkpoint",
   ]),
   "chat-runtime": new Set(["chat-conversation-key", "secret-store"]),
-  "agent-runtime": new Set(["chat-conversation-key", "secret-store"]),
+  "agent-runtime": new Set([
+    "agent-run-event",
+    "chat-conversation-key",
+    "secret-store",
+  ]),
   "browser-worker": new Set(["browser-profile-dek"]),
   "browser-egress": new Set(["browser-egress-credential"]),
 });

@@ -32,6 +32,9 @@ const {
   registerThreadMemoryRoutes,
   threadMemoryKeyCustodySelfTest,
 } = require("./utils/chats/threadMemoryRuntime");
+const {
+  registerAgentTurnPersistenceRoutes,
+} = require("./utils/chats/agentTurnPersistenceRuntime");
 
 const role = "chat-runtime";
 const port = Number(process.env.CHAT_RUNTIME_PORT || 3016);
@@ -61,6 +64,7 @@ const host = new MicroModuleServiceHost({
   registerRoutes: (app) => {
     registerCompatibleApi(app, chatEndpoints);
     registerThreadMemoryRoutes(app);
+    registerAgentTurnPersistenceRoutes(app);
     app.get(
       "/internal/v1/chat/runs/:clientTurnId",
       async (request, response) => {
@@ -84,6 +88,8 @@ const host = new MicroModuleServiceHost({
     "/internal/v1/chat/memory/status": "chat.memory.status",
     "/internal/v1/chat/memory/compact": "chat.memory.compact",
     "/internal/v1/chat/memory/context/resolve": "chat.memory.context.resolve",
+    "/internal/v1/chat/agent-turns/reserve": "chat.agent-turn.reserve",
+    "/internal/v1/chat/agent-turns/finalize": "chat.agent-turn.finalize",
   },
 });
 

@@ -27,7 +27,9 @@
       "/internal/v1/chat/runs/:id/drain",
       "/internal/v1/chat/memory/status",
       "/internal/v1/chat/memory/compact",
-      "/internal/v1/chat/memory/context/resolve"
+      "/internal/v1/chat/memory/context/resolve",
+      "/internal/v1/chat/agent-turns/reserve",
+      "/internal/v1/chat/agent-turns/finalize"
     ]
   },
   "rpc": {
@@ -37,6 +39,8 @@
       "chat.memory.status",
       "chat.memory.compact",
       "chat.memory.context.resolve",
+      "chat.agent-turn.reserve",
+      "chat.agent-turn.finalize",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -198,6 +202,36 @@
         "timeoutMs": 15000,
         "idempotency": "none",
         "dataClassification": "confidential"
+      },
+      {
+        "id": "chat.agent-turn.reserve",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.reserve/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.reserve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "chat.agent-turn.finalize",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.finalize/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.finalize/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 60000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
       },
       {
         "id": "module.describe",

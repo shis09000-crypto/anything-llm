@@ -40,6 +40,8 @@
       "module.resume"
     ],
     "consumes": [
+      "chat.agent-turn.reserve",
+      "chat.agent-turn.finalize",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
@@ -240,6 +242,36 @@
       }
     ],
     "consumes": [
+      {
+        "id": "chat.agent-turn.reserve",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.reserve/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.reserve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "chat.agent-turn.finalize",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.finalize/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.finalize/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 60000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
       {
         "id": "identity.audit.append",
         "version": "1.0",

@@ -103,6 +103,26 @@ describe("Key Custody isolated service runtime", () => {
     ).toBe("agent-conversation-key");
   });
 
+  test("isolates Agent durable events in the Agent key domain", () => {
+    const caller = "spiffe://athena/production/agent-runtime";
+    const context = {
+      purpose: "agent-run-event",
+      domain: "agent",
+      resource: "agent-run:invocation-1",
+    };
+    const wrapped = wrapMaterial(
+      { plaintext: "durable-event", context },
+      { caller, env: { NODE_ENV: "production" } }
+    );
+
+    expect(
+      unwrapMaterial(
+        { wrapped: wrapped.wrapped, context },
+        { caller, env: { NODE_ENV: "production" } }
+      ).plaintext
+    ).toBe("durable-event");
+  });
+
   test("rejects a purpose outside the caller allowlist", () => {
     expect(() =>
       wrapMaterial(
