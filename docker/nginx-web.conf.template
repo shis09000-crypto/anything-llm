@@ -6,6 +6,11 @@ map $http_upgrade $connection_upgrade {
 server {
   listen ${ATHENA_WEB_PORT};
   server_name _;
+  # The public edge terminates TLS before forwarding to this internal HTTP
+  # listener. Never construct an absolute redirect from the container scheme
+  # or port (for example http://athenallm.online:3000/...).
+  absolute_redirect off;
+  port_in_redirect off;
   root /usr/share/nginx/html;
   index index.html;
   include /etc/nginx/conf.d/athena-proxy-ssl.conf;
@@ -214,6 +219,21 @@ server {
     proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
+  }
+
+  # `/login` is both an application route and the name of the directory that
+  # contains login artwork. Without these exact matches nginx treats the SPA
+  # route as a directory, redirects it to `/login/`, and can leak the internal
+  # listener port into Location. Login assets below `/login/<file>` continue to
+  # be served by the normal static-file location.
+  location = /login {
+    try_files /index.html =404;
+    add_header Cache-Control "public, max-age=0, must-revalidate";
+  }
+
+  location = /login/ {
+    try_files /index.html =404;
+    add_header Cache-Control "public, max-age=0, must-revalidate";
   }
 
   location / {

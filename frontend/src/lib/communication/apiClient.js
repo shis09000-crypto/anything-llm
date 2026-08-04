@@ -94,19 +94,24 @@ function requestSignal({ signal, timeoutMs }) {
   };
 }
 
-function shouldClearAuthToken(response, data) {
+function isIdentitySessionAuthority(context = {}) {
+  return context.communicationScene === "auth-bootstrap";
+}
+
+function shouldClearAuthToken(response, data, context = {}) {
   if (!response || ![401, 403].includes(response.status)) return false;
   if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) return true;
+  if (!isIdentitySessionAuthority(context)) return false;
   return isTerminalAuthReason(authReasonFrom({ raw: data }));
 }
 
-function clearSensitiveAuthState(response, data) {
+function clearSensitiveAuthState(response, data, context = {}) {
   if (!response || ![401, 403].includes(response.status)) return;
   clearSigningSecretCache();
   if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) {
     void resetClientIdentity({ rotateDeviceKey: true });
   }
-  if (shouldClearAuthToken(response, data)) {
+  if (shouldClearAuthToken(response, data, context)) {
     const reason =
       data?.error === API_ERROR_CODES.CLIENT_REVOKED
         ? "client_revoked"
@@ -117,7 +122,7 @@ function clearSensitiveAuthState(response, data) {
 
 function requestIdentityValidation(response, data, context = {}) {
   if (!response || ![401, 403].includes(response.status)) return;
-  if (shouldClearAuthToken(response, data)) return;
+  if (shouldClearAuthToken(response, data, context)) return;
   if (typeof window === "undefined") return;
   window.dispatchEvent(
     new CustomEvent("athena-auth-validation-required", {
@@ -417,9 +422,16 @@ async function requestJsonCore(path, options = {}) {
         !clientIdentityReauthRequired &&
         !(sessionRecovery?.recovered || sessionRecovery?.transient)
       ) {
-        clearSensitiveAuthState(response, data);
+        clearSensitiveAuthState(response, data, {
+          path,
+          communicationScene,
+        });
       }
-      requestIdentityValidation(response, data, { requestId, path });
+      requestIdentityValidation(response, data, {
+        requestId,
+        path,
+        communicationScene,
+      });
       const apiError = normalizeApiError(null, response, {
         code:
           data?.error === API_ERROR_CODES.CLIENT_REVOKED

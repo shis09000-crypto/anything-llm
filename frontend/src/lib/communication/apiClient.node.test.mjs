@@ -157,6 +157,7 @@ async function loadApiClient({
         "account_suspended",
         "client_revoked",
         "device_identity_reauth",
+        "missing_session_storage",
       ].includes(reason);
     },
     redirectToLogin(options = {}) {
@@ -329,6 +330,78 @@ test("requestJson preserves authentication state on Identity capability outage",
     assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, []);
     assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, []);
     assert.deepEqual(globalThis.__apiClientTestSessionRecovery.attempts, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("business-module missing session requests Identity validation instead of redirecting", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const originalCustomEvent = globalThis.CustomEvent;
+  const validationEvents = [];
+  globalThis.window = {
+    dispatchEvent(event) {
+      validationEvents.push(event);
+    },
+  };
+  globalThis.CustomEvent = class CustomEvent {
+    constructor(type, options = {}) {
+      this.type = type;
+      this.detail = options.detail;
+    }
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        success: false,
+        reasonCode: "missing_session_storage",
+      }),
+      { status: 401 }
+    );
+
+  try {
+    const { requestJson } = await loadApiClient();
+    await assert.rejects(
+      requestJson("/workspace/demo", {
+        communicationScene: "workspace-navigation",
+      }),
+      (error) => error.status === 401
+    );
+    assert.deepEqual(globalThis.__apiClientTestAuthLifecycle.redirects, []);
+    assert.equal(validationEvents.length, 1);
+    assert.equal(validationEvents[0].type, "athena-auth-validation-required");
+    assert.equal(validationEvents[0].detail.path, "/workspace/demo");
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
+    if (originalCustomEvent === undefined) delete globalThis.CustomEvent;
+    else globalThis.CustomEvent = originalCustomEvent;
+  }
+});
+
+test("Identity bootstrap terminal session result can redirect directly", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        success: false,
+        reasonCode: "session_revoked",
+      }),
+      { status: 401 }
+    );
+
+  try {
+    const { requestJson } = await loadApiClient();
+    await assert.rejects(
+      requestJson("/system/check-token", {
+        communicationScene: "auth-bootstrap",
+      }),
+      (error) => error.status === 401
+    );
+    assert.deepEqual(globalThis.__apiClientTestAuthLifecycle.redirects, [
+      { reason: "session_revoked" },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
