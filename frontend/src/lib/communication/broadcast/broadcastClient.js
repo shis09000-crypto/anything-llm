@@ -23,9 +23,13 @@ import { broadcastSubscriptionManager } from "./broadcastSubscriptionManager";
 import { syncV2Runtime } from "@/utils/syncV2/syncV2Runtime";
 import { syncV2Client } from "../syncV2Client";
 import { issueRealtimeTicket } from "../realtimeTicketClient";
+import { recordClientUiObservation } from "../clientUiObservability";
 
 const RECONNECT_BASE_MS = 800;
 const RECONNECT_MAX_MS = 8_000;
+const HEARTBEAT_INTERVAL_MS = 25_000;
+const HEARTBEAT_TIMEOUT_MS = 10_000;
+const FALLBACK_GRACE_MS = 1_500;
 const SNAPSHOT_RECENT_LIMIT = 80;
 
 const state = {
@@ -33,6 +37,10 @@ const state = {
   connected: false,
   connecting: false,
   reconnects: 0,
+  connectedAt: null,
+  lastPongAt: null,
+  lastPingAt: null,
+  lastPingLatencyMs: null,
   lastEventId: null,
   lastAckedEventId: null,
   lastError: null,
@@ -45,11 +53,16 @@ const state = {
     reconnects: 0,
     coalesced: 0,
     dropped: 0,
+    pings: 0,
+    pongs: 0,
+    fullReconciles: 0,
+    incrementalPatches: 0,
   },
   recent: [],
   subscriptions: [],
 };
 let fallbackController = null;
+let fallbackGraceTimer = null;
 
 function wsBase() {
   const apiBase = API_BASE === "/api" ? window.location.origin : API_BASE;
@@ -89,8 +102,6 @@ function broadcastUrl(ticket = null) {
   if (isCodexDevAuthBypassEnabled()) {
     query.set(CODEX_DEV_AUTH_BYPASS_QUERY, CODEX_DEV_AUTH_BYPASS_KEY);
   }
-  const lastEventId = state.lastAckedEventId || readLastAckedEventId();
-  if (lastEventId) query.set("lastEventId", lastEventId);
   return `${wsBase()}/api/realtime/broadcast${
     query.toString() ? `?${query.toString()}` : ""
   }`;
@@ -168,6 +179,17 @@ async function handleMessage(socket, raw, onEvent) {
       const reduced = broadcastEventReducer.reduce(event, {
         syncV2Applied: syncResult?.syncV2Applied === true,
       });
+      state.counters.incrementalPatches += 1;
+      if (reduced?.action === "sync-required") {
+        state.counters.fullReconciles += 1;
+        recordClientUiObservation({
+          event: "broadcast_full_reconcile",
+          surface: "realtime_sync",
+          outcome: "recovered",
+          reason: "sync_required",
+        });
+        await syncV2Runtime.reconcile();
+      }
       if (event?.coalescedCount)
         state.counters.coalesced += event.coalescedCount;
       onEvent?.(event, reduced);
@@ -189,12 +211,39 @@ async function handleMessage(socket, raw, onEvent) {
     return;
   }
   if (message.type === "broadcast.replayEnd") {
-    state.counters.replayed += Number(message.count || 0);
-    rememberRecent({ type: "replay-end", count: message.count || 0 });
+    const replayCount = Number(message.count || 0);
+    state.counters.replayed += replayCount;
+    rememberRecent({ type: "replay-end", count: replayCount });
+    if (replayCount > 0) {
+      recordClientUiObservation({
+        event: "broadcast_incremental_replay",
+        surface: "realtime_sync",
+        outcome: "recovered",
+        reason: "cursor_replay",
+        retryCount: replayCount,
+      });
+    }
     return;
   }
   if (message.type === "broadcast.ready") {
     void sendHello(socket);
+    return;
+  }
+  if (message.type === "broadcast.hello") {
+    stopSyncV2Fallback();
+    rememberRecent({
+      type: "hello",
+      subscriptions: message.subscriptions?.length || 0,
+    });
+    return;
+  }
+  if (message.type === "broadcast.pong") {
+    const now = Date.now();
+    state.lastPongAt = now;
+    state.lastPingLatencyMs = state.lastPingAt
+      ? Math.max(0, now - state.lastPingAt)
+      : null;
+    state.counters.pongs += 1;
     return;
   }
   if (message.type === "broadcast.error") {
@@ -222,9 +271,60 @@ function syncV2SseEnvelope(syncEvent) {
 }
 
 function stopSyncV2Fallback() {
+  if (fallbackGraceTimer) {
+    clearTimeout(fallbackGraceTimer);
+    fallbackGraceTimer = null;
+  }
   fallbackController?.abort();
   fallbackController = null;
   state.fallbackActive = false;
+}
+
+function scheduleSyncV2Fallback(options = {}) {
+  if (fallbackGraceTimer || fallbackController) return;
+  fallbackGraceTimer = setTimeout(() => {
+    fallbackGraceTimer = null;
+    startSyncV2Fallback(options);
+  }, FALLBACK_GRACE_MS);
+}
+
+function heartbeatFor(socket) {
+  let pongDeadline = null;
+  const ping = () => {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    if (
+      state.lastPingAt &&
+      (!state.lastPongAt || state.lastPongAt < state.lastPingAt)
+    ) {
+      safeClose(socket, 4000, "broadcast-pong-timeout");
+      return;
+    }
+    state.lastPingAt = Date.now();
+    state.counters.pings += 1;
+    void sendControl(socket, { type: "ping", at: state.lastPingAt });
+    clearTimeout(pongDeadline);
+    pongDeadline = setTimeout(() => {
+      if (!state.lastPongAt || state.lastPongAt < state.lastPingAt) {
+        safeClose(socket, 4000, "broadcast-pong-timeout");
+      }
+    }, HEARTBEAT_TIMEOUT_MS);
+  };
+  const interval = setInterval(ping, HEARTBEAT_INTERVAL_MS);
+  const visibility = () => {
+    if (document.visibilityState !== "visible") return;
+    const lastAlive = state.lastPongAt || state.connectedAt || 0;
+    if (Date.now() - lastAlive > HEARTBEAT_INTERVAL_MS + HEARTBEAT_TIMEOUT_MS) {
+      safeClose(socket, 4000, "broadcast-stale-on-resume");
+      return;
+    }
+    ping();
+  };
+  document.addEventListener("visibilitychange", visibility);
+  return () => {
+    clearInterval(interval);
+    clearTimeout(pongDeadline);
+    document.removeEventListener("visibilitychange", visibility);
+  };
 }
 
 function startSyncV2Fallback({ signal = null, onEvent = null } = {}) {
@@ -318,20 +418,11 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
       socket.addEventListener("open", () => {
         attempt = 0;
         state.connected = true;
+        state.connectedAt = Date.now();
+        state.lastPongAt = state.connectedAt;
         state.connecting = false;
-        state.reconcilePromise = syncV2Runtime
-          .reconcile({ signal })
-          .then((result) => {
-            stopSyncV2Fallback();
-            return result;
-          })
-          .catch((error) => {
-            state.lastError =
-              error?.code || error?.message || "sync_v2_reconcile_failed";
-            safeClose(socket, 1011, "sync-reconcile-failed");
-            throw error;
-          });
-        void state.reconcilePromise.catch(() => null);
+        stopSyncV2Fallback();
+        state.reconcilePromise = Promise.resolve();
         recordCommunicationEvent({
           type: "broadcast-open",
           method: "WS",
@@ -343,11 +434,44 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
           ok: true,
         });
       });
+      const stopHeartbeat = heartbeatFor(socket);
       socket.addEventListener("message", (event) => {
         void handleMessage(socket, event, onEvent);
       });
-      socket.addEventListener("close", () => resolve("close"), { once: true });
-      socket.addEventListener("error", () => resolve("error"), { once: true });
+      socket.addEventListener(
+        "close",
+        (event) => {
+          stopHeartbeat();
+          rememberRecent({
+            type: "close",
+            code: event.code,
+            lifetimeMs: state.connectedAt
+              ? Date.now() - state.connectedAt
+              : null,
+          });
+          recordClientUiObservation({
+            event: "broadcast_connection_closed",
+            surface: "realtime_sync",
+            outcome: event.code === 1000 ? "observed" : "failed",
+            reason:
+              event.reason === "broadcast-pong-timeout"
+                ? "pong_timeout"
+                : "connection_closed",
+            durationMs: state.connectedAt ? Date.now() - state.connectedAt : 0,
+            retryCount: state.reconnects,
+          });
+          resolve("close");
+        },
+        { once: true }
+      );
+      socket.addEventListener(
+        "error",
+        () => {
+          stopHeartbeat();
+          resolve("error");
+        },
+        { once: true }
+      );
       signal?.addEventListener(
         "abort",
         () => {
@@ -366,7 +490,7 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
 
     state.counters.reconnects += 1;
     state.reconnects += 1;
-    startSyncV2Fallback({ signal, onEvent });
+    scheduleSyncV2Fallback({ signal, onEvent });
     recoveryCenter.handle(new Error("Broadcast connection closed."), {
       source: "broadcast",
       scope: { route: "broadcast" },
@@ -386,6 +510,14 @@ export const broadcastClient = {
       connected: state.connected,
       connecting: state.connecting,
       reconnects: state.reconnects,
+      connectedAt: state.connectedAt,
+      connectionLifetimeMs:
+        state.connected && state.connectedAt
+          ? Math.max(0, Date.now() - state.connectedAt)
+          : null,
+      lastPingAt: state.lastPingAt,
+      lastPongAt: state.lastPongAt,
+      lastPingLatencyMs: state.lastPingLatencyMs,
       lastEventId: state.lastEventId,
       lastAckedEventId: state.lastAckedEventId,
       lastError: state.lastError,

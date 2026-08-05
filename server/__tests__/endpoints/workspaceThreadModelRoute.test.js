@@ -1,10 +1,19 @@
 const mockThreadUpdate = jest.fn();
 const mockThreadDelete = jest.fn();
+const mockThreadNew = jest.fn();
 const mockPublishWorkspaceSyncEvent = jest.fn();
+
+jest.mock("../../repositories/telemetryRepository", () => ({
+  TelemetryRepository: { sendTelemetry: jest.fn() },
+}));
+jest.mock("../../repositories/eventLogRepository", () => ({
+  EventLogRepository: { logEvent: jest.fn() },
+}));
 
 jest.mock("../../models/workspaceThread", () => ({
   WorkspaceThread: {
     THREAD_TYPES: { chat: "chat", overview: "overview" },
+    new: (...args) => mockThreadNew(...args),
     update: (...args) => mockThreadUpdate(...args),
     delete: (...args) => mockThreadDelete(...args),
     isOverviewThread: (thread) => thread?.thread_type === "overview",
@@ -39,9 +48,27 @@ function updateRoute() {
       routes[path] = handler;
     },
   };
-  const { workspaceThreadEndpoints } = require("../../endpoints/workspaceThreads");
+  const {
+    workspaceThreadEndpoints,
+  } = require("../../endpoints/workspaceThreads");
   workspaceThreadEndpoints(app);
   return routes["/workspace/:slug/thread/:threadSlug/update"];
+}
+
+function newRoute() {
+  const routes = {};
+  const app = {
+    post: (path, _middleware, handler) => {
+      routes[path] = handler;
+    },
+    get: jest.fn(),
+    delete: jest.fn(),
+  };
+  const {
+    workspaceThreadEndpoints,
+  } = require("../../endpoints/workspaceThreads");
+  workspaceThreadEndpoints(app);
+  return routes["/workspace/:slug/thread/new"];
 }
 
 function deleteRoute() {
@@ -53,7 +80,9 @@ function deleteRoute() {
       routes[path] = handler;
     },
   };
-  const { workspaceThreadEndpoints } = require("../../endpoints/workspaceThreads");
+  const {
+    workspaceThreadEndpoints,
+  } = require("../../endpoints/workspaceThreads");
   workspaceThreadEndpoints(app);
   return routes["/workspace/:slug/thread/:threadSlug"];
 }
@@ -146,6 +175,40 @@ describe("workspace thread model update route", () => {
     expect(mockPublishWorkspaceSyncEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "thread_updated",
+        chatModel: "deepseek-v4-flash",
+      })
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  it("locks the visible model into a newly created thread", async () => {
+    mockThreadNew.mockResolvedValue({
+      thread: {
+        id: 12,
+        slug: "thread-new",
+        name: "New Thread",
+        thread_type: "chat",
+        chatModel: "deepseek-v4-flash",
+        isUntitled: true,
+      },
+      message: null,
+    });
+    const route = newRoute();
+    const res = response();
+
+    await route(
+      {
+        body: { chatModel: "deepseek-v4-flash" },
+        headers: {},
+      },
+      res
+    );
+
+    expect(mockThreadNew).toHaveBeenCalledWith(
+      res.locals.workspace,
+      7,
+      expect.objectContaining({
+        thread_type: "chat",
         chatModel: "deepseek-v4-flash",
       })
     );

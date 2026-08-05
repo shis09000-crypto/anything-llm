@@ -23,6 +23,41 @@ const THREAD_CREATED_FROM = {
   workspaceDefault: "workspace_default",
 };
 
+const UNTITLED_THREAD_ALIASES = new Set([
+  "",
+  "new thread",
+  "thread",
+  "新线程",
+  "新しいスレッド",
+]);
+
+function isUntitledThread(thread = {}) {
+  if (thread.thread_type && thread.thread_type !== THREAD_TYPES.chat)
+    return false;
+  if (thread.titleSource === "manual") return false;
+  const title = String(thread.title || "")
+    .trim()
+    .toLowerCase();
+  const name = String(thread.name || "")
+    .trim()
+    .toLowerCase();
+  return (
+    UNTITLED_THREAD_ALIASES.has(title) && UNTITLED_THREAD_ALIASES.has(name)
+  );
+}
+
+function threadProjection(thread = {}) {
+  const isUntitled = isUntitledThread(thread);
+  return {
+    ...thread,
+    ...(isUntitled ? { title: null } : {}),
+    isUntitled,
+    titleSource: thread.titleSource || null,
+    titleGenerationStatus: thread.titleGenerationStatus || "idle",
+    titleVersion: Number(thread.titleVersion || 0),
+  };
+}
+
 function threadSyncContent(thread = {}) {
   const {
     id,
@@ -32,11 +67,13 @@ function threadSyncContent(thread = {}) {
     name,
     title,
     titleVersion,
+    titleSource,
+    titleGenerationStatus,
     thread_type,
     chatModel,
     archivedAt,
   } = thread;
-  return {
+  return threadProjection({
     id,
     workspace_id,
     user_id,
@@ -44,31 +81,38 @@ function threadSyncContent(thread = {}) {
     name,
     title,
     titleVersion,
+    titleSource,
+    titleGenerationStatus,
     thread_type,
     chatModel,
     archivedAt,
-  };
+  });
 }
 
 async function workspaceThreadsIndexContent(tx, workspaceId, userId = null) {
-  return await tx.workspace_threads.findMany({
-    where: {
-      workspace_id: Number(workspaceId),
-      ...(userId
-        ? { OR: [{ user_id: Number(userId) }, { user_id: null }] }
-        : {}),
-    },
-    select: {
-      id: true,
-      slug: true,
-      name: true,
-      title: true,
-      thread_type: true,
-      chatModel: true,
-      archivedAt: true,
-    },
-    orderBy: { id: "asc" },
-  });
+  return await tx.workspace_threads
+    .findMany({
+      where: {
+        workspace_id: Number(workspaceId),
+        ...(userId
+          ? { OR: [{ user_id: Number(userId) }, { user_id: null }] }
+          : {}),
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        title: true,
+        titleSource: true,
+        titleGenerationStatus: true,
+        titleVersion: true,
+        thread_type: true,
+        chatModel: true,
+        archivedAt: true,
+      },
+      orderBy: { id: "asc" },
+    })
+    .then((threads) => threads.map(threadProjection));
 }
 
 async function workspaceAudience(tx, workspaceId, fallbackUserId = null) {
@@ -204,10 +248,14 @@ const WorkspaceThread = {
 
   withDisplayTitle: function (thread = null) {
     if (!thread) return null;
+    const projected = threadProjection(thread);
+    const displayTitle = projected.isUntitled
+      ? null
+      : projected.title || projected.name;
     return {
-      ...thread,
-      name: thread.title || thread.name,
-      displayTitle: thread.title || thread.name,
+      ...projected,
+      name: displayTitle || projected.name,
+      displayTitle,
     };
   },
 
@@ -1106,12 +1154,16 @@ const WorkspaceThread = {
     titleSource = "llm",
     titleHash = null,
     titleMessageScope = null,
+    expectedTitleVersion = null,
   } = {}) {
     if (!threadId || !title || !titleMessageScope) return null;
     try {
       const where = {
         id: Number(threadId),
         OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
+        ...(expectedTitleVersion !== null
+          ? { titleVersion: Number(expectedTitleVersion) }
+          : {}),
       };
       const data = {
         name: String(title),
@@ -1175,6 +1227,53 @@ const WorkspaceThread = {
       return this.withDisplayTitle(updated);
     } catch (error) {
       throwModelDataAccessError("workspaceThread.updateAutomaticTitle", error);
+    }
+  },
+
+  claimAutomaticTitle: async function ({
+    workspaceId = null,
+    threadId = null,
+    userId = null,
+    scope = null,
+    titleHash = null,
+  } = {}) {
+    if (!workspaceId || !threadId || !scope || !titleHash) return null;
+    try {
+      const thread = await prisma.workspace_threads.findFirst({
+        where: {
+          id: Number(threadId),
+          workspace_id: Number(workspaceId),
+          ...(userId !== null && userId !== undefined
+            ? { user_id: Number(userId) }
+            : {}),
+        },
+      });
+      if (!thread || thread.titleSource === "manual") return null;
+      if (thread.titleHash === String(titleHash)) return null;
+      if (
+        scope === "latest_5_user_messages" &&
+        thread.titleGeneratedAt &&
+        Date.now() - new Date(thread.titleGeneratedAt).getTime() <
+          14 * 24 * 60 * 60 * 1000
+      )
+        return null;
+      const expectedTitleVersion = Number(thread.titleVersion || 0);
+      const claimed = await prisma.workspace_threads.updateMany({
+        where: {
+          id: thread.id,
+          titleVersion: expectedTitleVersion,
+          OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
+        },
+        data: {
+          titleGenerationStatus: "pending",
+          titleMessageScope: String(scope),
+          lastUpdatedAt: new Date(),
+        },
+      });
+      if (claimed.count !== 1) return null;
+      return { thread: this.withDisplayTitle(thread), expectedTitleVersion };
+    } catch (error) {
+      throwModelDataAccessError("workspaceThread.claimAutomaticTitle", error);
     }
   },
 };

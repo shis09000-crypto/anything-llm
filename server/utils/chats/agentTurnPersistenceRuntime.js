@@ -98,7 +98,10 @@ async function finalizeAgentTurn(input = {}) {
   });
 
   let renamedThread = null;
-  if (scope.threadId && input.renameThread !== false) {
+  if (scope.threadId) {
+    // Chat Runtime owns the authoritative message count and the title lease.
+    // An Agent Runtime process-local hint must never suppress the first/5th
+    // message trigger after a reconnect, thread switch, or process recovery.
     renamedThread = await maybeEnqueueTitleGenerationAfterChat({
       workspaceId: scope.workspaceId,
       threadId: scope.threadId,

@@ -27,6 +27,9 @@ const {
 const {
   contentObjectWritesEnabled,
 } = require("../utils/contentObjects/policy");
+const {
+  syncFinalizedWorkspaceTurn,
+} = require("../utils/workspaceCognition/turnSync");
 
 async function hydrateWorkspaceChatRelations(client, chats = []) {
   if (!Array.isArray(chats) || chats.length === 0) return [];
@@ -328,16 +331,23 @@ const WorkspaceChats = {
         });
         return created;
       });
-      if (threadId && include && !apiSessionId) {
+      if (
+        threadId &&
+        include &&
+        !apiSessionId &&
+        typeof response?.text === "string" &&
+        response.text.trim()
+      ) {
         const {
-          maybeEnqueueTitleGenerationAfterChat,
+          requestThreadTitleGeneration,
         } = require("../utils/chats/threadTitleGeneration");
-        maybeEnqueueTitleGenerationAfterChat({
+        requestThreadTitleGeneration({
           workspaceId,
           threadId,
           userId: user?.id || null,
           include,
           apiSessionId,
+          clientTurnId: normalizedClientTurnId,
         }).catch((error) =>
           console.warn("[ThreadTitle] failed to schedule", error.message)
         );
@@ -368,8 +378,7 @@ const WorkspaceChats = {
             message: null,
             replayed: false,
           };
-        const { WorkspaceCognition } = require("./workspaceCognition");
-        WorkspaceCognition.enqueueFinalizedTurn({
+        syncFinalizedWorkspaceTurn({
           chat: persistedChat,
           sourceChannel,
         }).catch((error) =>
@@ -901,24 +910,14 @@ const WorkspaceChats = {
       if (contentUpdated) {
         try {
           if (process.env.NODE_ENV === "test") return true;
-          const { WorkspaceCognition } = require("./workspaceCognition");
-          await WorkspaceCognition.markChatEvidenceStale(
-            scope.workspaceId,
-            [id],
-            "source_chat_updated"
-          );
           const updated = await prisma.workspace_chats.findFirst({
             where: { id },
           });
           const decrypted = await decryptWorkspaceChatRecordAsync(updated);
-          await WorkspaceCognition.cancelBufferedChats(
-            scope.workspaceId,
-            [id],
-            "chat_content_replaced"
-          );
-          await WorkspaceCognition.enqueueFinalizedTurn({
+          await syncFinalizedWorkspaceTurn({
             chat: decrypted,
             sourceChannel: decrypted.created_from || "web",
+            replaceEvidence: true,
           });
         } catch (error) {
           console.warn(
@@ -1109,8 +1108,7 @@ const WorkspaceChats = {
       try {
         if (process.env.NODE_ENV === "test")
           return { chat: persistedChat, message: null };
-        const { WorkspaceCognition } = require("./workspaceCognition");
-        await WorkspaceCognition.enqueueFinalizedTurn({
+        await syncFinalizedWorkspaceTurn({
           chat: persistedChat,
           sourceChannel: data.sourceChannel || "agent",
         });

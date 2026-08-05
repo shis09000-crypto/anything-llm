@@ -21,7 +21,10 @@
   ],
   "routes": {
     "public": [],
-    "internal": ["/internal/v1/responses"]
+    "internal": [
+      "/internal/v1/responses",
+      "/internal/v1/responses/execution-metadata/resolve"
+    ]
   },
   "rpc": {
     "provides": [
@@ -41,6 +44,7 @@
       "responses.background.claim",
       "responses.background.execute",
       "responses.maintenance",
+      "responses.execution-metadata.resolve",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -76,6 +80,7 @@
     "keyDomains": ["responses-state"],
     "allowedCallers": [
       "chat-runtime",
+      "athena-api",
       "agent-runtime",
       "scheduler",
       "coordination-plane"
@@ -114,6 +119,17 @@
   ],
   "contracts": {
     "provides": [
+      {
+        "id": "responses.execution-metadata.resolve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/responses.execution-metadata.resolve/request/1.0",
+        "responseSchema": "athena://contracts/responses.execution-metadata.resolve/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
       {
         "id": "responses.create",
         "version": "1.0",

@@ -15,6 +15,7 @@ const {
   remoteAgentChatPersistenceEnabled,
   reserveAgentChatTurn,
 } = require("../../agentChatPersistenceClient");
+const { executionMetadata } = require("../../../chats/executionMetadata");
 
 async function publishAgentChatFinalized(aibitat, chatId = null) {
   const invocation = aibitat?.handlerProps?.invocation;
@@ -225,6 +226,16 @@ const chatHistory = {
           type: "chat",
           attachments,
           metrics,
+          execution: executionMetadata({
+            metrics,
+            model: metrics?.model || aibitat.provider?.model || null,
+            provider:
+              metrics?.provider ||
+              aibitat.handlerProps?.invocation?.provider ||
+              aibitat.handlerProps?.invocation?.workspace?.chatProvider ||
+              process.env.LLM_PROVIDER ||
+              null,
+          }),
           ...(imageAnalysis ? { imageAnalysis } : {}),
           ...(outputs.length > 0 ? { outputs } : {}),
           ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
@@ -262,6 +273,16 @@ const chatHistory = {
           type: options?.saveAsType ?? "chat",
           attachments,
           metrics,
+          execution: executionMetadata({
+            metrics,
+            model: metrics?.model || aibitat.provider?.model || null,
+            provider:
+              metrics?.provider ||
+              aibitat.handlerProps?.invocation?.provider ||
+              aibitat.handlerProps?.invocation?.workspace?.chatProvider ||
+              process.env.LLM_PROVIDER ||
+              null,
+          }),
           ...(imageAnalysis ? { imageAnalysis } : {}),
           ...(outputs.length > 0 ? { outputs } : {}),
           ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),

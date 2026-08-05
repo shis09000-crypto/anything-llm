@@ -6,6 +6,7 @@ const {
   formatMessagesForTools,
 } = require("../agents/aibitat/providers/helpers/tooled");
 const { enabled, responseEvents, responsesTools } = require("./chatAdapter");
+const { FLASH_MODEL } = require("./contract");
 
 function agentEnabled({ provider, model, env = process.env } = {}) {
   return (
@@ -20,6 +21,7 @@ function metadata(handlerProps = {}) {
     workspaceId: invocation.workspace_id ?? invocation.workspace?.id ?? null,
     threadId: invocation.thread_id ?? null,
     userId: invocation.user_id ?? null,
+    chatRunId: invocation.clientTurnId || null,
     agentRunId: invocation.uuid || null,
     invocationId: invocation.uuid || null,
     clientTurnId: invocation.clientTurnId || null,
@@ -177,7 +179,17 @@ function createResponsesAgentProvider({
           event.type === "response.completed" ||
           event.type === "response.incomplete"
         ) {
-          usage = event.response?.usage || null;
+          usage = {
+            ...(event.response?.usage || {}),
+            model: event.response?.model || FLASH_MODEL,
+            provider: "deepseek",
+            requested_protocol:
+              event.response?.athena?.requestedProtocol || "responses",
+            effective_protocol:
+              event.response?.athena?.effectiveProtocol || "responses",
+            response_id: event.response?.id || null,
+            execution_source: "responses_runtime",
+          };
           responseUuid = event.response?.id || responseUuid;
         }
       }

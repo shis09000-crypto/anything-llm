@@ -10,15 +10,17 @@ function titleDebug(event, payload = {}) {
 }
 
 function publishThreadTitleUpdate(thread = {}) {
-  if (!thread?.id || !thread?.slug || !thread?.name) return;
+  if (!thread?.id || !thread?.slug) return;
   const event = {
     threadId: Number(thread.id),
     workspaceId: Number(thread.workspace_id),
     userId: thread.user_id ?? null,
     slug: thread.slug,
-    name: thread.name,
-    title: thread.title || thread.name,
+    name: thread.isUntitled ? "" : thread.name || "",
+    title: thread.isUntitled ? null : thread.title || thread.name || null,
+    isUntitled: thread.isUntitled === true,
     titleSource: thread.titleSource,
+    titleGenerationStatus: thread.titleGenerationStatus,
     titleVersion: thread.titleVersion,
   };
   titleDebug("event:publish", event);

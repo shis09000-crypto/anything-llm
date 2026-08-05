@@ -10,11 +10,18 @@ const ALLOWED_EVENTS = new Set([
   "passkey_local_ready",
   "passkey_cross_device_only",
   "passkey_unavailable",
+  "document_loaded",
+  "react_root_mounted",
+  "broadcast_connection_closed",
+  "broadcast_incremental_replay",
+  "broadcast_full_reconcile",
 ]);
 const ALLOWED_SURFACES = new Set([
   "workspace_overview",
   "auth_lifecycle",
   "passkey_capability",
+  "application_shell",
+  "realtime_sync",
 ]);
 const ALLOWED_OUTCOMES = new Set(["observed", "recovered", "failed"]);
 const ALLOWED_REASONS = new Set([
@@ -40,6 +47,10 @@ const ALLOWED_REASONS = new Set([
   "no_available_authenticator",
   "webauthn_security_error",
   "none",
+  "pong_timeout",
+  "connection_closed",
+  "cursor_replay",
+  "sync_required",
   "unknown",
 ]);
 const OBSERVATION_DEDUPE_PREFIX = "athena.client-observation:";

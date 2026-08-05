@@ -182,6 +182,16 @@ function convertToChatHistory(history = [], options = {}) {
         sentAt: moment(createdAt).unix(),
         feedbackScore,
         metrics: isLight ? {} : data?.metrics || {},
+        execution: isLight
+          ? null
+          : data?.execution || {
+              model: data?.metrics?.model || null,
+              provider: data?.metrics?.provider || null,
+              requestedProtocol: data?.metrics?.requested_protocol || null,
+              effectiveProtocol: data?.metrics?.effective_protocol || null,
+              responseId: data?.metrics?.response_id || null,
+              source: data?.metrics?.model ? "legacy_metrics" : "unknown",
+            },
         ...(!isLight && data?.truncated && data?.textRef
           ? { truncated: true, textRef: data.textRef }
           : {}),
@@ -200,6 +210,20 @@ function convertToChatHistory(history = [], options = {}) {
   }
 
   return formattedHistory.flat();
+}
+
+async function convertToChatHistoryWithExecution(history = [], options = {}) {
+  const {
+    enrichChatExecutionMetadata,
+  } = require("../../responsesRuntime/executionMetadataClient");
+  const enriched = await enrichChatExecutionMetadata(history, {
+    userId: options.userId ?? null,
+    workspaceId: options.workspaceId ?? null,
+    threadId: Object.prototype.hasOwnProperty.call(options, "threadId")
+      ? options.threadId
+      : undefined,
+  });
+  return convertToChatHistory(enriched, options);
 }
 
 function truncateUnicode(value = "", maxChars = MAX_CLARIFYING_QUESTION_CHARS) {
@@ -391,6 +415,7 @@ function formatChatHistory(
 module.exports = {
   handleDefaultStreamResponseV2,
   convertToChatHistory,
+  convertToChatHistoryWithExecution,
   convertToPromptHistory,
   stripReasoningBlocks,
   writeResponseChunk,

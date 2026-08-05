@@ -611,6 +611,10 @@ async function streamChatWithWorkspace(
     historyWindow,
     compaction
   );
+  const lockedExecution = {
+    model: workspace?.chatModel || LLMConnector?.model || null,
+    provider: workspace?.chatProvider || process.env.LLM_PROVIDER || null,
+  };
   const modelExecution = await beginModelExecution(
     {
       ownerType: "workspace",
@@ -735,6 +739,10 @@ async function streamChatWithWorkspace(
         type: chatMode,
         attachments: historyAttachments,
         metrics,
+        execution: require("./executionMetadata").executionMetadata({
+          metrics,
+          ...lockedExecution,
+        }),
         ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,

@@ -548,6 +548,7 @@ function serverGroupToItems(group, chatKey = null) {
     textRef: assistant.textRef || null,
     sources: assistant.sources || [],
     metrics: assistant.metrics || {},
+    execution: assistant.execution || null,
     chatId: group.chatId,
     publicChatId: group.publicChatId,
     clientTurnId:
@@ -912,6 +913,7 @@ function patchLocalTurnWithServer(
     textRef: serverAssistant.textRef || localAssistant.textRef || null,
     sources: serverAssistant.sources || localAssistant.sources,
     metrics: serverAssistant.metrics || localAssistant.metrics,
+    execution: serverAssistant.execution || localAssistant.execution || null,
     feedbackScore: serverAssistant.feedbackScore,
     outputs: serverAssistant.outputs || localAssistant.outputs || [],
     clarifyingQuestions:

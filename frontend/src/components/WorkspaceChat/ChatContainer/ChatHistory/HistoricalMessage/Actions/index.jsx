@@ -16,6 +16,7 @@ const Actions = ({
   isEditing,
   role,
   metrics = {},
+  execution = null,
 }) => {
   return (
     <div
@@ -47,7 +48,7 @@ const Actions = ({
           />
         </div>
       </div>
-      <RenderMetrics metrics={metrics} />
+      <RenderMetrics metrics={metrics} execution={execution} />
     </div>
   );
 };

@@ -225,7 +225,10 @@ function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
       thread: {
         slug: titleUpdate.slug,
         name: titleUpdate.name,
-        title: titleUpdate.title || titleUpdate.name,
+        title: titleUpdate.title,
+        isUntitled: titleUpdate.isUntitled,
+        titleSource: titleUpdate.titleSource,
+        titleGenerationStatus: titleUpdate.titleGenerationStatus,
         titleVersion: titleUpdate.titleVersion,
         animate: true,
       },

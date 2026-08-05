@@ -99,4 +99,25 @@ describe("agentTurnPersistenceRuntime", () => {
     );
     expect(mockMaybeEnqueueTitleGenerationAfterChat).toHaveBeenCalled();
   });
+
+  test("does not let an Agent process-local rename hint suppress Chat-owned title work", async () => {
+    await finalizeAgentTurn({
+      chatId: 17,
+      workspaceId: 2,
+      threadId: 3,
+      userId: 4,
+      prompt: "hello",
+      response: { text: "world" },
+      clientTurnId: "turn-recovered",
+      renameThread: false,
+    });
+
+    expect(mockMaybeEnqueueTitleGenerationAfterChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: 2,
+        threadId: 3,
+        userId: 4,
+      })
+    );
+  });
 });

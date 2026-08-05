@@ -24,8 +24,14 @@ class SchedulerRuntime {
     this.responsesTaskActive = false;
     this.responsesMaintenanceTimer = null;
     this.responsesMaintenanceActive = false;
+    this.threadTitleTimer = null;
+    this.threadTitleStartupTimer = null;
+    this.threadTitleActive = false;
     this.responsesRuntimeUrl = String(
       process.env.ATHENA_RESPONSES_RUNTIME_URL || ""
+    ).replace(/\/+$/, "");
+    this.chatRuntimeUrl = String(
+      process.env.ATHENA_CHAT_RUNTIME_URL || ""
     ).replace(/\/+$/, "");
   }
 
@@ -38,6 +44,7 @@ class SchedulerRuntime {
     this.startReconciliation();
     this.startResponsesDispatcher();
     this.startResponsesMaintenance();
+    this.startThreadTitleReconciliation();
     return this.snapshot();
   }
 
@@ -152,6 +159,45 @@ class SchedulerRuntime {
     this.reconcileTimer.unref?.();
   }
 
+  startThreadTitleReconciliation() {
+    if (!this.chatRuntimeUrl || this.threadTitleTimer) return;
+    const reconcile = async () => {
+      if (this.threadTitleActive || this.status !== "running") return;
+      this.threadTitleActive = true;
+      try {
+        await requestInternalService({
+          callerRole: "scheduler",
+          targetModule: "chat-runtime",
+          capability: "chat.thread-title.reconcile",
+          contractVersion: "1.0",
+          url: `${this.chatRuntimeUrl}/internal/v1/chat/thread-title/reconcile`,
+          body: { taskPriority: "P4", pageSize: 100, waitForIdle: false },
+          idempotencyKey: `thread-title-reconcile:${new Date()
+            .toISOString()
+            .slice(0, 10)}`,
+          timeoutMs: 300_000,
+        });
+      } catch (error) {
+        this.lastError = error?.code || error?.message || String(error);
+      } finally {
+        this.threadTitleActive = false;
+      }
+    };
+    this.threadTitleTimer = setInterval(
+      reconcile,
+      Math.max(
+        60_000,
+        Number(
+          process.env.ATHENA_THREAD_TITLE_RECONCILE_INTERVAL_MS ||
+            14 * 24 * 60 * 60 * 1000
+        )
+      )
+    );
+    this.threadTitleTimer.unref?.();
+    this.threadTitleStartupTimer = setTimeout(reconcile, 30_000);
+    this.threadTitleStartupTimer.unref?.();
+  }
+
   async syncJob(jobId) {
     await this.service.syncScheduledJob(Number(jobId));
     this.lastReconciledAt = new Date().toISOString();
@@ -205,6 +251,11 @@ class SchedulerRuntime {
         active: this.responsesMaintenanceActive,
         taskPriority: "P4",
       },
+      threadTitleReconciliation: {
+        enabled: Boolean(this.chatRuntimeUrl),
+        active: this.threadTitleActive,
+        taskPriority: "P4",
+      },
     };
   }
 
@@ -213,9 +264,14 @@ class SchedulerRuntime {
     if (this.responsesTimer) clearInterval(this.responsesTimer);
     if (this.responsesMaintenanceTimer)
       clearInterval(this.responsesMaintenanceTimer);
+    if (this.threadTitleTimer) clearInterval(this.threadTitleTimer);
+    if (this.threadTitleStartupTimer)
+      clearTimeout(this.threadTitleStartupTimer);
     this.reconcileTimer = null;
     this.responsesTimer = null;
     this.responsesMaintenanceTimer = null;
+    this.threadTitleTimer = null;
+    this.threadTitleStartupTimer = null;
     await this.service?.stop?.();
     this.service = null;
     this.status = "stopped";

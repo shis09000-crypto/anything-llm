@@ -35,6 +35,10 @@ const {
 const {
   registerAgentTurnPersistenceRoutes,
 } = require("./utils/chats/agentTurnPersistenceRuntime");
+const {
+  maybeEnqueueTitleGenerationAfterChat,
+  refreshRecentThreadTitles,
+} = require("./utils/chats/threadTitleGeneration");
 
 const role = "chat-runtime";
 const port = Number(process.env.CHAT_RUNTIME_PORT || 3016);
@@ -65,6 +69,36 @@ const host = new MicroModuleServiceHost({
     registerCompatibleApi(app, chatEndpoints);
     registerThreadMemoryRoutes(app);
     registerAgentTurnPersistenceRoutes(app);
+    app.use(
+      "/internal/v1/chat/thread-title",
+      require("express").json({ limit: "64kb" })
+    );
+    app.post(
+      "/internal/v1/chat/thread-title/generate",
+      async (request, response) => {
+        const result = await maybeEnqueueTitleGenerationAfterChat({
+          workspaceId: request.body?.workspaceId,
+          threadId: request.body?.threadId,
+          userId: request.body?.userId ?? null,
+          include: request.body?.include !== false,
+          apiSessionId: request.body?.apiSessionId ?? null,
+        });
+        response.json({ success: true, result: result || null });
+      }
+    );
+    app.post(
+      "/internal/v1/chat/thread-title/reconcile",
+      async (request, response) => {
+        const result = await refreshRecentThreadTitles({
+          pageSize: Math.min(
+            250,
+            Math.max(1, Number(request.body?.pageSize || 100))
+          ),
+          waitForIdle: request.body?.waitForIdle === true,
+        });
+        response.json({ success: true, result });
+      }
+    );
     app.get(
       "/internal/v1/chat/runs/:clientTurnId",
       async (request, response) => {
@@ -90,6 +124,8 @@ const host = new MicroModuleServiceHost({
     "/internal/v1/chat/memory/context/resolve": "chat.memory.context.resolve",
     "/internal/v1/chat/agent-turns/reserve": "chat.agent-turn.reserve",
     "/internal/v1/chat/agent-turns/finalize": "chat.agent-turn.finalize",
+    "/internal/v1/chat/thread-title/generate": "chat.thread-title.generate",
+    "/internal/v1/chat/thread-title/reconcile": "chat.thread-title.reconcile",
   },
 });
 
