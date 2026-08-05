@@ -42,6 +42,7 @@
       "responses.background.claim",
       "responses.background.execute",
       "responses.maintenance",
+      "chat.thread-title.reconcile",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "operations.ingest-batch",
@@ -227,6 +228,17 @@
       }
     ],
     "consumes": [
+      {
+        "id": "chat.thread-title.reconcile",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/chat.thread-title.reconcile/request/1.0",
+        "responseSchema": "athena://contracts/chat.thread-title.reconcile/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
       {
         "id": "responses.background.claim",
         "version": "1.0",

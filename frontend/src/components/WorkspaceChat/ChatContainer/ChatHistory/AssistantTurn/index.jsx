@@ -356,6 +356,7 @@ function AssistantTurn({
               role="assistant"
               forkThread={forkThread}
               metrics={turn.metrics}
+              execution={turn.execution}
               onGenerateMindMap={onGenerateMindMap}
             />
           </div>

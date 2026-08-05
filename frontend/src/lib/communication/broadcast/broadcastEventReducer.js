@@ -168,21 +168,30 @@ function patchThread(event) {
     invalidateThread(event);
     return;
   }
+  const payload = event.payload || {};
   const thread = {
     id: event.scope?.threadId || event.resource?.id || threadSlug,
     slug: threadSlug,
-    ...(event.payload?.threadName || event.payload?.name || event.payload?.title
-      ? {
-          name:
-            event.payload?.threadName ||
-            event.payload?.name ||
-            event.payload?.title,
-          title:
-            event.payload?.title ||
-            event.payload?.threadName ||
-            event.payload?.name ||
-            "",
-        }
+    ...(Object.prototype.hasOwnProperty.call(payload, "name")
+      ? { name: payload.name }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "threadName")
+      ? { name: payload.threadName }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "title")
+      ? { title: payload.title }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "isUntitled")
+      ? { isUntitled: payload.isUntitled === true }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "titleSource")
+      ? { titleSource: payload.titleSource }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "titleGenerationStatus")
+      ? { titleGenerationStatus: payload.titleGenerationStatus }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "titleVersion")
+      ? { titleVersion: Number(payload.titleVersion || 0) }
       : {}),
     ...(event.payload?.threadType
       ? { thread_type: event.payload.threadType }
@@ -202,14 +211,7 @@ function patchThread(event) {
     });
     if (found) workspaceNavigationCache.setThreads(workspaceSlug, nextThreads);
   }
-  workspaceNavigationCache.markThreadsStale(
-    workspaceSlug,
-    "broadcast-thread-soft-stale"
-  );
-  serverStateTaskBridge.markScopeStale(
-    scopeForCache(event),
-    "broadcast-thread-soft-stale"
-  );
+  counters.reduced += 1;
   dispatchThreadPatchVisual({
     workspaceSlug,
     thread,
@@ -243,12 +245,20 @@ function requestThreadCreate(event) {
     thread: {
       id: event.scope?.threadId || event.resource?.id || threadSlug,
       slug: threadSlug,
-      name:
-        event.payload?.threadName ||
-        event.payload?.name ||
-        event.payload?.title ||
-        "新线程",
-      title: event.payload?.title || event.payload?.threadName || "",
+      name: event.payload?.isUntitled
+        ? ""
+        : event.payload?.threadName || event.payload?.name || "",
+      title: event.payload?.isUntitled ? "" : event.payload?.title || "",
+      isUntitled:
+        event.payload?.isUntitled === true ||
+        !(
+          event.payload?.title ||
+          event.payload?.threadName ||
+          event.payload?.name
+        ),
+      titleSource: event.payload?.titleSource || null,
+      titleGenerationStatus: event.payload?.titleGenerationStatus || "idle",
+      titleVersion: Number(event.payload?.titleVersion || 0),
       thread_type: event.payload?.threadType || "chat",
       createdAt: event.createdAt,
       lastUpdatedAt: event.createdAt,

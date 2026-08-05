@@ -966,20 +966,6 @@ function syncCenterEndpoints(app) {
       userId: connection.userId,
     });
 
-    const queryLastEventId = Array.isArray(request.query?.lastEventId)
-      ? request.query.lastEventId[0]
-      : request.query?.lastEventId;
-    if (queryLastEventId) {
-      const replay = await broadcastCenter.replayDurable({
-        userId: connection.userId,
-        clientId: connection.clientId,
-        platform: connection.platform,
-        lastEventId: queryLastEventId,
-        subscriptions: [...connection.subscriptions.values()],
-      });
-      sendReplay(connection, replay);
-    }
-
     socket.on("message", (message) => {
       void withCorrelation(request.athenaTraceContext || {}, async () => {
         const payload = await verifiedSocketPayload(request, socket, message);

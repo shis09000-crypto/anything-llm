@@ -334,17 +334,40 @@ test("broadcast reducer keeps workspace thread and chat updates scoped", async (
     version: 33,
   });
 
+  const modelUpdated = broadcastEventReducer.reduce({
+    eventId: "thread-model-updated-scoped-1",
+    namespace: "thread",
+    type: "updated",
+    visibility: "workspace",
+    scope: { userId: 7, workspaceSlug: "workspace-a", threadId: 99 },
+    resource: { kind: "thread", id: 99 },
+    payload: {
+      workspaceSlug: "workspace-a",
+      threadSlug: "thread-a",
+      chatModel: "deepseek-v4-flash",
+    },
+    version: 34,
+  });
+
   assert.equal(workspaceUpdated.ok, true);
   assert.equal(workspaceUpdated.action, "workspace-soft-stale");
   assert.equal(threadUpdated.ok, true);
   assert.equal(threadUpdated.action, "thread-patch");
   assert.equal(chatUpdated.ok, true);
   assert.equal(chatUpdated.action, "chat-soft-stale");
+  assert.equal(modelUpdated.ok, true);
+  assert.equal(modelUpdated.action, "thread-patch");
   assert.equal(stubs.calls.scopes.length, 0);
   assert.equal(stubs.calls.workspaceDetailSoftStale.length, 1);
   assert.equal(stubs.calls.workspaceSoftStale.length, 1);
-  assert.equal(stubs.calls.threadPatchVisuals.length, 1);
+  assert.equal(stubs.calls.threadPatchVisuals.length, 2);
   assert.equal(stubs.calls.threadPatchVisuals[0].thread.name, "Thread B");
+  assert.equal(
+    stubs.calls.threadPatchVisuals[1].thread.chatModel,
+    "deepseek-v4-flash"
+  );
+  assert.equal("name" in stubs.calls.threadPatchVisuals[1].thread, false);
+  assert.equal("title" in stubs.calls.threadPatchVisuals[1].thread, false);
   assert.ok(stubs.calls.markStale.length >= 2);
   delete globalThis.__broadcastReducerStubs;
 });

@@ -16,11 +16,21 @@
   "capabilities": ["http", "workspace", "account", "compatibility-api"],
   "routes": {
     "public": ["/api/system/", "/api/workspace/", "/api/admin/"],
-    "internal": ["/live", "/ready", "/metrics"]
+    "internal": [
+      "/live",
+      "/ready",
+      "/metrics",
+      "/internal/v1/workspace/cognition/turn/sync",
+      "/internal/v1/workspace/thread-title/claim",
+      "/internal/v1/workspace/thread-title/commit"
+    ]
   },
   "rpc": {
     "provides": [
       "control.dispatch",
+      "workspace.cognition.turn.sync",
+      "workspace.thread-title.claim",
+      "workspace.thread-title.commit",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -53,6 +63,7 @@
       "key-custody.audit-descriptor",
       "key-custody.audit-sign",
       "operations.ingest-batch",
+      "responses.execution-metadata.resolve",
       "sync.events.append"
     ]
   },
@@ -69,6 +80,7 @@
     "keyDomains": ["data"],
     "allowedCallers": [
       "edge-web",
+      "chat-runtime",
       "scheduler",
       "operations-plane",
       "coordination-plane"
@@ -101,6 +113,39 @@
   ],
   "contracts": {
     "provides": [
+      {
+        "id": "workspace.cognition.turn.sync",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.cognition.turn.sync/request/1.0",
+        "responseSchema": "athena://contracts/workspace.cognition.turn.sync/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "workspace.thread-title.claim",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.claim/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.claim/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "workspace.thread-title.commit",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.commit/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.commit/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
       {
         "id": "control.dispatch",
         "version": "1.0",
@@ -215,6 +260,17 @@
       }
     ],
     "consumes": [
+      {
+        "id": "responses.execution-metadata.resolve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/responses.execution-metadata.resolve/request/1.0",
+        "responseSchema": "athena://contracts/responses.execution-metadata.resolve/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
       {
         "id": "agent.submit",
         "version": "1.0",

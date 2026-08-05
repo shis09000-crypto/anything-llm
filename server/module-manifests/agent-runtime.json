@@ -56,6 +56,7 @@
       "responses.create",
       "responses.stream",
       "responses.agent-run.status",
+      "responses.cancel",
       "sync.events.append",
       "operations.ingest-batch",
       "tool.invoke"
@@ -428,6 +429,22 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "responses.cancel",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/responses.cancel/request/1.0",
+        "responseSchema": "athena://contracts/responses.cancel/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "response_not_found",
+          "response_state_conflict"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
         "dataClassification": "internal"
       },
       {

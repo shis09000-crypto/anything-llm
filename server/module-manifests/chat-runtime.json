@@ -29,7 +29,9 @@
       "/internal/v1/chat/memory/compact",
       "/internal/v1/chat/memory/context/resolve",
       "/internal/v1/chat/agent-turns/reserve",
-      "/internal/v1/chat/agent-turns/finalize"
+      "/internal/v1/chat/agent-turns/finalize",
+      "/internal/v1/chat/thread-title/generate",
+      "/internal/v1/chat/thread-title/reconcile"
     ]
   },
   "rpc": {
@@ -41,6 +43,8 @@
       "chat.memory.context.resolve",
       "chat.agent-turn.reserve",
       "chat.agent-turn.finalize",
+      "chat.thread-title.generate",
+      "chat.thread-title.reconcile",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -65,6 +69,9 @@
       "responses.create",
       "responses.stream",
       "sync.events.append",
+      "workspace.cognition.turn.sync",
+      "workspace.thread-title.claim",
+      "workspace.thread-title.commit",
       "operations.ingest-batch",
       "rag.retrieve"
     ]
@@ -84,6 +91,7 @@
       "edge-web",
       "athena-api",
       "agent-runtime",
+      "scheduler",
       "coordination-plane",
       "responses-runtime"
     ],
@@ -298,6 +306,38 @@
         "dataClassification": "confidential"
       },
       {
+        "id": "chat.thread-title.generate",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/chat.thread-title.generate/request/1.0",
+        "responseSchema": "athena://contracts/chat.thread-title.generate/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "chat.thread-title.reconcile",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/chat.thread-title.reconcile/request/1.0",
+        "responseSchema": "athena://contracts/chat.thread-title.reconcile/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "module.quiesce",
         "version": "1.0",
         "callType": "Command",
@@ -424,6 +464,54 @@
           "dependency_unavailable"
         ],
         "timeoutMs": 5000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "workspace.cognition.turn.sync",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.cognition.turn.sync/request/1.0",
+        "responseSchema": "athena://contracts/workspace.cognition.turn.sync/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "workspace.thread-title.claim",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.claim/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.claim/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "workspace.thread-title.commit",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.commit/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.commit/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
         "idempotency": "required",
         "dataClassification": "confidential"
       },

@@ -68,11 +68,18 @@ const CLIENT_UI_EVENT_TYPES = new Set([
   "passkey_local_ready",
   "passkey_cross_device_only",
   "passkey_unavailable",
+  "document_loaded",
+  "react_root_mounted",
+  "broadcast_connection_closed",
+  "broadcast_incremental_replay",
+  "broadcast_full_reconcile",
 ]);
 const CLIENT_UI_SURFACES = new Set([
   "workspace_overview",
   "auth_lifecycle",
   "passkey_capability",
+  "application_shell",
+  "realtime_sync",
 ]);
 const CLIENT_UI_REASONS = new Set([
   "scheduler_abort",
@@ -97,6 +104,10 @@ const CLIENT_UI_REASONS = new Set([
   "no_available_authenticator",
   "webauthn_security_error",
   "none",
+  "pong_timeout",
+  "connection_closed",
+  "cursor_replay",
+  "sync_required",
   "unknown",
 ]);
 
@@ -344,9 +355,18 @@ function recordClientUiObservation(request, response, input = {}) {
     passkey_local_ready: "auth.passkey.capability_local_ready",
     passkey_cross_device_only: "auth.passkey.capability_cross_device_only",
     passkey_unavailable: "auth.passkey.capability_unavailable",
+    document_loaded: "navigation.client.document_loaded",
+    react_root_mounted: "navigation.client.react_root_mounted",
+    broadcast_connection_closed: "realtime.client.connection_closed",
+    broadcast_incremental_replay: "realtime.client.incremental_replay",
+    broadcast_full_reconcile: "realtime.client.full_reconcile",
   };
   const category =
-    surface === "workspace_overview" ? "navigation_client" : "auth_client";
+    surface === "realtime_sync"
+      ? "realtime_client"
+      : ["workspace_overview", "application_shell"].includes(surface)
+        ? "navigation_client"
+        : "auth_client";
   emitSemanticEvent({
     eventType: semanticTypes[event],
     category,

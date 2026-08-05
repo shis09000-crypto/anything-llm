@@ -1889,6 +1889,7 @@ const TRANSLATIONS = {
     metrics_visibility: {
       hover_only: "点击后仅在悬停时显示模型信息",
       always_show: "点击后始终显示模型信息",
+      unknown_model: "模型未知",
     },
     fork: "分叉",
     delete: "删除",

@@ -66,6 +66,7 @@ const HistoricalMessage = ({
   saveEditedMessage,
   forkThread,
   metrics = {},
+  execution = null,
   outputs = [],
   clarifyingQuestions = [],
   hydrationStatus = null,
@@ -199,6 +200,7 @@ const HistoricalMessage = ({
               role={role}
               forkThread={forkThread}
               metrics={metrics}
+              execution={execution}
             />
           )}
         </div>
@@ -290,6 +292,7 @@ const HistoricalMessage = ({
               role={role}
               forkThread={forkThread}
               metrics={metrics}
+              execution={execution}
             />
           </div>
         )}
@@ -314,6 +317,8 @@ export default memo(
       prevProps.chatId === nextProps.chatId &&
       prevProps.publicChatId === nextProps.publicChatId &&
       JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics) &&
+      JSON.stringify(prevProps.execution) ===
+        JSON.stringify(nextProps.execution) &&
       JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
       JSON.stringify(prevProps.readerTextSources) ===
         JSON.stringify(nextProps.readerTextSources) &&

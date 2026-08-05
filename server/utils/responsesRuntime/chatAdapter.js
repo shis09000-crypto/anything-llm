@@ -169,7 +169,17 @@ function toChatStream(events) {
         event.type === "response.completed" ||
         event.type === "response.incomplete"
       ) {
-        metrics = chatUsage(event.response?.usage || {});
+        metrics = {
+          ...chatUsage(event.response?.usage || {}),
+          model: event.response?.model || FLASH_MODEL,
+          provider: "deepseek",
+          requested_protocol:
+            event.response?.athena?.requestedProtocol || "responses",
+          effective_protocol:
+            event.response?.athena?.effectiveProtocol || "responses",
+          response_id: event.response?.id || null,
+          execution_source: "responses_runtime",
+        };
         yield {
           choices: [
             {
@@ -219,11 +229,14 @@ function wrapWithResponsesRuntime(
         textResponse: response.output_text || "",
         metrics: {
           ...chatUsage(response.usage),
+          model: response.model || FLASH_MODEL,
+          provider: "deepseek",
           requested_protocol: response.athena?.requestedProtocol,
           effective_protocol: response.athena?.effectiveProtocol,
           degraded_reason: response.athena?.degradedReason,
           response_id: response.id,
           conversation_id: response.conversation?.id || null,
+          execution_source: "responses_runtime",
         },
       };
     },

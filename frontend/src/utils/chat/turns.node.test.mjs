@@ -151,6 +151,62 @@ test("server hydration can patch an interrupted local turn", () => {
   assert.equal(merged[1].finalContent, "落库成功回答");
 });
 
+test("server hydration preserves the model used by that historical turn", () => {
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      { chatId: 47, role: "user", content: "你好", sentAt: 100 },
+      {
+        chatId: 47,
+        role: "assistant",
+        content: "你好",
+        sentAt: 100,
+        execution: {
+          model: "deepseek-v4-flash",
+          provider: "deepseek",
+          requestedProtocol: "responses",
+          effectiveProtocol: "responses",
+          responseId: "ath_resp_47",
+          source: "responses_runtime",
+        },
+      },
+    ],
+    [],
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.execution.model, "deepseek-v4-flash");
+  assert.equal(assistant.execution.responseId, "ath_resp_47");
+});
+
+test("server hydration patches execution evidence onto a local turn", () => {
+  const { items } = localTurn({ status: TURN_STATUSES.interrupted });
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      { chatId: 48, role: "user", content: "用户问题", sentAt: 100 },
+      {
+        chatId: 48,
+        role: "assistant",
+        content: "落库回答",
+        sentAt: 100,
+        execution: {
+          model: "deepseek-v4-pro",
+          provider: "deepseek",
+          requestedProtocol: "chat_completions",
+          effectiveProtocol: "chat_completions",
+          responseId: null,
+          source: "provider",
+        },
+      },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.execution.model, "deepseek-v4-pro");
+});
+
 test("completed server hydration removes transient Agent reconnect thoughts", () => {
   const { items } = localTurn({
     status: TURN_STATUSES.running,

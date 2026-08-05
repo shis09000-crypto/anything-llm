@@ -544,6 +544,7 @@ services:
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/scheduler.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-scheduler
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
     networks: [anything-llm]
 
   anything-llm-operations-plane:
@@ -627,6 +628,7 @@ services:
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/chat-runtime.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-chat-runtime
       ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
+      ATHENA_API_INTERNAL_URL: https://anything-llm-api:3024
       ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
       ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034

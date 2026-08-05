@@ -490,10 +490,14 @@ export const workspaceNavigationStore = {
   updateThread(workspaceSlug, thread = null) {
     if (!workspaceSlug || !thread?.slug) return;
     const current = this.getThreads(workspaceSlug, { allowStale: true }) || [];
-    this.setThreads(workspaceSlug, [
-      ...current.filter((item) => item.slug !== thread.slug),
-      thread,
-    ]);
+    let found = false;
+    const next = current.map((item) => {
+      if (item.slug !== thread.slug) return item;
+      found = true;
+      return { ...item, ...thread };
+    });
+    if (!found) next.push(thread);
+    this.setThreads(workspaceSlug, next);
   },
 
   removeThread(workspaceSlug, threadSlug = null) {

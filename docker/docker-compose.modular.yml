@@ -193,6 +193,7 @@ services:
       ATHENA_RUNTIME_ROLE: scheduler
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
       SCHEDULER_PORT: 3014
     networks:
       - anything-llm
@@ -273,6 +274,7 @@ services:
       ATHENA_RUNTIME_ROLE: chat-runtime
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
+      ATHENA_API_INTERNAL_URL: https://anything-llm-api:3024
       CHAT_RUNTIME_PORT: 3016
       ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
       ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034

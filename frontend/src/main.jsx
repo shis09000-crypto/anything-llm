@@ -16,6 +16,7 @@ import {
   installFontDiagnostics,
   installFontPlatformScope,
 } from "@/utils/fontPlatform";
+import { recordClientUiObservation } from "@/lib/communication/clientUiObservability";
 
 const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
@@ -23,6 +24,17 @@ const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
 installEnvironmentStorageScope();
 installFontPlatformScope();
 installFontDiagnostics();
+window.__athenaUiLifecycle = window.__athenaUiLifecycle || {
+  documentLoads: 0,
+  reactRootMounts: 0,
+};
+window.__athenaUiLifecycle.documentLoads += 1;
+recordClientUiObservation({
+  event: "document_loaded",
+  surface: "application_shell",
+  outcome: "observed",
+  reason: "none",
+});
 
 const GeneralLLMPreference = React.lazy(
   () => import("@/pages/GeneralSettings/LLMPreference")
@@ -528,3 +540,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <RouterProvider router={router} />
   </REACTWRAP>
 );
+window.__athenaUiLifecycle.reactRootMounts += 1;
+recordClientUiObservation({
+  event: "react_root_mounted",
+  surface: "application_shell",
+  outcome: "observed",
+  reason: "none",
+});

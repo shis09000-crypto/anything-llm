@@ -302,6 +302,57 @@ class ResponsesRepository {
     return this.client.responses.findUnique({ where: { idempotencyKey } });
   }
 
+  async resolveExecutionMetadata(
+    references = [],
+    { ownerUserId = null, workspaceId = null, threadId = undefined } = {}
+  ) {
+    const refs = references.slice(0, 100).filter(Boolean);
+    if (refs.length === 0) return [];
+    const chatRunIds = refs.map((ref) => ref.chatRunId).filter(Boolean);
+    const agentRunIds = refs.map((ref) => ref.agentRunId).filter(Boolean);
+    if (chatRunIds.length === 0 && agentRunIds.length === 0) return [];
+    const conversations = await this.client.responses_conversations.findMany({
+      where: {
+        ...(ownerUserId !== null && ownerUserId !== undefined
+          ? { ownerUserId: Number(ownerUserId) }
+          : {}),
+        ...(workspaceId !== null && workspaceId !== undefined
+          ? { workspaceId: Number(workspaceId) }
+          : {}),
+        ...(threadId !== undefined
+          ? { threadId: threadId === null ? null : Number(threadId) }
+          : {}),
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    const conversationIds = conversations.map((row) => row.id);
+    if (conversationIds.length === 0) return [];
+    return await this.client.responses.findMany({
+      where: {
+        ...(ownerUserId !== null && ownerUserId !== undefined
+          ? { ownerUserId: Number(ownerUserId) }
+          : {}),
+        conversationId: { in: conversationIds },
+        OR: [
+          ...(chatRunIds.length ? [{ chatRunId: { in: chatRunIds } }] : []),
+          ...(agentRunIds.length ? [{ agentRunId: { in: agentRunIds } }] : []),
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        chatRunId: true,
+        agentRunId: true,
+        provider: true,
+        model: true,
+        requestedProtocol: true,
+        effectiveProtocol: true,
+        status: true,
+      },
+    });
+  }
+
   async findLatestResponseByAgentRunId(agentRunId) {
     if (!agentRunId) return null;
     return this.client.responses.findFirst({

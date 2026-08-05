@@ -1728,6 +1728,7 @@ const TRANSLATIONS = {
     metrics_visibility: {
       hover_only: "クリックするとモデル情報をホバー時のみ表示します",
       always_show: "クリックするとモデル情報を常に表示します",
+      unknown_model: "モデル不明",
     },
     fork: "フォーク",
     delete: "削除",

@@ -6,6 +6,7 @@ const {
   formatMessagesForTools,
 } = require("../agents/aibitat/providers/helpers/tooled");
 const { enabled, responseEvents, responsesTools } = require("./chatAdapter");
+const { FLASH_MODEL } = require("./contract");
 
 function agentEnabled({ provider, model, env = process.env } = {}) {
   return (
@@ -20,6 +21,7 @@ function metadata(handlerProps = {}) {
     workspaceId: invocation.workspace_id ?? invocation.workspace?.id ?? null,
     threadId: invocation.thread_id ?? null,
     userId: invocation.user_id ?? null,
+    chatRunId: invocation.clientTurnId || null,
     agentRunId: invocation.uuid || null,
     invocationId: invocation.uuid || null,
     clientTurnId: invocation.clientTurnId || null,
@@ -62,6 +64,13 @@ function responsesInput(messages = []) {
     input.push(message);
   }
   return input;
+}
+
+function completedResponseText(currentText, event = {}) {
+  const finalText = event?.response?.output_text;
+  return typeof finalText === "string" && finalText.length > 0
+    ? finalText
+    : currentText;
 }
 
 function createResponsesAgentProvider({
@@ -177,7 +186,24 @@ function createResponsesAgentProvider({
           event.type === "response.completed" ||
           event.type === "response.incomplete"
         ) {
-          usage = event.response?.usage || null;
+          // The terminal Response is the persisted provider result. Some
+          // compatible providers can coalesce or omit text delta events even
+          // though the completed response contains the full output. Always
+          // reconcile from that authoritative terminal value so the Agent
+          // result saved to chat history cannot become an empty reply after
+          // the optimistic stream disappears.
+          textResponse = completedResponseText(textResponse, event);
+          usage = {
+            ...(event.response?.usage || {}),
+            model: event.response?.model || FLASH_MODEL,
+            provider: "deepseek",
+            requested_protocol:
+              event.response?.athena?.requestedProtocol || "responses",
+            effective_protocol:
+              event.response?.athena?.effectiveProtocol || "responses",
+            response_id: event.response?.id || null,
+            execution_source: "responses_runtime",
+          };
           responseUuid = event.response?.id || responseUuid;
         }
       }
@@ -200,6 +226,7 @@ function createResponsesAgentProvider({
 
 module.exports = {
   agentEnabled,
+  completedResponseText,
   createResponsesAgentProvider,
   metadata,
   responsesInput,

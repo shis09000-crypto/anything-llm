@@ -170,8 +170,12 @@ function optimisticThreadFromLocationState(workspaceSlug, threadSlug, state) {
   return {
     id: `optimistic:${workspaceSlug}:${threadSlug}`,
     slug: threadSlug,
-    name: "New Thread",
+    name: "",
     title: "",
+    isUntitled: true,
+    titleSource: null,
+    titleGenerationStatus: "idle",
+    titleVersion: 0,
     thread_type: "chat",
     optimistic: true,
     createdAt: new Date().toISOString(),

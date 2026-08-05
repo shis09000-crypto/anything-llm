@@ -127,6 +127,8 @@ const internalRouteCapabilities = {
   "/internal/v1/responses/background/:responseId/execute":
     "responses.background.execute",
   "/internal/v1/responses/maintenance": "responses.maintenance",
+  "/internal/v1/responses/execution-metadata/resolve":
+    "responses.execution-metadata.resolve",
 };
 
 const host = new MicroModuleServiceHost({
@@ -142,6 +144,27 @@ const host = new MicroModuleServiceHost({
   onDrain: () => runtime.stop(),
   internalRouteCapabilities,
   registerRoutes: (app) => {
+    app.post(
+      "/internal/v1/responses/execution-metadata/resolve",
+      asyncRoute(async (request, response) => {
+        const references = Array.isArray(request.body?.references)
+          ? request.body.references.slice(0, 100)
+          : [];
+        response.json({
+          success: true,
+          items: await runtime.repository.resolveExecutionMetadata(references, {
+            ownerUserId: request.body?.ownerUserId ?? null,
+            workspaceId: request.body?.workspaceId ?? null,
+            threadId: Object.prototype.hasOwnProperty.call(
+              request.body || {},
+              "threadId"
+            )
+              ? request.body.threadId
+              : undefined,
+          }),
+        });
+      })
+    );
     app.get("/internal/v1/responses/capabilities", (_request, response) => {
       response.json({
         success: true,

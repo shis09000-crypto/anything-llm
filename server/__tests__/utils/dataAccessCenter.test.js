@@ -93,6 +93,9 @@ describe("DataAccessCenter", () => {
     expect(typeof DataAccessCenter.runtimeLifecycle.databaseReadiness).toBe(
       "function"
     );
+    expect(typeof DataAccessCenter.workspaceThread.claimAutomaticTitle).toBe(
+      "function"
+    );
     expect(DataAccessCenter.domains).toContain("crypto");
     expect(DataAccessCenter.domains).toContain("sensitiveData");
     expect(DataAccessCenter.domains).toContain("vault");

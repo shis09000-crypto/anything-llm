@@ -38,10 +38,19 @@ function getAutoShowMetrics() {
  * @param {metrics: {duration:number, outputTps: number, model?: string, timestamp?: number}} metrics
  * @returns {string}
  */
-function buildMetricsString(metrics = {}) {
+function buildMetricsString(
+  metrics = {},
+  execution = {},
+  unknownModelLabel = ""
+) {
+  const model = execution?.model || metrics?.model || unknownModelLabel;
+  const performance =
+    metrics?.duration && metrics?.outputTps
+      ? `${formatDuration(metrics.duration)} (${formatTps(metrics.outputTps)} tok/s)`
+      : "";
   return [
-    metrics?.model ? metrics.model : "",
-    `${formatDuration(metrics.duration)} (${formatTps(metrics.outputTps)} tok/s)`,
+    model,
+    performance,
     metrics?.timestamp
       ? formatDateTimeAsMoment(metrics.timestamp, "MMM D, HH:mm")
       : "",
@@ -100,12 +109,18 @@ export function MetricsProvider({ children }) {
  * @param {metrics: {duration:number, outputTps: number, model: string, timestamp: number}} props
  * @returns
  */
-export default function RenderMetrics({ metrics = {} }) {
+export default function RenderMetrics({ metrics = {}, execution = null }) {
   const { t } = useTranslation();
   // Inherit the showMetricsAutomatically state from the MetricsProvider so the state is shared across all chats
   const { showMetricsAutomatically, setShowMetricsAutomatically } =
     useContext(MetricsContext);
-  if (!metrics?.duration || !metrics?.outputTps || mobileShellRuntimeActive())
+  const hasKnownModel = Boolean(execution?.model || metrics?.model);
+  const hasExecutionEvidence = Boolean(execution);
+  const hasPerformance = Boolean(metrics?.duration && metrics?.outputTps);
+  if (
+    (!hasKnownModel && !hasExecutionEvidence && !hasPerformance) ||
+    mobileShellRuntimeActive()
+  )
     return null;
 
   return (
@@ -121,7 +136,11 @@ export default function RenderMetrics({ metrics = {} }) {
       className={`border-none flex md:justify-end items-center gap-x-[8px] -ml-7 ${showMetricsAutomatically ? "opacity-100" : "opacity-0"} md:group-hover:opacity-100 motion-hover`}
     >
       <p className="cursor-pointer text-xs font-mono text-zinc-400 light:text-slate-500">
-        {buildMetricsString(metrics)}
+        {buildMetricsString(
+          metrics,
+          execution,
+          t("chat_window.metrics_visibility.unknown_model")
+        )}
       </p>
     </button>
   );

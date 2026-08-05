@@ -2207,6 +2207,7 @@ const readable = true;
     metrics_visibility: {
       hover_only: "Click to show model info only when hovering",
       always_show: "Click to always show model info",
+      unknown_model: "Unknown model",
     },
     sources: "Sources",
     source_count_one: "{{count}} reference",

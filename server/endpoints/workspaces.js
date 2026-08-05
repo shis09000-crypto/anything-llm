@@ -24,7 +24,9 @@ const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
-const { convertToChatHistory } = require("../utils/helpers/chat/responses");
+const {
+  convertToChatHistoryWithExecution,
+} = require("../utils/helpers/chat/responses");
 const { CollectorApi } = require("../utils/collectorApi");
 const {
   determineWorkspacePfpFilepath,
@@ -1388,7 +1390,12 @@ function workspaceEndpoints(app) {
             (await historyPageMeta(baseClause, orderedHistory, historyOptions))
           : null;
         response.status(200).json({
-          history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          history: await convertToChatHistoryWithExecution(orderedHistory, {
+            lightChatIds,
+            userId: response.locals.user?.id || null,
+            workspaceId: workspace.id,
+            threadId: null,
+          }),
           ...(page
             ? { page: { ...page, lightChatIds: [...lightChatIds] } }
             : {}),
@@ -1459,7 +1466,12 @@ function workspaceEndpoints(app) {
             chatModel: workspace.chatModel,
           },
           thread: null,
-          history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          history: await convertToChatHistoryWithExecution(orderedHistory, {
+            lightChatIds,
+            userId: response.locals.user?.id || null,
+            workspaceId: workspace.id,
+            threadId: null,
+          }),
           page: { ...page, lightChatIds: [...lightChatIds] },
         });
       } catch (e) {
@@ -1519,7 +1531,11 @@ function workspaceEndpoints(app) {
           }
         );
         response.status(200).json({
-          history: convertToChatHistory(history),
+          history: await convertToChatHistoryWithExecution(history, {
+            userId: response.locals.user?.id || null,
+            workspaceId: workspace.id,
+            threadId: null,
+          }),
           hydratedChatIds: history.map((chat) => chat.id),
           hydratedPublicChatIds: history
             .map((chat) => chat.public_id)
