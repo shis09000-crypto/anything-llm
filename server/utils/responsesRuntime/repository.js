@@ -439,8 +439,17 @@ class ResponsesRepository {
     const payloadHash = sha256(payload);
     const payloadCiphertext = await protect(payload, id, this.env);
     this.observeCiphertext(payloadCiphertext, "wrap");
-    return this.client.response_items.create({
-      data: {
+    return this.client.response_items.upsert({
+      where: { responseId_sequence: { responseId, sequence } },
+      update: {
+        itemType,
+        role,
+        callId,
+        status,
+        payloadCiphertext,
+        payloadHash,
+      },
+      create: {
         id,
         responseId,
         sequence,
@@ -459,8 +468,14 @@ class ResponsesRepository {
     const payloadHash = sha256(payload);
     const payloadCiphertext = await protect(payload, resource, this.env);
     this.observeCiphertext(payloadCiphertext, "wrap");
-    return this.client.response_events.create({
-      data: {
+    return this.client.response_events.upsert({
+      where: { responseId_sequence: { responseId, sequence } },
+      update: {
+        eventType,
+        payloadCiphertext,
+        payloadHash,
+      },
+      create: {
         responseId,
         sequence,
         eventType,

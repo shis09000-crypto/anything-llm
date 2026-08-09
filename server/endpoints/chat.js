@@ -269,6 +269,7 @@ async function executeDetachedChatRun({
   attachments = [],
   fileAccess = {},
   nodeContext = null,
+  timeZone = null,
   clientTurnId,
   editContext = null,
   regenerateContext = null,
@@ -335,6 +336,7 @@ async function executeDetachedChatRun({
       {
         fileAccess,
         nodeContext,
+        timeZone,
         clientTurnId,
         displayPrompt,
         syncEvent: {
@@ -620,6 +622,7 @@ function chatEndpoints(app) {
           attachments = [],
           fileAccess = {},
           nodeContext = null,
+          timeZone = null,
           clientTurnId = null,
           editContext: rawEditContext = null,
           regenerateContext: rawRegenerateContext = null,
@@ -681,22 +684,26 @@ function chatEndpoints(app) {
           );
           return;
         }
-        const runtime = chatStreamRunManager.start(run, (streamResponse) =>
-          executeDetachedChatRun({
-            response: streamResponse,
-            workspace,
-            user,
-            clientContext,
-            message,
-            displayPrompt,
-            attachments,
-            fileAccess,
-            nodeContext,
-            clientTurnId: resolvedClientTurnId,
-            editContext,
-            regenerateContext,
-            isMultiUser: multiUserMode(response),
-          })
+        const runtime = chatStreamRunManager.start(
+          run,
+          (streamResponse) =>
+            executeDetachedChatRun({
+              response: streamResponse,
+              workspace,
+              user,
+              clientContext,
+              message,
+              displayPrompt,
+              attachments,
+              fileAccess,
+              nodeContext,
+              timeZone,
+              clientTurnId: resolvedClientTurnId,
+              editContext,
+              regenerateContext,
+              isMultiUser: multiUserMode(response),
+            }),
+          { volatileForeground: true }
         );
         runtime.sink.__athenaGoldenJourney =
           response.__athenaGoldenJourney || null;
@@ -767,6 +774,7 @@ function chatEndpoints(app) {
           attachments = [],
           fileAccess = {},
           nodeContext = null,
+          timeZone = null,
           clientTurnId = null,
           editContext: rawEditContext = null,
           regenerateContext: rawRegenerateContext = null,
@@ -834,24 +842,28 @@ function chatEndpoints(app) {
           );
           return;
         }
-        const runtime = chatStreamRunManager.start(run, (streamResponse) =>
-          executeDetachedChatRun({
-            response: streamResponse,
-            workspace,
-            effectiveWorkspace,
-            thread,
-            user,
-            clientContext,
-            message,
-            displayPrompt,
-            attachments,
-            fileAccess,
-            nodeContext,
-            clientTurnId: resolvedClientTurnId,
-            editContext,
-            regenerateContext,
-            isMultiUser: multiUserMode(response),
-          })
+        const runtime = chatStreamRunManager.start(
+          run,
+          (streamResponse) =>
+            executeDetachedChatRun({
+              response: streamResponse,
+              workspace,
+              effectiveWorkspace,
+              thread,
+              user,
+              clientContext,
+              message,
+              displayPrompt,
+              attachments,
+              fileAccess,
+              nodeContext,
+              timeZone,
+              clientTurnId: resolvedClientTurnId,
+              editContext,
+              regenerateContext,
+              isMultiUser: multiUserMode(response),
+            }),
+          { volatileForeground: true }
         );
         runtime.sink.__athenaGoldenJourney =
           response.__athenaGoldenJourney || null;

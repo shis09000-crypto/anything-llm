@@ -45,6 +45,7 @@ function requestBody(messages, options = {}, metadata = {}) {
     input: messages,
     store: true,
     background: false,
+    persistence_mode: "foreground_deferred",
     tools: responsesTools(options.tools || []),
     tool_choice: options.toolChoice || null,
     reasoning: thinkingEnabled

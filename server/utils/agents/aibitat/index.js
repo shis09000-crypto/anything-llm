@@ -204,11 +204,11 @@ class AIbitat {
 
   /**
    * Register a new chat ID for tracking for a given conversation exchange
-   * @param {number} chatId - The ID of the chat to register.
+   * @param {number|string} chatId - The durable chat ID or hot reservation ID.
    */
   registerChatId(chatId = null, publicChatId = null) {
     if (!chatId) return;
-    this._trackedChatId = Number(chatId);
+    this._trackedChatId = chatId;
     this._trackedPublicChatId = publicChatId || this._trackedPublicChatId;
   }
 
@@ -238,7 +238,7 @@ class AIbitat {
    * @param {string} [uuid] - The message UUID to associate with this chatId
    */
   emitChatId(uuid = null) {
-    if (!this.trackedChatId || !uuid) return null;
+    if (!Number.isSafeInteger(Number(this.trackedChatId)) || !uuid) return null;
     this.socket?.send?.("reportStreamEvent", {
       type: "chatId",
       uuid,

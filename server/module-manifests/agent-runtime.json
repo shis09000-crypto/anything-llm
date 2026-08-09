@@ -54,6 +54,7 @@
       "key-custody.unwrap",
       "model.stream",
       "responses.create",
+      "responses.retrieve",
       "responses.stream",
       "responses.agent-run.status",
       "sync.events.append",
@@ -413,6 +414,17 @@
         ],
         "timeoutMs": 300000,
         "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "responses.retrieve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/responses.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/responses.retrieve/response/1.0",
+        "errorCodes": ["caller_denied", "response_not_found"],
+        "timeoutMs": 10000,
+        "idempotency": "none",
         "dataClassification": "restricted"
       },
       {

@@ -241,10 +241,14 @@ const chatHistory = {
           ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
           ...(agentEvents.length > 0 ? { agentEvents } : {}),
         };
-        await this._persistFinal(aibitat, { prompt, response: storedResponse });
+        const persistence = this._persistFinal(aibitat, {
+          prompt,
+          response: storedResponse,
+        });
         this._cleanup(aibitat);
         aibitat._terminalTurnPending = false;
         aibitat.terminate?.();
+        await persistence;
       },
       _storeSpecial: async function (
         aibitat,
@@ -288,11 +292,15 @@ const chatHistory = {
           ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
           ...(agentEvents.length > 0 ? { agentEvents } : {}),
         };
-        await this._persistFinal(aibitat, { prompt, response: storedResponse });
-        options?.postSave();
+        const persistence = this._persistFinal(aibitat, {
+          prompt,
+          response: storedResponse,
+        });
         this._cleanup(aibitat);
         aibitat._terminalTurnPending = false;
         aibitat.terminate?.();
+        await persistence;
+        options?.postSave();
       },
 
       _persistFinal: async function (aibitat, { prompt, response } = {}) {
@@ -307,8 +315,9 @@ const chatHistory = {
           throw new Error("agent_chat_reservation_missing");
 
         if (remoteAgentChatPersistenceEnabled()) {
-          await finalizeAgentChatTurn({
+          const persisted = await finalizeAgentChatTurn({
             chatId: aibitat.trackedChatId,
+            reservationId: aibitat.trackedChatId,
             publicChatId: aibitat.trackedPublicChatId || null,
             workspaceId: Number(invocation.workspace_id),
             prompt,
@@ -318,6 +327,9 @@ const chatHistory = {
             clientTurnId: invocation?.clientTurnId || null,
             renameThread: !aibitat._threadRenamed,
           });
+          const savedChat = persisted?.chat || null;
+          if (savedChat?.id)
+            aibitat.registerChatId(savedChat.id, savedChat.publicId || null);
           aibitat._threadRenamed = true;
           return;
         }

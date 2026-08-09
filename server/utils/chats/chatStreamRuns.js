@@ -94,9 +94,13 @@ class DetachedChatResponse extends EventEmitter {
 }
 
 class ChatStreamRuntime {
-  constructor(run, { ownerId = run.ownerId || null } = {}) {
+  constructor(
+    run,
+    { ownerId = run.ownerId || null, volatileForeground = false } = {}
+  ) {
     this.run = run;
     this.ownerId = ownerId;
+    this.volatileForeground = volatileForeground === true;
     this.revision = Number(run.revision || 0);
     this.partialResponse = String(run.partialResponse || "");
     this.lastCheckpointLength = this.partialResponse.length;
@@ -106,6 +110,7 @@ class ChatStreamRuntime {
     this.errorCode = run.errorCode || null;
     this.cancelRequested = false;
     this.terminalEventType = null;
+    this.visibleTerminalPayload = null;
     this.subscribers = new Map();
     this.checkpointTimer = null;
     this.checkpointChain = Promise.resolve();
@@ -147,6 +152,11 @@ class ChatStreamRuntime {
       this.finalPublicChatId = payload.publicChatId || this.finalPublicChatId;
       this.terminalEventType = payload.type;
     }
+    if (payload.type === "chatPersistence" && payload.status === "saved") {
+      this.finalChatId = payload.chatId || this.finalChatId;
+      this.finalPublicChatId = payload.publicChatId || this.finalPublicChatId;
+      this.terminalEventType = payload.type;
+    }
     if (payload.type === "abort") {
       this.errorCode =
         payload.errorCode || payload.code || "chat_stream_aborted";
@@ -161,13 +171,17 @@ class ChatStreamRuntime {
       clientTurnId: payload.clientTurnId || this.run.clientTurnId,
       runRevision: this.revision,
     };
-    this.eventBuffer.push({
-      sequence: this.revision,
-      payload: event,
-    });
+    if (["finalizeResponseStream", "chatPersistence"].includes(payload.type))
+      this.visibleTerminalPayload = event;
     this.broadcast(event);
-    this.scheduleEventFlush();
-    this.scheduleCheckpoint();
+    if (!this.volatileForeground) {
+      this.eventBuffer.push({
+        sequence: this.revision,
+        payload: event,
+      });
+      this.scheduleEventFlush();
+      this.scheduleCheckpoint();
+    }
   }
 
   scheduleEventFlush() {
@@ -305,6 +319,16 @@ class ChatStreamRuntime {
       response.end();
       return Promise.resolve();
     }
+    if (this.visibleTerminalPayload) {
+      writeResponseChunk(response, {
+        ...this.visibleTerminalPayload,
+        replayed: true,
+      });
+      if (this.visibleTerminalPayload.close) {
+        response.end();
+        return Promise.resolve();
+      }
+    }
 
     return new Promise((resolve) => {
       const onClose = () => this.detach(response);
@@ -368,10 +392,12 @@ class ChatStreamRuntime {
     this.status = status;
     this.errorCode = errorCode;
     this.stopHeartbeat();
-    await this.flushEvents();
-    await this.eventChain;
-    await this.flushCheckpoint();
-    await this.checkpointChain;
+    if (!this.volatileForeground) {
+      await this.flushEvents();
+      await this.eventChain;
+      await this.flushCheckpoint();
+      await this.checkpointChain;
+    }
     await DataAccessCenter.chatStreamRun.settle({
       ...this.scope(),
       status,
@@ -462,10 +488,13 @@ class ChatStreamRunManager {
     };
   }
 
-  start(run, execute) {
+  start(run, execute, { volatileForeground = false } = {}) {
     const existing = this.runtime(run.clientTurnId);
     if (existing) return existing;
-    const runtime = new ChatStreamRuntime(run, { ownerId: this.ownerId });
+    const runtime = new ChatStreamRuntime(run, {
+      ownerId: this.ownerId,
+      volatileForeground,
+    });
     this.runtimes.set(run.clientTurnId, runtime);
     runtime.startHeartbeat();
     emitRunEvent(run, "chat.run.started", "started", { status: "running" });

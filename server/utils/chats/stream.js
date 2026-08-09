@@ -49,6 +49,11 @@ const { requestChatToolApproval } = require("./toolApproval");
 const { promptForHistory } = require("./displayPrompt");
 const { hydrateIncomingAttachments } = require("../contentObjects/chatPayload");
 const { beginModelExecution } = require("../aiGovernance");
+const {
+  finalizedTurnPersister,
+  hotTurnBuffer,
+  scopeKey: hotTurnScopeKey,
+} = require("./hotTurnBuffer");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -170,6 +175,7 @@ async function streamChatWithWorkspace(
 ) {
   enrichOperationContext({
     clientTurnId: options.clientTurnId || null,
+    timeZone: options.timeZone || null,
     workspaceId: workspace?.id || null,
     threadId: thread?.id || null,
     journey: "chat",
@@ -365,6 +371,24 @@ async function streamChatWithWorkspace(
     chatHistory = history.chatHistory || [];
     compaction = history.compaction || null;
     historyWindow = history.historyWindow || null;
+
+    const persistedTurnIds = rawHistory
+      .map((entry) => entry?.clientTurnId)
+      .filter(Boolean);
+    const hotTurns = hotTurnBuffer.pendingForScope(
+      {
+        workspaceId: workspace.id,
+        threadId: thread?.id || null,
+        userId: user?.id || null,
+      },
+      { persistedClientTurnIds: persistedTurnIds }
+    );
+    for (const hotTurn of hotTurns) {
+      chatHistory.push(
+        { role: "user", content: hotTurn.prompt },
+        { role: "assistant", content: hotTurn.response }
+      );
+    }
   } catch (error) {
     logRecoverableChatError("recent_chat_history", error, {
       workspaceSlug: workspace.slug,
@@ -598,7 +622,9 @@ async function streamChatWithWorkspace(
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: appendCurrentDateTimeToPrompt(updatedMessage),
+      userPrompt: appendCurrentDateTimeToPrompt(updatedMessage, {
+        timeZone: options.timeZone,
+      }),
       contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
@@ -661,7 +687,7 @@ async function streamChatWithWorkspace(
         sources,
         type: "textResponseChunk",
         textResponse: completeText,
-        close: true,
+        close: false,
         error: false,
         metrics,
       });
@@ -724,46 +750,211 @@ async function streamChatWithWorkspace(
     await modelExecution.fail(error);
     throw error;
   }
-  await modelExecution.settle(metrics, {
-    transport: "web-stream",
-    chatMode,
-  });
+  const settleModelExecution = () =>
+    modelExecution
+      .settle(metrics, {
+        transport: "web-stream",
+        chatMode,
+      })
+      .catch((error) =>
+        logRecoverableChatError("model_execution_settle", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        })
+      );
 
   if (completeText?.length > 0) {
-    const { chat } = await WorkspaceChats.new({
+    const clientTurnId = String(options.clientTurnId || "").trim() || null;
+    const responsePayload = {
+      text: completeText,
+      sources,
+      type: chatMode,
+      attachments: historyAttachments,
+      metrics,
+      execution: require("./executionMetadata").executionMetadata({
+        metrics,
+        ...lockedExecution,
+      }),
+      ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
+    };
+    const persistenceInput = {
       workspaceId: workspace.id,
       prompt: displayMessage,
-      response: {
-        text: completeText,
-        sources,
-        type: chatMode,
-        attachments: historyAttachments,
-        metrics,
-        execution: require("./executionMetadata").executionMetadata({
-          metrics,
-          ...lockedExecution,
-        }),
-        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
-      },
+      response: responsePayload,
       threadId: thread?.id || null,
       user,
-      clientTurnId: options.clientTurnId || null,
-    }).catch((error) => {
-      logRecoverableChatError("chat_history_save", error, {
-        workspaceSlug: workspace.slug,
-        threadId: thread?.id || null,
-      });
-      return { chat: null };
+      clientTurnId,
+    };
+    const hotStage = hotTurnBuffer.stage({
+      workspaceId: workspace.id,
+      threadId: thread?.id || null,
+      userId: user?.id || null,
+      clientTurnId,
+      prompt: displayMessage,
+      response: completeText,
+      metadata: { chatMode },
     });
+
+    if (hotStage.accepted) {
+      writeResponseChunk(response, {
+        uuid,
+        type: "finalizeResponseStream",
+        close: false,
+        error: false,
+        clientTurnId,
+        persistenceStatus: "pending",
+        metrics,
+      });
+
+      const persistenceKey = hotTurnScopeKey({
+        workspaceId: workspace.id,
+        threadId: thread?.id || null,
+        userId: user?.id || null,
+      });
+      const persist = async () => {
+        hotTurnBuffer.updateStatus(clientTurnId, "persisting");
+        let lastError = null;
+        for (const delayMs of [0, 250, 1_000, 4_000]) {
+          if (delayMs)
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          try {
+            const result = await WorkspaceChats.new(persistenceInput);
+            if (!result?.chat) throw new Error("chat_history_save_empty");
+            return result.chat;
+          } catch (error) {
+            lastError = error;
+            hotTurnBuffer.updateStatus(clientTurnId, "retrying");
+            logRecoverableChatError("chat_history_save_retry", error, {
+              workspaceSlug: workspace.slug,
+              threadId: thread?.id || null,
+            });
+          }
+        }
+        throw lastError || new Error("chat_history_save_failed");
+      };
+
+      try {
+        const chat = await finalizedTurnPersister.enqueue(
+          persistenceKey,
+          persist
+        );
+        hotTurnBuffer.delete(clientTurnId);
+        void settleModelExecution();
+        if (syncEvent) {
+          publishWorkspaceSyncEvent({
+            ...syncEvent,
+            type: "chat_finalized",
+            chatId: chat.id,
+            publicChatId: chat.public_id || null,
+            clientTurnId,
+          });
+        }
+        writeResponseChunk(response, {
+          uuid,
+          type: "chatPersistence",
+          close: true,
+          clientTurnId,
+          status: "saved",
+          chatId: chat.id,
+          publicChatId: chat.public_id || null,
+          metrics,
+        });
+        maybeAutoCompact({
+          workspace,
+          user,
+          thread,
+          llm: LLMConnector,
+          systemPrompt,
+          chatHistory: [
+            ...chatHistory,
+            { role: "user", content: updatedMessage },
+            { role: "assistant", content: completeText },
+          ],
+          userPrompt: "",
+          contextTexts,
+          attachments: llmAttachments,
+          compaction,
+          historyPressureLimit: historyWindow?.historyPressureLimit || null,
+          phase: "turn_end",
+        }).catch((error) =>
+          console.warn(
+            "[ThreadCompaction] turn-end auto compact failed",
+            error.message
+          )
+        );
+      } catch (error) {
+        hotTurnBuffer.updateStatus(clientTurnId, "failed");
+        void settleModelExecution();
+        writeResponseChunk(response, {
+          uuid,
+          type: "chatPersistence",
+          close: true,
+          clientTurnId,
+          status: "failed",
+          errorCode: "chat_persistence_failed",
+          metrics,
+        });
+        void (async () => {
+          for (const delayMs of [15_000, 30_000, 60_000, 120_000, 240_000]) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            if (!hotTurnBuffer.entries.has(clientTurnId)) return;
+            try {
+              const chat = await finalizedTurnPersister.enqueue(
+                persistenceKey,
+                async () => {
+                  const result = await WorkspaceChats.new(persistenceInput);
+                  if (!result?.chat) throw new Error("chat_history_save_empty");
+                  return result.chat;
+                }
+              );
+              hotTurnBuffer.delete(clientTurnId);
+              if (syncEvent) {
+                publishWorkspaceSyncEvent({
+                  ...syncEvent,
+                  type: "chat_finalized",
+                  chatId: chat.id,
+                  publicChatId: chat.public_id || null,
+                  clientTurnId,
+                });
+              }
+              return;
+            } catch (retryError) {
+              hotTurnBuffer.updateStatus(clientTurnId, "retrying");
+              logRecoverableChatError(
+                "chat_history_background_retry",
+                retryError,
+                {
+                  workspaceSlug: workspace.slug,
+                  threadId: thread?.id || null,
+                }
+              );
+            }
+          }
+        })();
+      }
+      return;
+    }
+
+    await settleModelExecution();
+    const { chat } = await WorkspaceChats.new(persistenceInput).catch(
+      (error) => {
+        logRecoverableChatError("chat_history_save", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        });
+        return { chat: null };
+      }
+    );
     if (syncEvent) {
       publishWorkspaceSyncEvent({
         ...syncEvent,
         type: "chat_finalized",
         chatId: chat?.id || null,
         publicChatId: chat?.public_id || null,
-        clientTurnId: options.clientTurnId || null,
+        clientTurnId,
       });
     }
+
     maybeAutoCompact({
       workspace,
       user,
@@ -795,11 +986,13 @@ async function streamChatWithWorkspace(
       error: false,
       chatId: chat?.id || null,
       publicChatId: chat?.public_id || null,
-      clientTurnId: options.clientTurnId || null,
+      clientTurnId,
       metrics,
     });
     return;
   }
+
+  await settleModelExecution();
 
   writeResponseChunk(response, {
     uuid,

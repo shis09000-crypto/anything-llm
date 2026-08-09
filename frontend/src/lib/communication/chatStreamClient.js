@@ -25,6 +25,12 @@ function chatStreamBody({
   editContext = null,
   regenerateContext = null,
 }) {
+  let timeZone = null;
+  try {
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    timeZone = null;
+  }
   return {
     message,
     displayPrompt,
@@ -32,6 +38,7 @@ function chatStreamBody({
     fileAccess: { mode: fileAccessMode },
     nodeContext,
     clientTurnId,
+    ...(timeZone ? { timeZone } : {}),
     ...(editContext ? { editContext } : {}),
     ...(regenerateContext ? { regenerateContext } : {}),
   };

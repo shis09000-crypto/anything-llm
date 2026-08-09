@@ -247,6 +247,16 @@ function AssistantTurn({
                 正在重连…
               </p>
             )}
+            {!isRunning && turn.persistenceStatus === "pending" && (
+              <p className="mt-2 text-xs text-theme-text-secondary">
+                正在安全保存…
+              </p>
+            )}
+            {!isRunning && turn.persistenceStatus === "failed" && (
+              <p className="mt-2 text-xs text-amber-600">
+                回复已保留，安全保存将在后台重试。
+              </p>
+            )}
             {turn.truncated && fullContent === null && (
               <button
                 type="button"

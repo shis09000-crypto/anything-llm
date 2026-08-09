@@ -28,6 +28,13 @@ const {
 } = require("./utils/microModules");
 const { chatStreamRunManager } = require("./utils/chats/chatStreamRuns");
 const {
+  finalizedTurnPersister,
+  hotTurnBuffer,
+} = require("./utils/chats/hotTurnBuffer");
+const {
+  configuredPromptTimeZone,
+} = require("./utils/chats/currentDateTimeContext");
+const {
   publicReadiness: threadMemoryReadiness,
   registerThreadMemoryRoutes,
   threadMemoryKeyCustodySelfTest,
@@ -58,13 +65,19 @@ const host = new MicroModuleServiceHost({
       ...streams,
       ready: streams.ready !== false && threadMemory.ready === true,
       threadMemory,
+      hotTurns: hotTurnBuffer.snapshot(),
+      finalizedTurns: finalizedTurnPersister.snapshot(),
+      promptTimeZone: configuredPromptTimeZone(),
     };
   },
   onStart: () => secureDatabaseStart(role, threadMemoryKeyCustodySelfTest),
-  onDrain: () =>
-    chatStreamRunManager.drain({
-      timeoutMs: drainTimeoutMs,
-    }),
+  onDrain: async () => {
+    await chatStreamRunManager.drain({ timeoutMs: drainTimeoutMs });
+    await Promise.race([
+      finalizedTurnPersister.drain(),
+      new Promise((resolve) => setTimeout(resolve, 30_000)),
+    ]);
+  },
   registerRoutes: (app) => {
     registerCompatibleApi(app, chatEndpoints);
     registerThreadMemoryRoutes(app);

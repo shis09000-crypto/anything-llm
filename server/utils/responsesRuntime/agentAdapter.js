@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const { safeJsonParse } = require("../http");
-const { requestInternalStream } = require("../microModules");
+const {
+  requestInternalService,
+  requestInternalStream,
+} = require("../microModules");
 const {
   formatFunctionsToTools,
   formatMessagesForTools,
@@ -66,6 +69,43 @@ function responsesInput(messages = []) {
   return input;
 }
 
+async function waitForDurableToolCheckpoint({
+  baseUrl,
+  responseId,
+  athena,
+  env,
+}) {
+  const query = new URLSearchParams(
+    Object.entries({
+      workspaceId: athena.workspaceId,
+      threadId: athena.threadId,
+      userId: athena.userId,
+      chatRunId: athena.chatRunId,
+      agentRunId: athena.agentRunId,
+    })
+      .filter(([, value]) => value !== null && value !== undefined)
+      .map(([key, value]) => [key, String(value)])
+  );
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const result = await requestInternalService({
+      callerRole: "agent-runtime",
+      targetModule: "responses-runtime",
+      capability: "responses.retrieve",
+      contractVersion: "1.0",
+      url: `${baseUrl}/internal/v1/responses/${responseId}?${query}`,
+      method: "GET",
+      env,
+      timeoutMs: 5_000,
+    });
+    if (result?.response?.athena?.persistenceStatus !== "pending") return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const error = new Error("response_tool_checkpoint_unavailable");
+  error.code = "RESPONSE_TOOL_CHECKPOINT_UNAVAILABLE";
+  throw error;
+}
+
 function createResponsesAgentProvider({
   provider,
   model,
@@ -101,12 +141,14 @@ function createResponsesAgentProvider({
       eventHandler = null,
       options = null
     ) {
+      const athena = metadata(this.handlerProps);
       const body = {
         provider,
         model,
         input: responsesInput(messages),
         store: true,
         background: false,
+        persistence_mode: "foreground_deferred",
         tools: responsesTools(formatFunctionsToTools(functions)),
         tool_choice: functions.length ? "auto" : null,
         reasoning: {
@@ -118,7 +160,7 @@ function createResponsesAgentProvider({
         ...(options?.maxTokens != null
           ? { max_output_tokens: options.maxTokens }
           : {}),
-        athena: metadata(this.handlerProps),
+        athena,
       };
       const response = await requestInternalStream({
         callerRole: "agent-runtime",
@@ -192,6 +234,14 @@ function createResponsesAgentProvider({
           };
           responseUuid = event.response?.id || responseUuid;
         }
+      }
+      if (call.name && responseUuid) {
+        await waitForDurableToolCheckpoint({
+          baseUrl,
+          responseId: responseUuid,
+          athena,
+          env,
+        });
       }
       this.lastUsage = usage || {};
       return {

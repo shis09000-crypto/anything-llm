@@ -272,6 +272,7 @@ services:
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: chat-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
       ATHENA_API_INTERNAL_URL: https://anything-llm-api:3024
@@ -306,6 +307,7 @@ services:
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: agent-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
       ATHENA_BROWSER_AGENT_ENABLED: "false"

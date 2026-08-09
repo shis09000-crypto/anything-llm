@@ -160,6 +160,73 @@ describe("durable chat stream runs", () => {
     expect(runtime.cancel()).toBe(false);
   });
 
+  test("keeps foreground response text volatile until the terminal settle", async () => {
+    const runtime = new ChatStreamRuntime(run(), {
+      volatileForeground: true,
+    });
+    runtime.acceptPayload({
+      type: "textResponseChunk",
+      textResponse: "private active answer",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    expect(mockAppendEvents).not.toHaveBeenCalled();
+    expect(mockCheckpoint).not.toHaveBeenCalled();
+
+    runtime.acceptPayload({
+      type: "finalizeResponseStream",
+      close: false,
+      persistenceStatus: "pending",
+    });
+    runtime.acceptPayload({
+      type: "chatPersistence",
+      status: "saved",
+      close: true,
+      chatId: 44,
+      publicChatId: "public-44",
+    });
+    await runtime.settle("completed");
+
+    expect(mockSettle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        finalChatId: 44,
+        finalPublicChatId: "public-44",
+        partialResponse: "private active answer",
+      })
+    );
+  });
+
+  test("replays the pending visible terminal without reviving the spinner", () => {
+    const runtime = new ChatStreamRuntime(run(), {
+      volatileForeground: true,
+    });
+    runtime.acceptPayload({
+      type: "textResponseChunk",
+      textResponse: "finished answer",
+    });
+    runtime.acceptPayload({
+      type: "finalizeResponseStream",
+      close: false,
+      persistenceStatus: "pending",
+    });
+    const response = new TestResponse();
+    void runtime.attach(response, 0);
+
+    expect(response.payloads()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "fullTextResponse",
+          textResponse: "finished answer",
+        }),
+        expect.objectContaining({
+          type: "finalizeResponseStream",
+          persistenceStatus: "pending",
+          replayed: true,
+        }),
+      ])
+    );
+  });
+
   test("manager delegates duplicate claims to the persistent idempotency boundary", async () => {
     const manager = new ChatStreamRunManager();
     const scope = {

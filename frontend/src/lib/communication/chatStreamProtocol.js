@@ -94,6 +94,16 @@ export function normalizeChatStreamEvent(raw = {}) {
       chatId: raw.chatId ?? null,
       publicChatId: raw.publicChatId ?? null,
       metrics: raw.metrics || {},
+      persistenceStatus: raw.persistenceStatus || null,
+    });
+  }
+
+  if (rawType === "chatPersistence") {
+    return streamEvent("persistence", raw, {
+      status: raw.status || "pending",
+      chatId: raw.chatId ?? null,
+      publicChatId: raw.publicChatId ?? null,
+      errorCode: raw.errorCode || null,
     });
   }
 
@@ -316,6 +326,19 @@ export function normalizeChatTurnEvent(raw = {}) {
       chatId,
       publicChatId,
       metrics,
+      persistenceStatus: raw.persistenceStatus || null,
+      closed: !!close,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "chatPersistence") {
+    normalized = {
+      type: "assistant_patch",
+      patch: {
+        persistenceStatus: raw.status || "pending",
+        chatId: raw.chatId ?? null,
+        publicChatId: raw.publicChatId ?? null,
+        persistenceErrorCode: raw.errorCode || null,
+      },
       closed: !!close,
       protocolEvent: normalizedStreamEvent,
     };

@@ -622,6 +622,7 @@ services:
     environment:
       <<: *authoritative-runtime
       ATHENA_RUNTIME_ROLE: chat-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_SERVICE_ID: spiffe://athena/preproduction/chat-runtime
       ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/chat-runtime.pem
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/chat-runtime.key
@@ -653,6 +654,7 @@ services:
     environment:
       <<: *authoritative-runtime
       ATHENA_RUNTIME_ROLE: agent-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_SERVICE_ID: spiffe://athena/preproduction/agent-runtime
       ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/agent-runtime.pem
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/agent-runtime.key

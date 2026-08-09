@@ -44,25 +44,45 @@ describe("agentTurnPersistenceRuntime", () => {
     mockWorkspaceThread.get.mockResolvedValue({ id: 3, slug: "thread" });
   });
 
-  test("reserves the user turn in the Chat data domain", async () => {
+  test("reserves the active Agent turn only in process memory", async () => {
+    const result = await reserveAgentTurn({
+      workspaceId: 2,
+      threadId: 3,
+      userId: 4,
+      prompt: "hello",
+      clientTurnId: "turn-1",
+    });
+
+    expect(result).toMatchObject({ publicId: null });
+    expect(result.id).toMatch(/^ath_agent_turn_/);
+    expect(result.reservationId).toBe(result.id);
+    expect(mockWorkspaceChat.new).not.toHaveBeenCalled();
+  });
+
+  test("writes a memory-reserved Agent turn once after completion", async () => {
+    const reservation = await reserveAgentTurn({
+      workspaceId: 2,
+      threadId: 3,
+      userId: 4,
+      prompt: "hello",
+      clientTurnId: "turn-memory",
+    });
+
     await expect(
-      reserveAgentTurn({
+      finalizeAgentTurn({
+        chatId: reservation.id,
+        reservationId: reservation.id,
         workspaceId: 2,
         threadId: 3,
         userId: 4,
         prompt: "hello",
-        clientTurnId: "turn-1",
+        response: { text: "world", metrics: { model: "flash" } },
+        clientTurnId: "turn-memory",
       })
-    ).resolves.toEqual({ id: 17, publicId: "public-17" });
+    ).resolves.toMatchObject({ id: 17, publicId: "public-17" });
 
-    expect(mockWorkspaceChat.new).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceId: 2,
-        threadId: 3,
-        prompt: "hello",
-        sourceChannel: "agent",
-      })
-    );
+    expect(mockWorkspaceChat.new).toHaveBeenCalledTimes(1);
+    expect(mockWorkspaceChat.upsert).not.toHaveBeenCalled();
   });
 
   test("finalizes, publishes sync, and queues title work as Chat owner", async () => {

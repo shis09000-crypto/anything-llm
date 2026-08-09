@@ -1382,6 +1382,7 @@ export function ChatThreadDraftProvider({ children }) {
             event.sources?.length > 0 ? event.sources : turn?.sources || [],
           metrics: event.metrics || turn?.metrics || {},
           streamConnectionState: null,
+          persistenceStatus: event.persistenceStatus || null,
         };
         if (event.content && event.content.length > 0) {
           completionPatch.finalContent = event.content;

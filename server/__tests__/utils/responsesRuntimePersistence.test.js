@@ -89,9 +89,18 @@ describe("Responses Runtime durable persistence", () => {
     const rows = [];
     const client = {
       response_events: {
-        create: jest.fn(async ({ data }) => {
-          rows.push(data);
-          return data;
+        upsert: jest.fn(async ({ create, update, where }) => {
+          const existing = rows.find(
+            (row) =>
+              row.responseId === where.responseId_sequence.responseId &&
+              row.sequence === where.responseId_sequence.sequence
+          );
+          if (existing) {
+            Object.assign(existing, update);
+            return existing;
+          }
+          rows.push(create);
+          return create;
         }),
         findMany: jest.fn(async ({ where }) =>
           rows.filter((row) => row.sequence > where.sequence.gt)
@@ -228,5 +237,90 @@ describe("Responses Runtime durable persistence", () => {
     expect(batches.flat()).toHaveLength(300);
     expect(batches.length).toBeLessThanOrEqual(2);
     expect(repository.appendEvent).toHaveBeenCalledTimes(3);
+  });
+
+  test("emits the foreground terminal event before encrypted persistence", async () => {
+    let releasePersistence;
+    const persistenceGate = new Promise(
+      (resolve) => (releasePersistence = resolve)
+    );
+    const persistedItems = [];
+    const persistedCheckpoints = [];
+    const repository = {
+      findResponseByIdempotencyKey: jest.fn().mockResolvedValue(null),
+      ensureConversation: jest.fn().mockResolvedValue({
+        id: "ath_conv_deferred",
+        scopeKey: "thread:1:2",
+        currentHeadResponseId: null,
+      }),
+      createResponse: jest.fn().mockResolvedValue({}),
+      appendItem: jest.fn(async (item) => {
+        persistedItems.push(item);
+        return persistenceGate;
+      }),
+      writeCheckpoint: jest.fn(async (_id, checkpoint) => {
+        persistedCheckpoints.push(checkpoint);
+        return persistenceGate;
+      }),
+      appendEvent: jest.fn(async () => persistenceGate),
+      appendEventBatch: jest.fn(async () => persistenceGate),
+      updateResponse: jest.fn().mockResolvedValue({}),
+      advanceConversationHead: jest.fn().mockResolvedValue(true),
+      snapshot: jest.fn(() => ({ keyCustodyWrapCalls: 0 })),
+    };
+    const modelClient = {
+      stream: jest.fn().mockResolvedValue({}),
+      events: async function* () {
+        yield { type: "response.output_text.delta", delta: "hello" };
+        yield {
+          type: "response.completed",
+          response: { status: "completed", usage: {} },
+        };
+      },
+    };
+    const runtime = new ResponsesRuntime({ repository, modelClient });
+    const events = [];
+    for await (const event of runtime.stream({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content:
+            "hello\n\n<current_datetime>\nCurrent date: 2026-08-10\n</current_datetime>",
+        },
+      ],
+      store: true,
+      persistence_mode: "foreground_deferred",
+      athena: { workspaceId: 1, threadId: 2, userId: 3 },
+    }))
+      events.push(event);
+
+    expect(events.at(-1)).toMatchObject({
+      type: "response.completed",
+      response: { athena: { persistenceStatus: "pending" } },
+    });
+    expect(repository.appendItem).not.toHaveBeenCalled();
+    expect(repository.writeCheckpoint).not.toHaveBeenCalled();
+    expect(repository.appendEventBatch).not.toHaveBeenCalled();
+
+    await Promise.resolve();
+    expect(repository.appendItem).toHaveBeenCalled();
+    expect(modelClient.stream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: [
+          expect.objectContaining({
+            content: expect.stringContaining("<current_datetime>"),
+          }),
+        ],
+      })
+    );
+    expect(persistedItems[0].payload.content).toBe("hello");
+    expect(persistedCheckpoints[0].input[0].content).toBe("hello");
+    expect(runtime.snapshot().hotResponses).toBe(1);
+    releasePersistence();
+    await Promise.allSettled([...runtime.persistenceChains.values()]);
+    expect(runtime.snapshot().hotResponses).toBe(0);
   });
 });

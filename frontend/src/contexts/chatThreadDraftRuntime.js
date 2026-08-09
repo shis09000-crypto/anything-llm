@@ -544,6 +544,8 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
       status: item.status,
       chatId: item.chatId,
       publicChatId: item.publicChatId || null,
+      persistenceStatus: item.persistenceStatus || null,
+      persistenceErrorCode: item.persistenceErrorCode || null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       error: truncateText(item.error || ""),
@@ -629,7 +631,8 @@ export function draftNeedsServerHistoryRefresh(draft = {}) {
       (item) =>
         isAssistantTurn(item) &&
         item.status === TURN_STATUSES.completed &&
-        !item.chatId
+        !item.chatId &&
+        !item.persistenceStatus
     )
   );
 }
