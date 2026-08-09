@@ -94,7 +94,10 @@ verify_public_release() {
     curl --silent --show-error --fail --max-time 30 \
       --header 'Cache-Control: no-cache' "${public_origin%/}$asset" \
       >"$public_file"
-    candidate_sha="$(sha256sum "$candidate_root/${asset#/}" | awk '{print $1}')"
+    # The candidate is atomically moved into the configured web root before
+    # public verification. Hash the deployed copy so the probe remains valid
+    # after that move and also verifies the exact files nginx is serving.
+    candidate_sha="$(sha256sum "$web_root/${asset#/}" | awk '{print $1}')"
     public_sha="$(sha256sum "$public_file" | awk '{print $1}')"
     if [[ "$candidate_sha" != "$public_sha" ]]; then
       echo "public_asset_hash_mismatch:$asset" >&2
