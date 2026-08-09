@@ -213,7 +213,6 @@ async function validateRouteAuthState() {
       });
     }
     markRouteAuthLoginRedirect("multi", "missing-local-auth");
-    redirectToLogin({ reason: "missing_session_storage" });
     return authResult({
       isAuthd: false,
       multiUserMode: true,
@@ -515,7 +514,7 @@ export default function PrivateRoute({ Component }) {
   return isAuthd ? (
     <RouteShell Component={Component} reconnecting={reconnecting} />
   ) : (
-    <Navigate to={paths.login(true)} />
+    <Navigate to={paths.login(true)} replace />
   );
 }
 

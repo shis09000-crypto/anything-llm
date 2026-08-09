@@ -18,10 +18,11 @@ export const TERMINAL_AUTH_REASONS = new Set([
   "client_revoked",
   "device_identity_reauth",
   "force_reauth",
-  "missing_session_storage",
   "invalid_auth_token",
   "invalid_auth_credentials",
 ]);
+
+const LEGACY_NON_TERMINAL_LOGIN_REASONS = new Set(["missing_session_storage"]);
 
 export function authReasonFrom(source = {}, fallback = "") {
   const raw = source?.raw && typeof source.raw === "object" ? source.raw : {};
@@ -43,6 +44,17 @@ export function isTerminalAuthReason(source = {}) {
   return TERMINAL_AUTH_REASONS.has(
     typeof source === "string" ? source.toLowerCase() : authReasonFrom(source)
   );
+}
+
+export function normalizeLegacyLoginSearch(search = "") {
+  const params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+  const reason = String(params.get("reason") || "").toLowerCase();
+  if (!LEGACY_NON_TERMINAL_LOGIN_REASONS.has(reason)) return search;
+
+  params.delete("reason");
+  params.delete("returnRef");
+  const normalized = params.toString();
+  return normalized ? `?${normalized}` : "";
 }
 
 function safeRelativeTarget(candidate) {

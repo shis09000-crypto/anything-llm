@@ -45,6 +45,22 @@ test("ordinary business failures cannot trigger a login redirect", async () => {
   assert.deepEqual(globalThis.__clearCalls, []);
 });
 
+test("missing local session storage is recoverable and never forces logout", async () => {
+  const { mod, replacements } = await loadCoordinator();
+  assert.equal(
+    mod.redirectToLogin({ reason: "missing_session_storage" }),
+    false
+  );
+  assert.deepEqual(replacements, []);
+  assert.deepEqual(globalThis.__clearCalls, []);
+  assert.equal(
+    mod.normalizeLegacyLoginSearch(
+      "?nt=1&reason=missing_session_storage&returnRef=1"
+    ),
+    "?nt=1"
+  );
+});
+
 test("terminal Identity failures preserve a same-origin return target", async () => {
   const { mod, replacements } = await loadCoordinator(
     "/workspace/alpha?t=trusted"
