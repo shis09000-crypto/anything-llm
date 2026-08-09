@@ -262,7 +262,7 @@ const HistoricalMessage = ({
             {hydrationStatus === "light" && (
               <div
                 className="mt-3 space-y-2 min-h-[44px]"
-                aria-label="正在加载对话内容"
+                aria-label={t("chat_window.turnState.loadingConversation")}
               >
                 <div className="motion-skeleton h-3 w-1/2 rounded" />
                 <div className="motion-skeleton h-3 w-1/3 rounded" />

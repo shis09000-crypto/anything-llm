@@ -1,6 +1,8 @@
 import { Warning } from "@phosphor-icons/react";
 import ToolApprovalRequest from "../ToolApprovalRequest";
 import ClarifyingQuestionCard from "../ClarifyingQuestion";
+import { useTranslation } from "react-i18next";
+import { formatTimelineContent } from "@/utils/chat/toolTimelineI18n";
 
 export default function ToolEvent({
   event,
@@ -59,11 +61,15 @@ export default function ToolEvent({
 }
 
 function ErrorEvent({ event }) {
+  const { t } = useTranslation();
+  const message = event.content
+    ? formatTimelineContent(event.content, t)
+    : t("chat_window.toolTimeline.agentError");
   return (
     <div className="flex justify-start w-full my-1">
       <div className="p-2 rounded-lg bg-red-50 text-red-500">
         <span className="inline-flex items-center gap-1">
-          <Warning className="h-4 w-4" /> {event.content || "Agent error"}
+          <Warning className="h-4 w-4" /> {message}
         </span>
       </div>
     </div>

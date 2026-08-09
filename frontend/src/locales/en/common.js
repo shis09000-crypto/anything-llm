@@ -2275,11 +2275,48 @@ const readable = true;
       missing_credentials: "This provider is missing credentials!",
       missing_credentials_description: "Set up now",
     },
+    turnState: {
+      reconnecting: "Reconnecting…",
+      saving: "Saving securely…",
+      saveRetrying:
+        "The response is preserved. Secure saving will retry in the background.",
+      loadingFullResponse: "Loading full response…",
+      retryFullResponse: "Retry loading full response",
+      loadFullResponse: "Load full response",
+      loadingConversation: "Loading conversation",
+      responseFailed: "Could not respond to this message.",
+      reconnectLimitPrompt:
+        "The agent reached its reconnect limit. Continue with the recorded tool results and partial response?",
+      reconnect: "Reconnect",
+      keepInterrupted: "Keep interrupted",
+      errorReason: "Reason:",
+      unknownError: "Unknown error",
+    },
     toolTimeline: {
+      modelThinking: "Model is thinking...",
+      modelComplete: "Model has finished thinking",
       agentThinking: "Agent is thinking...",
       agentComplete: "Agent has finished thinking",
       showThoughtChain: "Show thought chain",
       hideThoughtChain: "Hide thought chain",
+      agentSessionStarted:
+        "Agent mode started. Type /exit to end the agent session.",
+      agentFallbackToChat:
+        "The requested agent{{targets}} could not be started. Continuing as a standard chat.",
+      agentTargetLabel: " ({{targets}})",
+      reconnecting:
+        "Agent connection interrupted. Reconnecting ({{attempt}}/{{total}})...",
+      generationStopped: "Generation stopped.",
+      agentSessionUnavailable:
+        "The agent session is no longer accepting input.",
+      agentFollowUpSent: "Follow-up sent to the active agent session.",
+      streamAborted: "The response stream was interrupted.",
+      websocketFailed: "The realtime connection failed.",
+      reconnectFailed: "The agent could not reconnect.",
+      chatStreamFailed:
+        "The chat stream ended before the response was complete.",
+      approvalRequested: "Approval requested for {{skill}}",
+      agentError: "Agent error",
       toolFallback: "tool",
       toolFamilyLabel: "{{family}} ({{toolName}})",
       actionPrefix: "Action: {{action}} · ",

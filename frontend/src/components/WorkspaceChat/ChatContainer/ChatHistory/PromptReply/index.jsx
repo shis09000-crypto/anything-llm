@@ -10,8 +10,11 @@ import {
   THOUGHT_REGEX_OPEN,
   ThoughtChainComponent,
 } from "../ThoughtContainer";
+import { useTranslation } from "react-i18next";
+import { formatTimelineContent } from "@/utils/chat/toolTimelineI18n";
 
 const PromptReply = ({ uuid, reply, pending, error, sources = [] }) => {
+  const { t } = useTranslation();
   if (!reply && sources.length === 0 && !pending && !error) return null;
 
   if (pending) {
@@ -29,9 +32,14 @@ const PromptReply = ({ uuid, reply, pending, error, sources = [] }) => {
       <div className="flex justify-start w-full">
         <div className="py-4 pl-0 pr-4 flex flex-col md:max-w-[80%]">
           <span className="inline-block p-2 rounded-lg bg-red-50 text-red-500">
-            <Warning className="h-4 w-4 mb-1 inline-block" /> Could not respond
-            to message.
-            <span className="text-xs">Reason: {error || "unknown"}</span>
+            <Warning className="h-4 w-4 mb-1 inline-block" />{" "}
+            {t("chat_window.turnState.responseFailed")}
+            <span className="text-xs">
+              {t("chat_window.turnState.errorReason")}{" "}
+              {error
+                ? formatTimelineContent(error, t)
+                : t("chat_window.turnState.unknownError")}
+            </span>
           </span>
         </div>
       </div>

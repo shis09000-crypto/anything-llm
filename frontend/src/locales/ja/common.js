@@ -1791,11 +1791,49 @@ const TRANSLATIONS = {
     start_agent_session: "エージェントセッションを開始",
     use_agent_session_to_use_tools:
       "チャットでツールを使用するには、プロンプトの冒頭に'@agent'を使用してエージェントセッションを開始してください。",
+    turnState: {
+      reconnecting: "再接続しています…",
+      saving: "安全に保存しています…",
+      saveRetrying:
+        "返信は保持されています。安全な保存をバックグラウンドで再試行します。",
+      loadingFullResponse: "返信全体を読み込んでいます…",
+      retryFullResponse: "返信全体の読み込みを再試行",
+      loadFullResponse: "返信全体を読み込む",
+      loadingConversation: "会話を読み込んでいます",
+      responseFailed: "このメッセージに応答できませんでした。",
+      reconnectLimitPrompt:
+        "エージェントの再接続上限に達しました。記録済みのツール結果と途中までの返信を使って続行しますか？",
+      reconnect: "再接続",
+      keepInterrupted: "中断したままにする",
+      errorReason: "理由：",
+      unknownError: "不明なエラー",
+    },
     toolTimeline: {
+      modelThinking: "モデルが思考中…",
+      modelComplete: "モデルの思考が完了しました",
       agentThinking: "エージェントが思考中...",
       agentComplete: "エージェントの思考が完了しました",
       showThoughtChain: "思考チェーンを表示",
       hideThoughtChain: "思考チェーンを非表示",
+      agentSessionStarted:
+        "エージェントモードを開始しました。/exit を入力するとセッションを終了できます。",
+      agentFallbackToChat:
+        "指定されたエージェント{{targets}}を開始できませんでした。通常のチャットとして続行します。",
+      agentTargetLabel: "（{{targets}}）",
+      reconnecting:
+        "エージェントの接続が中断されました。再接続しています（{{attempt}}/{{total}}）…",
+      generationStopped: "生成を停止しました。",
+      agentSessionUnavailable:
+        "このエージェントセッションは新しい入力を受け付けていません。",
+      agentFollowUpSent:
+        "実行中のエージェントセッションに追加の入力を送信しました。",
+      streamAborted: "返信ストリームが中断されました。",
+      websocketFailed: "リアルタイム接続に失敗しました。",
+      reconnectFailed: "エージェントを再接続できませんでした。",
+      chatStreamFailed:
+        "返信が完了する前にチャットストリームが中断されました。",
+      approvalRequested: "{{skill}} の承認が必要です",
+      agentError: "エージェントエラー",
       toolFallback: "ツール",
       toolFamilyLabel: "{{family}}（{{toolName}}）",
       actionPrefix: "操作: {{action}} · ",

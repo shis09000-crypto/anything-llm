@@ -153,6 +153,119 @@ export function formatTimelineContent(content, t) {
   const text = String(content || "").trim();
   if (!text) return "";
 
+  if (text === "Agent is thinking...") {
+    return translate(
+      t,
+      "chat_window.toolTimeline.agentThinking",
+      "Agent is thinking..."
+    );
+  }
+
+  if (text === "Agent has finished thinking") {
+    return translate(
+      t,
+      "chat_window.toolTimeline.agentComplete",
+      "Agent has finished thinking"
+    );
+  }
+
+  if (text.startsWith("@agent: Swapping over to agent chat")) {
+    return translate(
+      t,
+      "chat_window.toolTimeline.agentSessionStarted",
+      "Agent mode started. Type /exit to end the agent session."
+    );
+  }
+
+  if (
+    text === "Agents could not be called. Chat will be handled as default chat."
+  ) {
+    return translate(
+      t,
+      "chat_window.toolTimeline.agentFallbackToChat",
+      "The requested agent{{targets}} could not be started. Continuing as a standard chat.",
+      { targets: "" }
+    );
+  }
+
+  const agentFallback = text.match(
+    /^Agents?(?:\s+(\S[\s\S]*?))?\s+could not be called\. Chat will be handled as default chat\.$/
+  );
+  if (agentFallback) {
+    const rawTargets = String(agentFallback[1] || "").trim();
+    const targets = rawTargets
+      ? translate(
+          t,
+          "chat_window.toolTimeline.agentTargetLabel",
+          " ({{targets}})",
+          { targets: rawTargets }
+        )
+      : "";
+    return translate(
+      t,
+      "chat_window.toolTimeline.agentFallbackToChat",
+      "The requested agent{{targets}} could not be started. Continuing as a standard chat.",
+      { targets }
+    );
+  }
+
+  const reconnecting = text.match(
+    /^Agent connection interrupted\. Reconnecting\s+(\d+)\/(\d+)\.\.\.$/
+  );
+  if (reconnecting) {
+    return translate(
+      t,
+      "chat_window.toolTimeline.reconnecting",
+      "Agent connection interrupted. Reconnecting ({{attempt}}/{{total}})...",
+      {
+        attempt: Number(reconnecting[1]),
+        total: Number(reconnecting[2]),
+      }
+    );
+  }
+
+  const exactStatusKeys = {
+    "Generation stopped by user.": ["generationStopped", "Generation stopped."],
+    "Agent session is no longer accepting input.": [
+      "agentSessionUnavailable",
+      "The agent session is no longer accepting input.",
+    ],
+    "Sent follow-up input to the active agent session.": [
+      "agentFollowUpSent",
+      "Follow-up sent to the active agent session.",
+    ],
+    "Stream aborted.": [
+      "streamAborted",
+      "The response stream was interrupted.",
+    ],
+    "Websocket connection failed.": [
+      "websocketFailed",
+      "The realtime connection failed.",
+    ],
+    "Agent websocket reconnect failed.": [
+      "reconnectFailed",
+      "The agent could not reconnect.",
+    ],
+    "Chat stream failed before completion.": [
+      "chatStreamFailed",
+      "The chat stream ended before the response was complete.",
+    ],
+  };
+  if (exactStatusKeys[text]) {
+    const [key, fallback] = exactStatusKeys[text];
+    return translate(t, `chat_window.toolTimeline.${key}`, fallback);
+  }
+
+  const approvalRequested = text.match(/^Approval requested for\s+(.+)$/);
+  if (approvalRequested) {
+    return translate(
+      t,
+      "chat_window.toolTimeline.approvalRequested",
+      "Approval requested for {{skill}}",
+      { skill: approvalRequested[1] }
+    );
+  }
+
   const toolCall = text.match(
     /^(Assembling Tool Call|Parsed Tool Call|Tool Call):\s*([^(]+)\(([\s\S]*)\)$/
   );
