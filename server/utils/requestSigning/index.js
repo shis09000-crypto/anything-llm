@@ -245,7 +245,11 @@ async function registerClientHybridKEMKey({
     bindingChanged &&
     (!allowRotation || normalizedKeyGeneration !== currentGeneration + 1)
   )
-    return { ok: false, reasonCode: "hybrid_kem_key_rotation_required" };
+    return {
+      ok: false,
+      reasonCode: "hybrid_kem_key_rotation_required",
+      keyGeneration: currentGeneration,
+    };
   if (
     existingBinding.every(
       (value, index) => value === requestedBinding[index]

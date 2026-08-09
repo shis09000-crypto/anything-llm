@@ -14,6 +14,7 @@ import {
 } from "@/lib/communication/authSessionClient";
 import { apiErrorRaw } from "@/lib/communication/apiError";
 import System from "@/models/system";
+import { classifyDeviceBindingPreflightFailure } from "@/utils/authSessionMaintenance";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import {
   startAuthentication,
@@ -519,7 +520,16 @@ const AccountSettingsApi = {
     }
     return result;
   },
-  loginWithPasskey: async () => {
+  loginWithPasskey: async ({ deviceRecovery = null } = {}) => {
+    let deviceBinding = null;
+    try {
+      deviceBinding = await System.deviceBindingPreflight();
+    } catch (error) {
+      return {
+        valid: false,
+        ...classifyDeviceBindingPreflightFailure(error),
+      };
+    }
     const optionsResponse = await passkeyJson(
       postJson("/auth/passkeys/login/options", undefined, {
         includeBaseHeaders: false,
@@ -538,18 +548,29 @@ const AccountSettingsApi = {
     const response = await startAuthentication({
       optionsJSON: optionsResponse.options,
     });
-    return loginJson(
+    const result = await loginJson(
       postJson(
         "/auth/passkeys/login/verify",
-        { response },
         {
-          includeBaseHeaders: false,
+          response,
+          deviceBinding,
+          ...(deviceRecovery
+            ? {
+                deviceRecovery: {
+                  recoveryTicket: deviceRecovery.recoveryTicket,
+                },
+              }
+            : {}),
+        },
+        {
+          includeBaseHeaders: true,
           communicationScene: "auth-login",
           task: authLoginTask("auth:passkey-login-verify"),
         }
       ),
       "Could not verify passkey login."
     );
+    return result;
   },
   fetchSessions: async () => {
     const requestOptions = {

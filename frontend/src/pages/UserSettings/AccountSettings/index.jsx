@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import useUser from "@/hooks/useUser";
 import { userFromStorage } from "@/utils/request";
 import paths from "@/utils/paths";
@@ -24,6 +25,7 @@ import "./styles.css";
 
 export default function AccountSettings() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user: contextUser } = useUser();
   const mainRef = useRef(null);
   const [localUser, setLocalUser] = useState(
@@ -236,7 +238,7 @@ export default function AccountSettings() {
   }
 
   function returnHome() {
-    window.location.assign(paths.home());
+    navigate(paths.home(), { replace: true });
   }
 
   return (

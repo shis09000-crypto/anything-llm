@@ -1,4 +1,5 @@
 import { getJson, postJson, putJson } from "@/lib/communication/apiClient";
+import { apiErrorRaw } from "@/lib/communication/apiError";
 import { getClientIdentity } from "@/lib/communication/clientIdentity";
 import {
   VAULT_GRANT_HEADER,
@@ -14,6 +15,7 @@ import {
   loadBrowserRoot,
   signBrowserRootPayload,
   storeBrowserRoot,
+  updateBrowserHybridKeyGeneration,
   VAULT_HYBRID_SUITE,
 } from "./browserHybridKeys";
 
@@ -100,17 +102,52 @@ export async function browserUserRootStatus() {
 }
 
 async function registerBrowserHybridDevice(registration) {
-  const { data } = await postJson(
-    "/client-identity/vault-kem-key",
-    {
-      suiteId: registration.kemSuiteId,
-      keyGeneration: registration.keyGeneration,
-      kemPublicKey: registration.kemPublicKey,
-      p256PublicKey: registration.p256PublicKey,
-      mlDSA65PublicKey: registration.mlDSA65PublicKey,
-    },
-    { signing: "required" }
-  );
+  const bodyFor = (value, keyGeneration = value.keyGeneration) => ({
+    suiteId: value.kemSuiteId,
+    keyGeneration,
+    kemPublicKey: value.kemPublicKey,
+    p256PublicKey: value.p256PublicKey,
+    mlDSA65PublicKey: value.mlDSA65PublicKey,
+  });
+  let data;
+  try {
+    ({ data } = await postJson(
+      "/client-identity/vault-kem-key",
+      bodyFor(registration),
+      { signing: "required" }
+    ));
+  } catch (error) {
+    const raw = apiErrorRaw(error);
+    const currentGeneration = Number(raw?.currentKeyGeneration || 0);
+    if (
+      raw?.error === "vault_key_generation_mismatch" &&
+      Number.isSafeInteger(currentGeneration) &&
+      currentGeneration > 0
+    ) {
+      const repaired = await updateBrowserHybridKeyGeneration(
+        currentGeneration
+      );
+      ({ data } = await postJson(
+        "/client-identity/vault-kem-key",
+        bodyFor(repaired),
+        { signing: "required" }
+      ));
+    } else if (
+      raw?.error === "hybrid_kem_key_rotation_required" &&
+      Number.isSafeInteger(currentGeneration) &&
+      currentGeneration > 0
+    ) {
+      const nextGeneration = currentGeneration + 1;
+      ({ data } = await postJson(
+        "/client-identity/vault-kem-key/rotate",
+        bodyFor(registration, nextGeneration),
+        { signing: "required" }
+      ));
+      await updateBrowserHybridKeyGeneration(nextGeneration);
+    } else {
+      throw error;
+    }
+  }
   if (!data?.success)
     throw new Error(data?.error || "hybrid_device_registration_failed");
   return data;

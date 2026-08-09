@@ -201,6 +201,30 @@ export async function ensureBrowserHybridKeys() {
   return registration(cached, p256);
 }
 
+export async function updateBrowserHybridKeyGeneration(keyGeneration) {
+  const nextGeneration = Number(keyGeneration);
+  if (!Number.isSafeInteger(nextGeneration) || nextGeneration < 1) {
+    throw new Error("browser_hybrid_key_generation_invalid");
+  }
+  const keys = await loadExisting();
+  if (!keys) throw new Error("browser_hybrid_keys_unavailable");
+  if (keys.keyGeneration === nextGeneration) return registration(keys);
+
+  const db = await openDb();
+  const recordId = `hybrid:${keys.clientId}:v1`;
+  const record = await requestRecord(db, RECORD_STORE, "readonly", (store) =>
+    store.get(recordId)
+  );
+  if (!record) throw new Error("browser_hybrid_keys_unavailable");
+  const secrets = await decryptRecord(db, record);
+  await encryptRecord(db, recordId, {
+    ...secrets,
+    keyGeneration: nextGeneration,
+  });
+  cached = { ...keys, keyGeneration: nextGeneration };
+  return registration(cached);
+}
+
 async function registration(keys, p256Record = null) {
   const p256 = p256Record || (await getDeviceIdentityKeyRecord());
   return {
