@@ -60,6 +60,21 @@ function requestRecord(db, storeName, mode, operation) {
   });
 }
 
+function equalBytes(left, right) {
+  if (!left || !right || left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
+async function deleteRecord(db, id) {
+  await requestRecord(db, RECORD_STORE, "readwrite", (store) =>
+    store.delete(id)
+  );
+}
+
 async function wrapKey(db) {
   const existing = await requestRecord(db, KEY_STORE, "readonly", (store) =>
     store.get(WRAP_KEY_ID)
@@ -117,20 +132,42 @@ async function loadExisting() {
   const { clientId } = getClientIdentity();
   if (!clientId) return null;
   const db = await openDb();
+  const recordId = `hybrid:${clientId}:v1`;
   const record = await requestRecord(db, RECORD_STORE, "readonly", (store) =>
-    store.get(`hybrid:${clientId}:v1`)
+    store.get(recordId)
   );
   if (!record) return null;
-  const secrets = await decryptRecord(db, record);
-  cached = {
-    clientId,
-    keyGeneration: Number(secrets.keyGeneration || 1),
-    pqSecretKey: fromBase64Url(secrets.pqSecretKey),
-    pqPublicKey: secrets.pqPublicKey,
-    kemSecretKey: fromBase64Url(secrets.kemSecretKey),
-    kemPublicKey: secrets.kemPublicKey,
-  };
-  return cached;
+  try {
+    const secrets = await decryptRecord(db, record);
+    const pqSecretKey = fromBase64Url(secrets.pqSecretKey);
+    const derivedPqPublicKey = ml_dsa65.getPublicKey(pqSecretKey);
+    const storedPqPublicKey = fromBase64Url(secrets.pqPublicKey);
+    const pqPublicKey = base64Url(derivedPqPublicKey);
+
+    if (!equalBytes(derivedPqPublicKey, storedPqPublicKey)) {
+      await encryptRecord(db, recordId, {
+        ...secrets,
+        pqPublicKey,
+      });
+    }
+
+    cached = {
+      clientId,
+      keyGeneration: Number(secrets.keyGeneration || 1),
+      pqSecretKey,
+      pqPublicKey,
+      kemSecretKey: fromBase64Url(secrets.kemSecretKey),
+      kemPublicKey: secrets.kemPublicKey,
+    };
+    return cached;
+  } catch {
+    // A partially restored or version-incompatible IndexedDB record must not
+    // keep producing unverifiable login proofs. Removing only the invalid
+    // local key record lets the existing device re-authentication flow safely
+    // authorize a replacement without weakening server-side verification.
+    await deleteRecord(db, recordId).catch(() => null);
+    return null;
+  }
 }
 
 export async function ensureBrowserHybridKeys() {

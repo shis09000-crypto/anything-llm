@@ -14,6 +14,9 @@ const DEVICE_KEY_SUITE = cryptoSuite(
 );
 if (!DEVICE_KEY_SUITE) throw new Error("device_key_crypto_suite_unavailable");
 const DEVICE_KEY_ALGORITHM = DEVICE_KEY_SUITE.suiteId;
+const DEVICE_KEY_SELF_TEST = new TextEncoder().encode(
+  "athena-device-identity-key-self-test:v1"
+);
 
 let cachedKeyRecord = null;
 
@@ -126,6 +129,35 @@ async function generateKeyRecord() {
   };
 }
 
+async function isConsistentKeyRecord(record) {
+  const subtle = webCrypto();
+  if (!subtle || !record?.privateKey || !record?.publicKey) return false;
+
+  try {
+    const publicJwk = JSON.parse(record.publicKey);
+    const publicKey = await subtle.importKey(
+      "jwk",
+      publicJwk,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"]
+    );
+    const signature = await subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      record.privateKey,
+      DEVICE_KEY_SELF_TEST
+    );
+    return await subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      publicKey,
+      signature,
+      DEVICE_KEY_SELF_TEST
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function getDeviceIdentityKeyRecord() {
   if (cachedKeyRecord) return cachedKeyRecord;
   const subtle = webCrypto();
@@ -133,7 +165,7 @@ export async function getDeviceIdentityKeyRecord() {
 
   try {
     const stored = await readKeyRecord();
-    if (stored?.privateKey && stored?.publicKey) {
+    if (await isConsistentKeyRecord(stored)) {
       cachedKeyRecord = stored;
       return cachedKeyRecord;
     }
