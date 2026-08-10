@@ -17,6 +17,7 @@ import type {
   BtcSpotAssetCardProps,
 } from "./btcSpotAssetTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import AutoFitNumericText from "./AutoFitNumericText";
 
 const statusMeta: Record<
   BtcConnectionStatus,
@@ -199,16 +200,20 @@ function MetricRow({
           {label}
         </div>
       </div>
-      <div className="min-w-0 text-right">
-        <div
-          className={`truncate font-mono text-xl font-black leading-6 ${toneClass}`}
+      <div className="min-w-0 flex-1 text-right">
+        <AutoFitNumericText
+          containerClassName="w-full text-right"
+          className={`font-mono text-xl font-black leading-6 ${toneClass}`}
         >
           {value}
-        </div>
+        </AutoFitNumericText>
         {subValue ? (
-          <div className="mt-1 truncate text-sm font-semibold text-[#9CA3AF]">
+          <AutoFitNumericText
+            containerClassName="mt-1 w-full text-right"
+            className="text-sm font-semibold text-[#9CA3AF]"
+          >
             {subValue}
-          </div>
+          </AutoFitNumericText>
         ) : null}
       </div>
     </div>
@@ -587,14 +592,15 @@ export default function BtcSpotAssetCard({
               BTC 现货总价值
               <Info size={18} className="text-[#D6A84F]" />
             </div>
-            <div
+            <AutoFitNumericText
+              containerClassName="mt-5 w-full"
               className={[
-                "mt-5 truncate font-mono font-black leading-none text-[#FFE08A]",
+                "font-mono font-black leading-none text-[#FFE08A]",
                 isSlim ? "text-5xl" : "text-7xl",
               ].join(" ")}
             >
               {formatUsd(totalValueUsd)}
-            </div>
+            </AutoFitNumericText>
             <div className="mt-4 text-2xl font-semibold text-[#E5E7EB]">
               {showCnyEstimate ? formatCnyEstimate(totalValueUsd) : "\u00A0"}
             </div>

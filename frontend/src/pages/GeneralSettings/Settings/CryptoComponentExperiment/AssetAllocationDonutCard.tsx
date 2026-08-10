@@ -13,6 +13,7 @@ import type {
   AssetAllocationItem,
 } from "./assetAllocationDonutTypes";
 import { tradingPairMockPresets } from "./tradingPairMockPresets";
+import AutoFitNumericText from "./AutoFitNumericText";
 
 const DEFAULT_OTHER_COLOR = "#9CA3AF";
 const STABLE_USDT_ASSETS = new Set(["USDT", "GUSD", "USDC"]);
@@ -799,8 +800,9 @@ export default function AssetAllocationDonutCard({
                     >
                       {centerItem.symbol}
                     </div>
-                    <div
-                      className="max-w-full whitespace-nowrap font-black"
+                    <AutoFitNumericText
+                      containerClassName="w-full text-center"
+                      className="font-black"
                       style={{
                         fontSize: centerPrimaryFontSize,
                         fontVariantNumeric: "tabular-nums",
@@ -808,9 +810,10 @@ export default function AssetAllocationDonutCard({
                       }}
                     >
                       {centerPrimaryText}
-                    </div>
-                    <div
-                      className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-bold text-[#A1A1AA]"
+                    </AutoFitNumericText>
+                    <AutoFitNumericText
+                      containerClassName="w-full text-center"
+                      className="font-bold text-[#A1A1AA]"
                       style={{
                         fontSize: centerMetaFontSize,
                         fontVariantNumeric: "tabular-nums",
@@ -818,7 +821,7 @@ export default function AssetAllocationDonutCard({
                       }}
                     >
                       {centerMetaText}
-                    </div>
+                    </AutoFitNumericText>
                   </div>
                 ) : (
                   <div
@@ -834,8 +837,9 @@ export default function AssetAllocationDonutCard({
                     >
                       总资产价值
                     </div>
-                    <div
-                      className="max-w-full whitespace-nowrap font-black"
+                    <AutoFitNumericText
+                      containerClassName="w-full text-center"
+                      className="font-black"
                       style={{
                         fontSize: centerPrimaryFontSize,
                         fontVariantNumeric: "tabular-nums",
@@ -843,7 +847,7 @@ export default function AssetAllocationDonutCard({
                       }}
                     >
                       {centerPrimaryText}
-                    </div>
+                    </AutoFitNumericText>
                     <div
                       className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-black text-[#A1A1AA]"
                       style={{
@@ -1006,16 +1010,17 @@ export default function AssetAllocationDonutCard({
                       >
                         {formatPercent(item.percentage)}
                       </span>
-                      <span
+                      <AutoFitNumericText
+                        containerClassName="w-full text-right"
                         className={[
-                          "truncate text-right font-bold",
+                          "font-bold",
                           smallLayout
                             ? "text-[13px]"
                             : "text-lg md:text-[24px]",
                         ].join(" ")}
                       >
                         {formatMoney(item.valueUsd)} USD
-                      </span>
+                      </AutoFitNumericText>
                     </button>
                   </div>
                 );
