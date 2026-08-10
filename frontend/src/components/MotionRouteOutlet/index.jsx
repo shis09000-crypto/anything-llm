@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigationType, useOutlet } from "react-router-dom";
 import { useMotion } from "@/contexts/MotionProvider";
 import {
@@ -7,6 +7,7 @@ import {
   routeCategoryForMotionKey,
   routeTransitionPolicy,
 } from "@/utils/routeTransitionPolicy";
+import { isSameRouteOutlet } from "./outletIdentity";
 
 const ROUTE_DURATION = 700;
 const ROUTE_FALLBACK_DURATION = 180;
@@ -34,12 +35,6 @@ function animationModeClass(prefix, mode) {
   return "motion-route-static";
 }
 
-function isSameRouteOutlet(left, right) {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  return left.type === right.type && left.key === right.key;
-}
-
 export default function MotionRouteOutlet() {
   const outlet = useOutlet();
   const location = useLocation();
@@ -58,7 +53,7 @@ export default function MotionRouteOutlet() {
   const currentRef = useRef(current);
   const exitTimersRef = useRef(new Map());
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     currentRef.current = current;
   }, [current]);
 
@@ -71,7 +66,7 @@ export default function MotionRouteOutlet() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const nextRawKey = rawKey;
     const nextMotionKey = motionKey;
     const nextPathname = location.pathname;
@@ -115,13 +110,15 @@ export default function MotionRouteOutlet() {
         motionRouteKey: nextMotionKey,
         token: "motion-route-transition",
       });
-      setCurrent({
+      const nextCurrent = {
         rawKey: nextRawKey,
         motionKey: nextMotionKey,
         pathname: nextPathname,
         outlet,
         mode: "static",
-      });
+      };
+      currentRef.current = nextCurrent;
+      setCurrent(nextCurrent);
       return;
     }
 
@@ -181,13 +178,15 @@ export default function MotionRouteOutlet() {
       exitTimersRef.current.set(exitId, timeout);
     }
 
-    setCurrent({
+    const nextCurrent = {
       rawKey: nextRawKey,
       motionKey: nextMotionKey,
       pathname: nextPathname,
       outlet,
       mode,
-    });
+    };
+    currentRef.current = nextCurrent;
+    setCurrent(nextCurrent);
   }, [
     rawKey,
     motionKey,
@@ -199,7 +198,7 @@ export default function MotionRouteOutlet() {
     reportRouteMotion,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const activeRoute = currentRef.current;
     if (
       activeRoute.rawKey !== rawKey ||
@@ -209,7 +208,9 @@ export default function MotionRouteOutlet() {
     setCurrent((prev) => {
       if (prev.rawKey !== rawKey || isSameRouteOutlet(prev.outlet, outlet))
         return prev;
-      return { ...prev, outlet };
+      const next = { ...prev, outlet };
+      currentRef.current = next;
+      return next;
     });
   }, [outlet, rawKey]);
 
