@@ -45,6 +45,12 @@ describe("module schema ownership", () => {
     expect(ownerForTable("responses", "main")).toBe("responses_runtime");
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
+    expect(ownerForTable("embedding_batch_jobs", "main")).toBe(
+      "knowledge_ingest"
+    );
+    expect(ownerForTable("embedding_batch_job_events", "main")).toBe(
+      "knowledge_ingest"
+    );
     expect(ownerForTable("security_key_registry", "main")).toBe("key_custody");
     expect(ownerForTable("auth_device_recovery_challenges", "main")).toBe(
       "identity"
@@ -62,6 +68,8 @@ describe("module schema ownership", () => {
       "browser_egress_grants",
       "responses_conversations",
       "responses",
+      "embedding_batch_jobs",
+      "embedding_batch_job_events",
     ]) {
       expect(tables.has(table)).toBe(true);
     }

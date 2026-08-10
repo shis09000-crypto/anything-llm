@@ -395,7 +395,10 @@ export const syncV2StateStore = {
     if (match) {
       const workspace = workspaceForId(match[1]);
       if (workspace?.slug)
-        workspaceNavigationStore.invalidateWorkspaceDetail(workspace.slug);
+        workspaceNavigationStore.markWorkspaceDetailStale(
+          workspace.slug,
+          "sync-v2-workspace-documents"
+        );
       window.dispatchEvent(
         new CustomEvent("athena-sync-v2-workspace-documents-refresh", {
           detail: {

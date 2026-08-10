@@ -1624,6 +1624,9 @@ const TRANSLATIONS = {
       "click-upload":
         "クリックしてアップロード、またはドラッグ＆ドロップしてください",
       "cancel-upload": "アップロードを停止",
+      "preparing-upload": "{{percent}}% · アップロードを準備中",
+      "upload-progress": "{{percent}}% · {{speed}}/秒",
+      "upload-complete": "100% · アップロード完了",
       "file-types":
         "テキストファイル、CSV、スプレッドシート、音声ファイルなどに対応しています！",
       "or-submit-link": "またはリンクを入力",

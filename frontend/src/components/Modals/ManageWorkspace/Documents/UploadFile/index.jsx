@@ -56,7 +56,7 @@ export default function UploadFile({
     if (!response.ok) {
       showToast(`Error uploading link: ${data.error}`, "error");
     } else {
-      await fetchKeys(true, { autoSelectNew: true });
+      await fetchKeys(true, { autoSelectNew: true, silent: true });
       showToast("Link uploaded successfully", "success");
       formEl.reset();
     }
@@ -68,8 +68,12 @@ export default function UploadFile({
     debounce((fn, opts) => fn(true, opts), 1000)
   );
   const handleUploadSuccess = () =>
-    debouncedFetchKeysRef.current(fetchKeys, { autoSelectNew: true });
-  const handleUploadError = () => debouncedFetchKeysRef.current(fetchKeys, {});
+    debouncedFetchKeysRef.current(fetchKeys, {
+      autoSelectNew: true,
+      silent: true,
+    });
+  const handleUploadError = () =>
+    debouncedFetchKeysRef.current(fetchKeys, { silent: true });
 
   const onDrop = async (acceptedFiles, rejections) => {
     const targetFolder = uploadTargetFolder || "custom-documents";
@@ -167,8 +171,6 @@ export default function UploadFile({
                 reason={file?.reason}
                 onUploadSuccess={handleUploadSuccess}
                 onUploadError={handleUploadError}
-                setLoading={setLoading}
-                setLoadingMessage={setLoadingMessage}
                 uploadTargetFolder={file.uploadTargetFolder}
               />
             ))}

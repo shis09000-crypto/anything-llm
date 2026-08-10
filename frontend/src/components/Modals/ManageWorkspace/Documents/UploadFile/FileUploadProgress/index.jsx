@@ -3,7 +3,7 @@ import truncate from "truncate";
 import { CheckCircle, X, XCircle } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import Workspace from "../../../../../../models/workspace";
-import { humanFileSize, milliToHms } from "../../../../../../utils/numbers";
+import { humanFileSize } from "../../../../../../utils/numbers";
 import PreLoader from "../../../../../Preloader";
 
 function FileUploadProgressComponent({
@@ -15,17 +15,20 @@ function FileUploadProgressComponent({
   reason = null,
   onUploadSuccess,
   onUploadError,
-  setLoading,
-  setLoadingMessage,
   uploadTargetFolder = "custom-documents",
 }) {
   const { t } = useTranslation();
-  const [timerMs, setTimerMs] = useState(10);
+  const [uploadProgress, setUploadProgress] = useState({
+    loaded: 0,
+    total: file?.size || 0,
+    percent: 0,
+    speedBps: 0,
+    averageSpeedBps: 0,
+  });
   const [status, setStatus] = useState("pending");
   const [error, setError] = useState("");
   const [isFadingOut, setIsFadingOut] = useState(false);
   const uploadControllerRef = useRef(null);
-  const timerRef = useRef(null);
   const cancelledRef = useRef(false);
 
   const fadeOut = (cb) => {
@@ -45,29 +48,17 @@ function FileUploadProgressComponent({
     event.stopPropagation();
     cancelledRef.current = true;
     uploadControllerRef.current?.abort();
-    if (timerRef.current) clearInterval(timerRef.current);
-    setLoading(false);
-    setLoadingMessage("");
     setFiles((prev) => prev.filter((item) => item.uid !== uuid));
   };
 
   useEffect(() => {
     let mounted = true;
     async function uploadFile() {
-      setLoading(true);
-      setLoadingMessage("Uploading file...");
-      const start = Number(new Date());
       const formData = new FormData();
       formData.append("file", file, file.name);
       formData.append("folderName", uploadTargetFolder || "custom-documents");
       const uploadController = new AbortController();
       uploadControllerRef.current = uploadController;
-      const timer = setInterval(() => {
-        setTimerMs(Number(new Date()) - start);
-      }, 100);
-      timerRef.current = timer;
-
-      // Chunk streaming not working in production so we just sit and wait
       try {
         const { response, data } = await Workspace.uploadFile(
           slug,
@@ -91,6 +82,11 @@ function FileUploadProgressComponent({
               },
             },
             signal: uploadController.signal,
+            onUploadProgress: (progress) => {
+              if (!mounted) return;
+              setStatus("uploading");
+              setUploadProgress(progress);
+            },
           }
         );
         if (!mounted) return;
@@ -102,6 +98,13 @@ function FileUploadProgressComponent({
           setError(message);
         } else {
           setStatus("complete");
+          setUploadProgress((current) => ({
+            ...current,
+            loaded: current.total || file.size,
+            total: current.total || file.size,
+            percent: 100,
+            speedBps: 0,
+          }));
           onUploadSuccess();
         }
       } catch (uploadFailure) {
@@ -115,13 +118,8 @@ function FileUploadProgressComponent({
         setError(message);
         onUploadError(message);
       } finally {
-        clearInterval(timer);
-        timerRef.current = null;
         uploadControllerRef.current = null;
         if (mounted) {
-          setLoading(false);
-          setLoadingMessage("");
-
           if (!cancelledRef.current) {
             // Begin fadeout timer to clear uploader queue.
             setTimeout(() => {
@@ -136,9 +134,30 @@ function FileUploadProgressComponent({
     return () => {
       mounted = false;
       uploadControllerRef.current?.abort();
-      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  const uploadPercent = Math.max(
+    0,
+    Math.min(100, Math.round(uploadProgress.percent || 0))
+  );
+  const uploadSpeed =
+    uploadProgress.speedBps || uploadProgress.averageSpeedBps || 0;
+  const progressLabel =
+    status === "complete"
+      ? t("connectors.upload.upload-complete", {
+          defaultValue: "100% · Uploaded",
+        })
+      : uploadSpeed > 0
+        ? t("connectors.upload.upload-progress", {
+            defaultValue: "{{percent}}% · {{speed}}/s",
+            percent: uploadPercent,
+            speed: humanFileSize(uploadSpeed),
+          })
+        : t("connectors.upload.preparing-upload", {
+            defaultValue: "{{percent}}% · Preparing upload",
+            percent: uploadPercent,
+          });
 
   const cancelButton =
     status === "complete" ? null : (
@@ -229,13 +248,23 @@ function FileUploadProgressComponent({
           />
         )}
       </div>
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <p className="text-white light:text-theme-text-primary text-xs font-medium">
           {truncate(file.name, 30)}
         </p>
         <p className="text-white/80 light:text-theme-text-secondary text-xs font-medium">
-          {humanFileSize(file.size)} | {milliToHms(timerMs)}
+          {progressLabel}
         </p>
+        <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20 light:bg-black/10">
+          <div
+            className="h-full rounded-full bg-sky-400 transition-[width] duration-150 ease-out"
+            style={{ width: `${uploadPercent}%` }}
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={uploadPercent}
+          />
+        </div>
       </div>
     </div>
   );
