@@ -37,6 +37,7 @@ import type {
 } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/tradingPairDetailTypes";
 import { markCryptoCenterPerf } from "./perf";
 import { cryptoSectionScrollEnabled } from "./sectionScrollRuntime";
+import { resolvePrivateConnectionStatus } from "./cryptoPrivateConnectionStatus";
 
 const AssetAllocationDonutCard = React.lazy(
   () =>
@@ -1808,39 +1809,31 @@ function buildSpotDetailParams({
     iconText: preset.iconText,
     iconImage: preset.iconImage,
     accentColor: preset.accentColor,
-    holdingValueQuote: real
-      ? response?.holdingValueQuote || preset.holdingValueQuote
-      : preset.holdingValueQuote,
-    holdingValueUsd: real
-      ? (response?.holdingValueUsd ?? preset.holdingValueUsd)
-      : preset.holdingValueUsd,
-    change24hPct: real ? (response?.change24hPct ?? null) : preset.change24hPct,
-    change24hQuote: real
-      ? (response?.change24hQuote ?? null)
-      : preset.change24hQuote,
+    holdingValueQuote: real ? response?.holdingValueQuote || "0" : "0",
+    holdingValueUsd: real ? (response?.holdingValueUsd ?? "0") : "0",
+    change24hPct: real ? (response?.change24hPct ?? null) : null,
+    change24hQuote: real ? (response?.change24hQuote ?? null) : null,
     averageBuyPriceQuote: real
       ? (response?.averageBuyPriceQuote ?? null)
-      : preset.averageBuyPriceQuote || null,
+      : null,
     averageBuyPriceMethod: real
       ? response?.averageBuyPriceMethod || "unknown"
       : preset.averageBuyPriceMethod,
     averageBuyPriceScope: real
       ? response?.averageBuyPriceScope || "unknown"
       : "full",
-    currentPriceQuote: real
-      ? response?.currentPriceQuote || preset.currentPriceQuote
-      : preset.currentPriceQuote,
-    holdingAmountBase: real
-      ? response?.holdingAmountBase || preset.holdingAmountBase
-      : preset.holdingAmountBase,
+    currentPriceQuote: real ? response?.currentPriceQuote || "0" : "0",
+    holdingAmountBase: real ? response?.holdingAmountBase || "0" : "0",
     lastUpdatedAt: real
       ? response?.lastUpdatedAt || response?.asOf || null
-      : timestampFromTime(currentTime),
-    connectionStatus: real
-      ? response?.connectionStatus || "connected"
       : error
-        ? "degraded"
-        : "degraded",
+        ? null
+        : timestampFromTime(currentTime),
+    connectionStatus: resolvePrivateConnectionStatus({
+      hasTrustedData: real,
+      requestError: error,
+      upstreamStatus: response?.connectionStatus,
+    }),
     ...visual,
   };
 }
