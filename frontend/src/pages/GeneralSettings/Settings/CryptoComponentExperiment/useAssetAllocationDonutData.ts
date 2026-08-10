@@ -53,12 +53,6 @@ export function useAssetAllocationDonutData({
   const [gateStatusText, setGateStatusText] = useState("使用 mock 数据");
   const [gateRefreshNonce, setGateRefreshNonce] = useState(0);
   const gateReconnectAttemptRef = useRef(0);
-  const hasGateItemsRef = useRef(false);
-
-  useEffect(() => {
-    hasGateItemsRef.current = Boolean(gateItems?.length);
-  }, [gateItems]);
-
   const activeItems = useRealGateData ? gateItems || [] : mockItems;
   const activeTotalValueUsd = useRealGateData
     ? gateTotalValueUsd || "0"
@@ -96,13 +90,10 @@ export function useAssetAllocationDonutData({
     } catch (error) {
       if (signal?.aborted) return false;
       gateReconnectAttemptRef.current += 1;
-      setGateStatus((current) =>
-        hasGateItemsRef.current ||
-        current === "connected" ||
-        current === "degraded"
-          ? "degraded"
-          : "error"
-      );
+      // Retain the last trusted allocation for continuity, while reporting the
+      // live connection as offline. "degraded" is reserved for a successful
+      // upstream response that explicitly contains partial failures.
+      setGateStatus("error");
       setGateStatusText(
         error instanceof Error
           ? `连接中断，正在重连：${error.message}`

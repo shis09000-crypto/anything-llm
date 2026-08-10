@@ -46,11 +46,7 @@ export function useTradingPairDetailData({
   useCryptoHubWatchedConnection({
     key: `tradingPairDetail.rest.${market}.${pair}`,
     active: enabled && mode === "gate-api" && market === "spot",
-    status: error
-      ? response
-        ? "degraded"
-        : "error"
-      : response?.connectionStatus || "connected",
+    status: error ? "error" : response?.connectionStatus || "connected",
     lastConnectedAt: response?.asOf || null,
     reconnect: () => setWatchdogRefreshNonce((current) => current + 1),
   });

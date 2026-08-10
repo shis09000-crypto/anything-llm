@@ -13,12 +13,23 @@ test("reports an outage as disconnected when no trusted private data exists", ()
   );
 });
 
-test("reports degraded only while trusted cached data remains available", () => {
+test("reports a refresh outage as disconnected even when cached data remains", () => {
   assert.equal(
     resolvePrivateConnectionStatus({
       hasTrustedData: true,
       requestError: "refresh failed",
       upstreamStatus: "connected",
+    }),
+    "disconnected"
+  );
+});
+
+test("reports degraded only when the live upstream explicitly returns partial data", () => {
+  assert.equal(
+    resolvePrivateConnectionStatus({
+      hasTrustedData: true,
+      requestError: null,
+      upstreamStatus: "degraded",
     }),
     "degraded"
   );
