@@ -2114,6 +2114,7 @@ const readable = true;
       "processor-offline-desc":
         "We can't upload your files right now because the document processor is offline. Please try again later.",
       "click-upload": "Click to upload or drag and drop",
+      "cancel-upload": "Cancel upload",
       "file-types":
         "supports text files, csv's, spreadsheets, audio files, and more!",
       "or-submit-link": "or submit a link",

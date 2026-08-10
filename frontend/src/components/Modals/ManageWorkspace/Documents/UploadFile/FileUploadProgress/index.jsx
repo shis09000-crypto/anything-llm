@@ -1,6 +1,7 @@
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo, useRef } from "react";
 import truncate from "truncate";
-import { CheckCircle, XCircle } from "@phosphor-icons/react";
+import { CheckCircle, X, XCircle } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 import Workspace from "../../../../../../models/workspace";
 import { humanFileSize, milliToHms } from "../../../../../../utils/numbers";
 import PreLoader from "../../../../../Preloader";
@@ -18,10 +19,14 @@ function FileUploadProgressComponent({
   setLoadingMessage,
   uploadTargetFolder = "custom-documents",
 }) {
+  const { t } = useTranslation();
   const [timerMs, setTimerMs] = useState(10);
   const [status, setStatus] = useState("pending");
   const [error, setError] = useState("");
   const [isFadingOut, setIsFadingOut] = useState(false);
+  const uploadControllerRef = useRef(null);
+  const timerRef = useRef(null);
+  const cancelledRef = useRef(false);
 
   const fadeOut = (cb) => {
     setIsFadingOut(true);
@@ -35,6 +40,17 @@ function FileUploadProgressComponent({
     });
   };
 
+  const cancelUpload = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    cancelledRef.current = true;
+    uploadControllerRef.current?.abort();
+    if (timerRef.current) clearInterval(timerRef.current);
+    setLoading(false);
+    setLoadingMessage("");
+    setFiles((prev) => prev.filter((item) => item.uid !== uuid));
+  };
+
   useEffect(() => {
     let mounted = true;
     async function uploadFile() {
@@ -44,9 +60,12 @@ function FileUploadProgressComponent({
       const formData = new FormData();
       formData.append("file", file, file.name);
       formData.append("folderName", uploadTargetFolder || "custom-documents");
+      const uploadController = new AbortController();
+      uploadControllerRef.current = uploadController;
       const timer = setInterval(() => {
         setTimerMs(Number(new Date()) - start);
       }, 100);
+      timerRef.current = timer;
 
       // Chunk streaming not working in production so we just sit and wait
       try {
@@ -62,7 +81,7 @@ function FileUploadProgressComponent({
               priority: "P0",
               policy: "foreground",
               protected: true,
-              abortable: false,
+              abortable: true,
               intentRank: 0,
               scope: {
                 route: "workspace-settings",
@@ -71,6 +90,7 @@ function FileUploadProgressComponent({
                 fileName: file?.name,
               },
             },
+            signal: uploadController.signal,
           }
         );
         if (!mounted) return;
@@ -86,6 +106,8 @@ function FileUploadProgressComponent({
         }
       } catch (uploadFailure) {
         if (!mounted) return;
+        if (cancelledRef.current || uploadFailure?.name === "AbortError")
+          return;
         const message =
           uploadFailure?.message ||
           "Document upload failed. Please check the connection and retry.";
@@ -94,31 +116,56 @@ function FileUploadProgressComponent({
         onUploadError(message);
       } finally {
         clearInterval(timer);
+        timerRef.current = null;
+        uploadControllerRef.current = null;
         if (mounted) {
           setLoading(false);
           setLoadingMessage("");
 
-          // Begin fadeout timer to clear uploader queue.
-          setTimeout(() => {
-            if (!mounted) return;
-            fadeOut(() => setTimeout(() => beginFadeOut(), 300));
-          }, 5000);
+          if (!cancelledRef.current) {
+            // Begin fadeout timer to clear uploader queue.
+            setTimeout(() => {
+              if (!mounted) return;
+              fadeOut(() => setTimeout(() => beginFadeOut(), 300));
+            }, 5000);
+          }
         }
       }
     }
     !!file && !rejected && uploadFile();
     return () => {
       mounted = false;
+      uploadControllerRef.current?.abort();
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  const cancelButton =
+    status === "complete" ? null : (
+      <button
+        type="button"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={cancelUpload}
+        aria-label={t("connectors.upload.cancel-upload", {
+          defaultValue: "Cancel upload",
+        })}
+        title={t("connectors.upload.cancel-upload", {
+          defaultValue: "Cancel upload",
+        })}
+        className="absolute right-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/30 text-white/80 transition-colors hover:bg-error hover:text-white focus:outline-none focus:ring-1 focus:ring-white/80 light:bg-white/80 light:text-theme-text-secondary light:hover:bg-error light:hover:text-white"
+      >
+        <X className="h-3.5 w-3.5" weight="bold" />
+      </button>
+    );
 
   if (rejected) {
     return (
       <div
         className={`${
           isFadingOut ? "file-upload-fadeout" : "file-upload"
-        } h-14 px-2 py-2 flex items-center gap-x-4 rounded-lg bg-error/40 light:bg-error/30 light:border-solid light:border-error/40 border border-transparent`}
+        } relative h-14 px-2 py-2 pr-7 flex items-center gap-x-4 rounded-lg bg-error/40 light:bg-error/30 light:border-solid light:border-error/40 border border-transparent`}
       >
+        {cancelButton}
         <div className="w-6 h-6 flex-shrink-0">
           <XCircle
             color="var(--theme-bg-primary)"
@@ -142,8 +189,9 @@ function FileUploadProgressComponent({
       <div
         className={`${
           isFadingOut ? "file-upload-fadeout" : "file-upload"
-        } h-14 px-2 py-2 flex items-center gap-x-4 rounded-lg bg-error/40 light:bg-error/30 light:border-solid light:border-error/40 border border-transparent`}
+        } relative h-14 px-2 py-2 pr-7 flex items-center gap-x-4 rounded-lg bg-error/40 light:bg-error/30 light:border-solid light:border-error/40 border border-transparent`}
       >
+        {cancelButton}
         <div className="w-6 h-6 flex-shrink-0">
           <XCircle
             color="var(--theme-bg-primary)"
@@ -166,8 +214,9 @@ function FileUploadProgressComponent({
     <div
       className={`${
         isFadingOut ? "file-upload-fadeout" : "file-upload"
-      } h-14 px-2 py-2 flex items-center gap-x-4 rounded-lg bg-zinc-800 light:border-solid light:border-theme-modal-border light:bg-theme-bg-sidebar border border-white/20 shadow-md`}
+      } relative h-14 px-2 py-2 pr-7 flex items-center gap-x-4 rounded-lg bg-zinc-800 light:border-solid light:border-theme-modal-border light:bg-theme-bg-sidebar border border-white/20 shadow-md`}
     >
+      {cancelButton}
       <div className="w-6 h-6 flex-shrink-0">
         {status !== "complete" ? (
           <div className="flex items-center justify-center">
