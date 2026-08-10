@@ -968,8 +968,14 @@ function workspaceEndpoints(app) {
           .status(200)
           .json({ success: true, error: null, documents: movedDocuments });
       } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(e.httpStatus || 500).end();
+        console.error("[WorkspaceUpload] Document upload failed.", {
+          code: e?.code || "workspace_document_upload_failed",
+          status: e?.httpStatus || 500,
+        });
+        response
+          .status(e.httpStatus || 500)
+          .json({ success: false, error: "workspace_document_upload_failed" })
+          .end();
       }
     }
   );

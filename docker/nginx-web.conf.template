@@ -86,7 +86,7 @@ server {
     proxy_send_timeout 3600s;
   }
 
-  location ~ ^/api/workspace/[^/]+/(upload|upload-link|update-embeddings|embed-progress|embed-queue|remove-and-unembed|reset-vector-db)$ {
+  location ~ ^/api/workspace/[^/]+/(upload|upload-link|upload-and-embed|update-embeddings|embed-progress|embed-queue|remove-and-unembed|reset-vector-db)$ {
     proxy_ssl_name anything-llm-knowledge-ingest;
     proxy_pass $athena_knowledge_ingest_upstream$request_uri;
     proxy_http_version 1.1;

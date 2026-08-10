@@ -185,6 +185,36 @@ async function wipeCollectorStorage() {
   return;
 }
 
+function assertCollectorStorageContract() {
+  const writableDirectories = [
+    documentsFolder,
+    directUploadsFolder,
+    storagePath("tmp"),
+  ];
+  for (const directory of writableDirectories) {
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      fs.accessSync(directory, fs.constants.R_OK | fs.constants.W_OK);
+    } catch (error) {
+      const contractError = new Error("collector_storage_domain_unavailable");
+      contractError.code = "collector_storage_domain_unavailable";
+      contractError.cause = error;
+      throw contractError;
+    }
+  }
+
+  const hotdir = path.resolve(__dirname, "../../hotdir");
+  try {
+    fs.accessSync(hotdir, fs.constants.R_OK);
+  } catch (error) {
+    const contractError = new Error("collector_upload_hotdir_unavailable");
+    contractError.code = "collector_upload_hotdir_unavailable";
+    contractError.cause = error;
+    throw contractError;
+  }
+  return true;
+}
+
 /**
  * Checks if a given path is within another path.
  * @param {string} outer - The outer path (should be resolved).
@@ -227,6 +257,7 @@ module.exports = {
   createdDate,
   writeToServerDocuments,
   wipeCollectorStorage,
+  assertCollectorStorageContract,
   normalizePath,
   isWithin,
   sanitizeFileName,

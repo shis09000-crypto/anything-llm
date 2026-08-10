@@ -42,13 +42,20 @@ function isolatedDocumentFilename(file) {
 
 function uploadError(response, err, maxBytes) {
   const tooLarge = err?.code === "LIMIT_FILE_SIZE";
+  const storageUnavailable = ["EACCES", "ENOENT", "EROFS"].includes(err?.code);
+  console.error("[Upload] Multipart document upload failed.", {
+    code: err?.code || "multipart_upload_failed",
+    storageUnavailable,
+  });
   return response
-    .status(tooLarge ? 413 : 500)
+    .status(tooLarge ? 413 : storageUnavailable ? 503 : 500)
     .json({
       success: false,
       error: tooLarge
         ? "request_entity_too_large"
-        : `Invalid file upload. ${err.message}`,
+        : storageUnavailable
+          ? "document_upload_storage_unavailable"
+          : "invalid_file_upload",
       ...(tooLarge ? { limitClass: "multipart", maxBytes } : {}),
     })
     .end();

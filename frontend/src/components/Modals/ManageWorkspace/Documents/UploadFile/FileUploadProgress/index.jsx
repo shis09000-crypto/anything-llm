@@ -36,6 +36,7 @@ function FileUploadProgressComponent({
   };
 
   useEffect(() => {
+    let mounted = true;
     async function uploadFile() {
       setLoading(true);
       setLoadingMessage("Uploading file...");
@@ -48,48 +49,67 @@ function FileUploadProgressComponent({
       }, 100);
 
       // Chunk streaming not working in production so we just sit and wait
-      const { response, data } = await Workspace.uploadFile(
-        slug,
-        formData,
-        uploadTargetFolder,
-        {
-          communicationScene: "workspace-upload-visible",
-          task: {
-            label: "workspace-upload:manage-workspace-file",
-            kind: "upload",
-            priority: "P0",
-            policy: "foreground",
-            protected: true,
-            abortable: false,
-            intentRank: 0,
-            scope: {
-              route: "workspace-settings",
-              surface: "workspace-upload",
-              workspaceSlug: slug,
-              fileName: file?.name,
+      try {
+        const { response, data } = await Workspace.uploadFile(
+          slug,
+          formData,
+          uploadTargetFolder,
+          {
+            communicationScene: "workspace-upload-visible",
+            task: {
+              label: "workspace-upload:manage-workspace-file",
+              kind: "upload",
+              priority: "P0",
+              policy: "foreground",
+              protected: true,
+              abortable: false,
+              intentRank: 0,
+              scope: {
+                route: "workspace-settings",
+                surface: "workspace-upload",
+                workspaceSlug: slug,
+                fileName: file?.name,
+              },
             },
-          },
+          }
+        );
+        if (!mounted) return;
+        if (!response.ok) {
+          const message =
+            data?.error || "Document upload failed. Please try again.";
+          setStatus("failed");
+          onUploadError(message);
+          setError(message);
+        } else {
+          setStatus("complete");
+          onUploadSuccess();
         }
-      );
-      if (!response.ok) {
+      } catch (uploadFailure) {
+        if (!mounted) return;
+        const message =
+          uploadFailure?.message ||
+          "Document upload failed. Please check the connection and retry.";
         setStatus("failed");
+        setError(message);
+        onUploadError(message);
+      } finally {
         clearInterval(timer);
-        onUploadError(data.error);
-        setError(data.error);
-      } else {
-        setLoading(false);
-        setLoadingMessage("");
-        setStatus("complete");
-        clearInterval(timer);
-        onUploadSuccess();
-      }
+        if (mounted) {
+          setLoading(false);
+          setLoadingMessage("");
 
-      // Begin fadeout timer to clear uploader queue.
-      setTimeout(() => {
-        fadeOut(() => setTimeout(() => beginFadeOut(), 300));
-      }, 5000);
+          // Begin fadeout timer to clear uploader queue.
+          setTimeout(() => {
+            if (!mounted) return;
+            fadeOut(() => setTimeout(() => beginFadeOut(), 300));
+          }, 5000);
+        }
+      }
     }
     !!file && !rejected && uploadFile();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (rejected) {

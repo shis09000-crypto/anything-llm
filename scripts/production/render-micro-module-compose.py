@@ -55,6 +55,29 @@ def module_image_variable(service_name: str) -> str:
 # call its mTLS policy endpoint and cannot silently fall back to local unwrap.
 LOCAL_KEY_SERVICES = {"anything-llm-key-custody"}
 
+# Keep the production storage root read-only and grant each document pipeline
+# runtime only the mutable subdirectories it actually owns. These nested bind
+# mounts deliberately override the read-only parent mount at their exact
+# targets without exposing unrelated credentials, caches, or runtime state.
+PRODUCTION_STORAGE_WRITE_DOMAINS = {
+    "anything-llm-knowledge-ingest": (
+        "documents",
+        "direct-uploads",
+        "embedding-batches",
+        "vector-cache",
+        "lancedb",
+    ),
+    "anything-llm-collector": (
+        "documents",
+        "direct-uploads",
+        "tmp",
+    ),
+}
+
+PRODUCTION_HOTDIR_WRITERS = {
+    "anything-llm-knowledge-ingest",
+}
+
 EXTERNAL_SERVICES = {"nats", "clickhouse", "otel-collector"}
 EXCLUDED_SERVICES = {
     "nats",
@@ -194,6 +217,60 @@ def service_port(service_name: str, environment: dict) -> int | None:
     return DEFAULT_SERVICE_PORTS.get(service_name)
 
 
+def apply_document_pipeline_storage_contract(
+    service_name: str, volumes: list[str]
+) -> list[str]:
+    normalized = []
+    for volume in volumes:
+        if (
+            service_name in PRODUCTION_HOTDIR_WRITERS
+            and volume
+            == "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:/app/collector/hotdir:ro"
+        ):
+            normalized.append(
+                "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:/app/collector/hotdir"
+            )
+            continue
+        normalized.append(volume)
+
+    for domain in PRODUCTION_STORAGE_WRITE_DOMAINS.get(service_name, ()):
+        normalized.append(
+            "${ATHENA_PROD_STORAGE_DIR:?required}/production/"
+            f"{domain}:/app/server/storage/production/{domain}"
+        )
+    return list(dict.fromkeys(normalized))
+
+
+def assert_document_pipeline_storage_contract(services: dict) -> None:
+    root_mount = (
+        "${ATHENA_PROD_STORAGE_DIR:?required}:/app/server/storage:ro"
+    )
+    for service_name, domains in PRODUCTION_STORAGE_WRITE_DOMAINS.items():
+        volumes = services[service_name].get("volumes", [])
+        if root_mount not in volumes:
+            raise ValueError(
+                f"{service_name} must retain the read-only storage root"
+            )
+        for domain in domains:
+            expected = (
+                "${ATHENA_PROD_STORAGE_DIR:?required}/production/"
+                f"{domain}:/app/server/storage/production/{domain}"
+            )
+            if expected not in volumes:
+                raise ValueError(
+                    f"{service_name} missing writable {domain} domain"
+                )
+
+    for service_name in PRODUCTION_HOTDIR_WRITERS:
+        volumes = services[service_name].get("volumes", [])
+        expected = (
+            "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:"
+            "/app/collector/hotdir"
+        )
+        if expected not in volumes:
+            raise ValueError(f"{service_name} missing writable upload hotdir")
+
+
 def render(source: Path) -> dict:
     contract = yaml.safe_load(source.read_text())
     services = {}
@@ -248,6 +325,9 @@ def render(source: Path) -> dict:
                 environment["COLLECTOR_ENDPOINT"] = (
                     "https://anything-llm-collector:8888"
                 )
+            service["volumes"] = apply_document_pipeline_storage_contract(
+                name, service.get("volumes", [])
+            )
         if name not in {"anything-llm-web", "anything-llm-api-tls", "postgresql", "minio", "minio-init"}:
             environment["APP_ENV"] = "production"
             environment["NODE_ENV"] = "production"
@@ -502,6 +582,8 @@ def render(source: Path) -> dict:
         "mem_limit": "256m",
         "networks": ["production"],
     }
+
+    assert_document_pipeline_storage_contract(services)
 
     return {
         "name": "athena-production-micro",

@@ -526,7 +526,7 @@ runtimeCoordinator.register({
   order: 25,
   stopOrder: 25,
   start: async () => {
-    await resumeActiveBatchJobs();
+    if (inlineRuntime("knowledge-ingest")) await resumeActiveBatchJobs();
   },
 });
 

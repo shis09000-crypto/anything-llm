@@ -122,6 +122,22 @@ function writableNamedVolumeMounts(service = {}) {
     );
 }
 
+function approvedDocumentPipelineHandoff({ mount, consumers }) {
+  const approvedConsumers = [
+    "anything-llm-collector",
+    "anything-llm-knowledge-ingest",
+  ];
+  if (
+    consumers.length !== approvedConsumers.length ||
+    consumers.some((consumer, index) => consumer !== approvedConsumers[index])
+  )
+    return false;
+  return [
+    "/app/server/storage/production/documents",
+    "/app/server/storage/production/direct-uploads",
+  ].some((target) => mount.endsWith(`:${target}`));
+}
+
 function main() {
   const manifests = loadManifests();
   const manifestIds = new Set(manifests.map(({ id }) => id));
@@ -510,8 +526,19 @@ function main() {
   ]
     .filter(([, consumers]) => consumers.length > 1)
     .map(([mount, consumers]) => ({ mount, consumers: consumers.sort() }));
-  if (productionSharedWritableStorageConsumers.length)
+  const unapprovedProductionSharedWritableStorageConsumers =
+    productionSharedWritableStorageConsumers.filter(
+      (entry) => !approvedDocumentPipelineHandoff(entry)
+    );
+  if (unapprovedProductionSharedWritableStorageConsumers.length)
     findings.push("production_shared_writable_storage_detected");
+
+  if (
+    !read("docker/nginx-web.conf.template").includes(
+      "upload|upload-link|upload-and-embed|update-embeddings"
+    )
+  )
+    findings.push("knowledge_ingest_upload_and_embed_route_missing");
 
   const summary = {
     version: "athena.independent-module-topology:v1",
@@ -556,6 +583,7 @@ function main() {
     dataIsolation: {
       sharedWritableStorageConsumers,
       productionSharedWritableStorageConsumers,
+      unapprovedProductionSharedWritableStorageConsumers,
       independentRuntimeStorage:
         sharedWritableStorageConsumers.length === 0 && sharedStorageCutover,
       optionalStartupCouplings,

@@ -32,6 +32,10 @@ const { createApiScope } = require("./utils/microModules/scopedApi");
 const { DataAccessCenter } = require("./utils/dataAccess");
 const { CollectorApi } = require("./utils/collectorApi");
 const {
+  assertDocumentPipelineStorage,
+} = require("./utils/files/storageWriteContract");
+const { resumeActiveBatchJobs } = require("./utils/DocumentEmbeddingBatch");
+const {
   recomputeKnowledgeMetrics,
 } = require("./utils/knowledgeGraph/metricsCapabilityClient");
 
@@ -63,7 +67,9 @@ const host = new MicroModuleServiceHost({
   parseJson: false,
   readiness: () => ({ ...state }),
   onStart: async () => {
+    assertDocumentPipelineStorage({ includeUploadHotdir: true });
     await secureDatabaseStart(role);
+    await resumeActiveBatchJobs();
     state.database = "ready";
     state.status = "running";
     state.ready = true;
