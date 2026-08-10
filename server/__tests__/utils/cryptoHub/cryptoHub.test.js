@@ -343,6 +343,119 @@ describe("Crypto Data Hub", () => {
     expect(response.payload.assets).toEqual([{ asset: "SOL" }]);
   });
 
+  test("private pair detail and BTC summary use the resolved account hub", async () => {
+    jest.resetModules();
+    const globalCryptoDataHub = {
+      getTradingPairDetail: jest.fn(),
+      getBtcSummary: jest.fn(),
+    };
+    const accountCryptoDataHub = {
+      getTradingPairDetail: jest.fn(async ({ pair, market }) => ({
+        success: true,
+        gateCurrencyPair: pair,
+        marketType: market,
+        holdingAmountBase: "0.25000000",
+      })),
+      getBtcSummary: jest.fn(async ({ range }) => ({
+        success: true,
+        range,
+        holdingAmountBtc: "0.25000000",
+      })),
+    };
+    const resolveCryptoHubForHttp = jest.fn(async (user) => ({
+      hub: accountCryptoDataHub,
+      mode: "account",
+      userId: user.id,
+    }));
+
+    jest.doMock("../../../utils/cryptoHub", () => ({
+      cryptoDataHub: globalCryptoDataHub,
+    }));
+    jest.doMock("../../../utils/cryptoAccount", () => ({
+      resolveCryptoHubForHttp,
+    }));
+    jest.doMock("../../../utils/cryptoGate", () => ({
+      safeErrorMessage: (value) =>
+        value instanceof Error ? value.message : String(value || ""),
+    }));
+    jest.doMock("../../../utils/middleware/multiUserProtected", () => ({
+      flexUserRoleValid: () => (_request, _response, next) => next(),
+      ROLES: { admin: "admin", manager: "manager" },
+    }));
+    jest.doMock("../../../utils/middleware/validatedRequest", () => ({
+      validatedRequest: (_request, response, next) => {
+        response.locals.user = { id: 42 };
+        next();
+      },
+    }));
+
+    const { cryptoHubEndpoints } = require("../../../endpoints/cryptoHub");
+    const routes = [];
+    const app = {
+      get: jest.fn((path, ...handlers) => {
+        routes.push({ path, handlers });
+      }),
+      post: jest.fn(),
+    };
+    cryptoHubEndpoints(app);
+
+    const responseFor = () => ({
+      locals: {},
+      statusCode: null,
+      payload: null,
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(payload) {
+        this.payload = payload;
+        return this;
+      },
+    });
+
+    const pairResponse = responseFor();
+    await dispatchRouteHandlers(
+      routes.find((item) => item.path === "/crypto-hub/trading-pair-detail")
+        .handlers,
+      {
+        query: { pair: "ETH_USDT", market: "spot" },
+        headers: {},
+        header: jest.fn(),
+      },
+      pairResponse
+    );
+
+    const summaryResponse = responseFor();
+    await dispatchRouteHandlers(
+      routes.find((item) => item.path === "/crypto-hub/btc-summary").handlers,
+      {
+        query: { range: "1d" },
+        headers: {},
+        header: jest.fn(),
+      },
+      summaryResponse
+    );
+
+    expect(resolveCryptoHubForHttp).toHaveBeenCalledTimes(2);
+    expect(accountCryptoDataHub.getTradingPairDetail).toHaveBeenCalledWith({
+      pair: "ETH_USDT",
+      market: "spot",
+    });
+    expect(accountCryptoDataHub.getBtcSummary).toHaveBeenCalledWith({
+      range: "1d",
+    });
+    expect(globalCryptoDataHub.getTradingPairDetail).not.toHaveBeenCalled();
+    expect(globalCryptoDataHub.getBtcSummary).not.toHaveBeenCalled();
+    expect(pairResponse).toMatchObject({
+      statusCode: 200,
+      payload: { success: true, holdingAmountBase: "0.25000000" },
+    });
+    expect(summaryResponse).toMatchObject({
+      statusCode: 200,
+      payload: { success: true, holdingAmountBtc: "0.25000000" },
+    });
+  });
+
   test("stopIfIdle does not stop the shared private websocket", () => {
     const adapter = fakeAdapter();
     const hub = new CryptoDataHub({ adapter });
