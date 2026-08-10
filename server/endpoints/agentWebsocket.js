@@ -39,13 +39,20 @@ const {
   monitorRealtimePrincipal,
 } = require("../utils/authz/realtimePrincipal");
 const { emitSemanticEvent } = require("../utils/observability/semanticEvents");
+const {
+  agentPersistenceContractSnapshot,
+} = require("../utils/agents/invocationPersistenceContract");
 
 const WorkspaceAgentInvocation = DataAccessCenter.workspaceAgentInvocation;
 const activeAgentSessions = new Map();
 
 function agentRuntimeSnapshot() {
+  const persistenceContract = agentPersistenceContractSnapshot();
   return {
+    ready: persistenceContract.ready,
+    reasonCode: persistenceContract.reasonCode,
     activeSessions: activeAgentSessions.size,
+    persistenceContract,
   };
 }
 

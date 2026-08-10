@@ -13,6 +13,7 @@
     "security:runtime-storage-audit": "node scripts/audit-runtime-client-storage.mjs",
     "perf:workspacechat": "node scripts/workspacechat-stress-report.mjs",
     "perf:local-production": "node scripts/local-production-perf-check.mjs",
+    "test:streaming-markdown": "node scripts/check-streaming-markdown.mjs",
     "lint": "eslint --fix src",
     "preview": "vite preview"
   },

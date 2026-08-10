@@ -1,10 +1,11 @@
 import React, { useState, useEffect, memo, useRef } from "react";
 import truncate from "truncate";
-import { CheckCircle, X, XCircle } from "@phosphor-icons/react";
+import { CheckCircle, X } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import Workspace from "../../../../../../models/workspace";
 import { humanFileSize } from "../../../../../../utils/numbers";
 import PreLoader from "../../../../../Preloader";
+import DocumentStatusBadge from "../../DocumentStatusBadge";
 
 function FileUploadProgressComponent({
   slug,
@@ -185,19 +186,20 @@ function FileUploadProgressComponent({
         } relative h-14 px-2 py-2 pr-7 flex items-center gap-x-4 rounded-lg bg-error/40 light:bg-error/30 light:border-solid light:border-error/40 border border-transparent`}
       >
         {cancelButton}
-        <div className="w-6 h-6 flex-shrink-0">
-          <XCircle
-            color="var(--theme-bg-primary)"
-            className="w-6 h-6 stroke-white bg-error rounded-full p-1 w-full h-full"
-          />
-        </div>
-        <div className="flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="text-white light:text-red-600 text-xs font-semibold">
             {truncate(file.name, 30)}
           </p>
-          <p className="text-red-100 light:text-red-600 text-xs font-medium">
-            {reason || "this file failed to upload"}
-          </p>
+          <DocumentStatusBadge
+            status="failed"
+            details={{
+              error:
+                reason ||
+                t("connectors.upload.upload-failed", {
+                  defaultValue: "File upload failed",
+                }),
+            }}
+          />
         </div>
       </div>
     );
@@ -211,19 +213,11 @@ function FileUploadProgressComponent({
         } relative h-14 px-2 py-2 pr-7 flex items-center gap-x-4 rounded-lg bg-error/40 light:bg-error/30 light:border-solid light:border-error/40 border border-transparent`}
       >
         {cancelButton}
-        <div className="w-6 h-6 flex-shrink-0">
-          <XCircle
-            color="var(--theme-bg-primary)"
-            className="w-6 h-6 stroke-white bg-error rounded-full p-1 w-full h-full"
-          />
-        </div>
-        <div className="flex flex-col">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className="text-white light:text-red-600 text-xs font-semibold">
             {truncate(file.name, 30)}
           </p>
-          <p className="text-red-100 light:text-red-600 text-xs font-medium">
-            {error}
-          </p>
+          <DocumentStatusBadge status="failed" details={{ error }} />
         </div>
       </div>
     );
@@ -252,9 +246,20 @@ function FileUploadProgressComponent({
         <p className="text-white light:text-theme-text-primary text-xs font-medium">
           {truncate(file.name, 30)}
         </p>
-        <p className="text-white/80 light:text-theme-text-secondary text-xs font-medium">
-          {progressLabel}
-        </p>
+        <div className="mt-0.5 flex items-center gap-2">
+          <DocumentStatusBadge
+            status={
+              status === "complete"
+                ? "uploaded"
+                : status === "uploading"
+                  ? "uploading"
+                  : "pending"
+            }
+            progress={status === "complete" ? null : uploadPercent}
+            details={{ speedBps: uploadSpeed }}
+          />
+          <span className="sr-only">{progressLabel}</span>
+        </div>
         <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-white/20 light:bg-black/10">
           <div
             className="h-full rounded-full bg-sky-400 transition-[width] duration-150 ease-out"

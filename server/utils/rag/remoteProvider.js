@@ -32,6 +32,9 @@ function wrapWithRemoteRag(vectorDb, env = process.env) {
       return async function remoteSimilaritySearch(options = {}) {
         const result = await requestInternalService({
           callerRole: String(env.ATHENA_RUNTIME_ROLE || "api"),
+          targetModule: "rag",
+          capability: "rag.retrieve",
+          contractVersion: "1.0",
           url: `${String(env.ATHENA_RAG_URL).replace(
             /\/+$/,
             ""

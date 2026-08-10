@@ -58,8 +58,7 @@ import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
 import { useWorkspaceSyncEvents } from "@/hooks/useWorkspaceSyncEvents";
 import usePfp from "@/hooks/usePfp";
 import useTimeoutProgress from "@/hooks/useTimeoutProgress";
-import DOMPurify from "@/utils/chat/purify";
-import renderMarkdown from "@/utils/chat/markdown";
+import StreamingMarkdown from "@/components/Markdown/StreamingMarkdown";
 import { displayPrompt } from "@/utils/chat/displayPrompt";
 import {
   MOBILE_PWA_HISTORY_HYDRATE_MARKER,
@@ -6706,13 +6705,6 @@ function MessageBubble({
   const hasText = !!message.text?.trim();
   const isStreamingAssistant =
     !isUser && (message.status === "running" || !!runtimeActivity);
-  const renderedAssistant = useMemo(
-    () =>
-      isUser || isStreamingAssistant
-        ? null
-        : DOMPurify.sanitize(renderMarkdown(message.text || "")),
-    [isStreamingAssistant, isUser, message.text]
-  );
   const userMessageChars = useMemo(
     () => Array.from(message.text || ""),
     [message.text]
@@ -6749,17 +6741,13 @@ function MessageBubble({
               className={hasAssistantText ? "mb-3" : "mb-1"}
             />
           )}
-          {hasAssistantText &&
-            (isStreamingAssistant ? (
-              <div className="whitespace-pre-wrap break-words text-[17px] font-normal leading-[1.72] text-slate-900">
-                {message.text}
-              </div>
-            ) : (
-              <div
-                className="mobile-experiment-markdown markdown text-[17px] font-normal leading-[1.72] text-slate-900 [&_*]:!text-slate-900 [&_a]:!text-sky-700 [&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:!text-slate-800 [&_h1]:!text-[22px] [&_h2]:!text-[20px] [&_h3]:!text-[18px] [&_li::marker]:!text-slate-500 [&_strong]:!font-black [&_table]:!text-sm"
-                dangerouslySetInnerHTML={{ __html: renderedAssistant }}
-              />
-            ))}
+          {hasAssistantText && (
+            <StreamingMarkdown
+              content={message.text}
+              isStreaming={isStreamingAssistant}
+              className="mobile-experiment-markdown markdown break-words text-[17px] font-normal leading-[1.72] text-slate-900 [&_*]:!text-slate-900 [&_a]:!text-sky-700 [&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:!text-slate-800 [&_h1]:!text-[22px] [&_h2]:!text-[20px] [&_h3]:!text-[18px] [&_li::marker]:!text-slate-500 [&_strong]:!font-black [&_table]:!text-sm"
+            />
+          )}
           {hasRuntimeActivity && (
             <MobileAgentActivityText
               key={runtimeActivity.key}

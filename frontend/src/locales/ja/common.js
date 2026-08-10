@@ -1627,6 +1627,7 @@ const TRANSLATIONS = {
       "preparing-upload": "{{percent}}% · アップロードを準備中",
       "upload-progress": "{{percent}}% · {{speed}}/秒",
       "upload-complete": "100% · アップロード完了",
+      "upload-failed": "ファイルのアップロードに失敗しました",
       "file-types":
         "テキストファイル、CSV、スプレッドシート、音声ファイルなどに対応しています！",
       "or-submit-link": "またはリンクを入力",
@@ -1635,6 +1636,24 @@ const TRANSLATIONS = {
       "fetch-website": "ウェブサイトを取得",
       "privacy-notice":
         "これらのファイルは、このAthenaインスタンス上のドキュメント処理機能にアップロードされます。第三者に送信・共有されることはありません。",
+    },
+    "document-status": {
+      uploading: "アップロード中",
+      waiting: "処理待ち",
+      processing: "解析中",
+      embedding: "埋め込み中",
+      indexing: "インデックス作成中",
+      uploaded: "アップロード済み",
+      indexed: "インデックス済み",
+      outdated: "インデックス期限切れ",
+      failed: "処理に失敗",
+      cancelled: "キャンセル済み",
+      cached: "キャッシュ済み",
+      "last-indexed": "最終インデックス：{{value}}",
+      "embedding-count": "埋め込み数：{{count}}",
+      "batch-id": "バッチ ID：{{value}}",
+      "failure-reason": "失敗理由：{{value}}",
+      "remove-from-queue": "キューから削除",
     },
     pinning: {
       what_pinning: "ドキュメントのピン留めとは？",
@@ -1821,6 +1840,8 @@ const TRANSLATIONS = {
       hideThoughtChain: "思考チェーンを非表示",
       agentSessionStarted:
         "エージェントモードを開始しました。/exit を入力するとセッションを終了できます。",
+      agentTemporarilyUnavailable:
+        "エージェントサービスは一時的に利用できません。メッセージは保持されています。しばらくしてから再試行してください。",
       agentFallbackToChat:
         "指定されたエージェント{{targets}}を開始できませんでした。通常のチャットとして続行します。",
       agentTargetLabel: "（{{targets}}）",

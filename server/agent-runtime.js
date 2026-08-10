@@ -35,6 +35,10 @@ const {
   submitAgentInvocation,
 } = require("./utils/agents/invocationCapability");
 const { startAgentRunRecovery } = require("./utils/agents/agentRunRecovery");
+const {
+  agentPersistenceContractSnapshot,
+  refreshAgentPersistenceContract,
+} = require("./utils/agents/invocationPersistenceContract");
 
 const role = "agent-runtime";
 const port = Number(process.env.AGENT_RUNTIME_PORT || 3017);
@@ -50,7 +54,10 @@ const host = new MicroModuleServiceHost({
   enableWebSockets: true,
   parseJson: false,
   readiness: agentRuntimeSnapshot,
-  onStart: () => secureDatabaseStart(role),
+  onStart: async () => {
+    await secureDatabaseStart(role);
+    await refreshAgentPersistenceContract();
+  },
   onDrain: async () => {
     stopAgentRunRecovery?.();
     stopAgentRunRecovery = null;
@@ -60,6 +67,13 @@ const host = new MicroModuleServiceHost({
     registerCompatibleApi(app, agentWebsocket);
     app.post("/internal/v1/agent/invocations", async (request, response) => {
       try {
+        const persistenceContract = agentPersistenceContractSnapshot();
+        if (!persistenceContract.ready)
+          return response.status(503).json({
+            success: false,
+            error: "agent_persistence_contract_incompatible",
+            reasonCode: persistenceContract.reasonCode,
+          });
         const result = await submitAgentInvocation(request.body);
         response.status(result.replayed ? 200 : 201).json({
           success: true,

@@ -178,6 +178,19 @@ export function formatTimelineContent(content, t) {
   }
 
   if (
+    [
+      "agent_invocation_store_unavailable",
+      "agent_persistence_contract_incompatible",
+    ].includes(text)
+  ) {
+    return translate(
+      t,
+      "chat_window.toolTimeline.agentTemporarilyUnavailable",
+      "The agent service is temporarily unavailable. Your message was preserved; please retry shortly."
+    );
+  }
+
+  if (
     text === "Agents could not be called. Chat will be handled as default chat."
   ) {
     return translate(

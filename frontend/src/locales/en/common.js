@@ -2118,6 +2118,7 @@ const readable = true;
       "preparing-upload": "{{percent}}% · Preparing upload",
       "upload-progress": "{{percent}}% · {{speed}}/s",
       "upload-complete": "100% · Uploaded",
+      "upload-failed": "File upload failed",
       "file-types":
         "supports text files, csv's, spreadsheets, audio files, and more!",
       "or-submit-link": "or submit a link",
@@ -2126,6 +2127,24 @@ const readable = true;
       "fetch-website": "Fetch website",
       "privacy-notice":
         "These files will be uploaded to the document processor running on this Athena instance. These files are not sent or shared with a third party.",
+    },
+    "document-status": {
+      uploading: "Uploading",
+      waiting: "Waiting for processing",
+      processing: "Parsing",
+      embedding: "Embedding",
+      indexing: "Indexing",
+      uploaded: "Uploaded",
+      indexed: "Indexed",
+      outdated: "Index out of date",
+      failed: "Processing failed",
+      cancelled: "Cancelled",
+      cached: "Cached",
+      "last-indexed": "Last indexed: {{value}}",
+      "embedding-count": "Embeddings: {{count}}",
+      "batch-id": "Batch ID: {{value}}",
+      "failure-reason": "Failure reason: {{value}}",
+      "remove-from-queue": "Remove from queue",
     },
     pinning: {
       what_pinning: "What is document pinning?",
@@ -2305,6 +2324,8 @@ const readable = true;
       hideThoughtChain: "Hide thought chain",
       agentSessionStarted:
         "Agent mode started. Type /exit to end the agent session.",
+      agentTemporarilyUnavailable:
+        "The agent service is temporarily unavailable. Your message was preserved; please retry shortly.",
       agentFallbackToChat:
         "The requested agent{{targets}} could not be started. Continuing as a standard chat.",
       agentTargetLabel: " ({{targets}})",

@@ -1,6 +1,5 @@
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const Workspace = lazyDataAccessFacade("workspace");
-const pluralize = require("pluralize");
 const WorkspaceAgentInvocation = lazyDataAccessFacade(
   "workspaceAgentInvocation"
 );
@@ -111,27 +110,26 @@ async function grepAgents({
         : await WorkspaceAgentInvocation.new(submission);
       newInvocation = result?.invocation || null;
     } catch (error) {
-      console.error(
-        `[AgentInvocation] submission failed: ${error?.code || error?.message || "unknown"}`
-      );
+      const errorCode = String(error?.code || "unknown")
+        .replace(/[^a-zA-Z0-9_.-]/g, "_")
+        .slice(0, 96);
+      console.error("[AgentInvocation] submission failed", {
+        errorCode,
+        clientTurnId: clientTurnId || null,
+      });
     }
 
     if (!newInvocation) {
       writeResponseChunk(response, {
         id: uuid,
-        type: "statusResponse",
-        textResponse: `${pluralize(
-          "Agent",
-          agentHandles.length
-        )} ${agentHandles.join(
-          ", "
-        )} could not be called. Chat will be handled as default chat.`,
+        type: "abort",
+        textResponse: null,
         sources: [],
         close: true,
         animate: false,
-        error: null,
+        error: "agent_invocation_store_unavailable",
       });
-      return;
+      return true;
     }
 
     enrichOperationContext({

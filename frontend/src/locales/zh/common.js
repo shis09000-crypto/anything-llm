@@ -1795,6 +1795,7 @@ const TRANSLATIONS = {
       "preparing-upload": "{{percent}}% · 正在准备上传",
       "upload-progress": "{{percent}}% · {{speed}}/秒",
       "upload-complete": "100% · 上传完成",
+      "upload-failed": "文件上传失败",
       "file-types": "支持文本文件、CSV、电子表格、音频文件等！",
       "or-submit-link": "或提交链接",
       "placeholder-link": "https://example.com",
@@ -1802,6 +1803,24 @@ const TRANSLATIONS = {
       "fetch-website": "获取网站",
       "privacy-notice":
         "这些文件将被上传到此Athena实例上的文档处理器。这些文件不会发送或共享给第三方。",
+    },
+    "document-status": {
+      uploading: "上传中",
+      waiting: "等待处理",
+      processing: "正在解析",
+      embedding: "正在嵌入",
+      indexing: "正在索引",
+      uploaded: "已上传",
+      indexed: "已索引",
+      outdated: "索引已过期",
+      failed: "处理失败",
+      cancelled: "已取消",
+      cached: "已缓存",
+      "last-indexed": "索引时间：{{value}}",
+      "embedding-count": "Embedding 数量：{{count}}",
+      "batch-id": "批次 ID：{{value}}",
+      "failure-reason": "失败原因：{{value}}",
+      "remove-from-queue": "从队列移除",
     },
     pinning: {
       what_pinning: "什么是文档固定？",
@@ -1976,6 +1995,8 @@ const TRANSLATIONS = {
       showThoughtChain: "显示思考链",
       hideThoughtChain: "隐藏思考链",
       agentSessionStarted: "已进入智能体模式。输入 /exit 可结束智能体会话。",
+      agentTemporarilyUnavailable:
+        "智能体服务暂时不可用。您的消息已保留，请稍后重试。",
       agentFallbackToChat:
         "无法启动请求的智能体{{targets}}，将继续使用普通聊天。",
       agentTargetLabel: "（{{targets}}）",

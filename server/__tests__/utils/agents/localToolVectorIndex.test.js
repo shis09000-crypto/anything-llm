@@ -20,6 +20,11 @@ describe("local Agent tool vector index", () => {
       description: "Read a workspace file or document.",
       parameters: { type: "object", properties: {} },
     },
+    {
+      name: "rag-memory",
+      description: "Search the current workspace vector knowledge base.",
+      parameters: { type: "object", properties: {} },
+    },
     ...Array.from({ length: 20 }, (_, index) => ({
       name: `unrelated_tool_${index}`,
       description: `Perform unrelated operation number ${index}.`,
@@ -51,6 +56,19 @@ describe("local Agent tool vector index", () => {
       hasAttachments: true,
     });
     expect(withFile.tools.map((tool) => tool.name)).toContain("read_document");
+  });
+
+  test.each([
+    "请检索工作区资料里的模型因子",
+    "查找本地文档中的量化指标",
+    "搜索知识库的模型体系",
+    "retrieve the model factors from the workspace documents",
+  ])("forces rag-memory for explicit workspace retrieval: %s", (query) => {
+    const selector = new LocalToolVectorIndex({
+      env: { ATHENA_AGENT_TOOL_MIN_SCORE: "0.99" },
+    });
+    const result = selector.select(query, tools);
+    expect(result.tools.map((tool) => tool.name)).toContain("rag-memory");
   });
 
   test("identifies only simple no-tool conversation for the fast path", () => {

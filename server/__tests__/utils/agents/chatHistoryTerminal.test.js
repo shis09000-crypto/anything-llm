@@ -27,7 +27,7 @@ const {
 describe("agent chat-history terminal lifecycle", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("terminates the invocation only after the final response is persisted", async () => {
+  test("ends the visible invocation while final persistence continues", async () => {
     const plugin = chatHistory.plugin();
     const aibitat = {
       handlerProps: {
@@ -64,7 +64,8 @@ describe("agent chat-history terminal lifecycle", () => {
       response: "hi",
     });
     await Promise.resolve();
-    expect(aibitat.terminate).not.toHaveBeenCalled();
+    expect(aibitat._terminalTurnPending).toBe(false);
+    expect(aibitat.terminate).toHaveBeenCalledTimes(1);
 
     releasePersistence();
     await storing;

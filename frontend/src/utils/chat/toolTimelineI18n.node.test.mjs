@@ -27,6 +27,7 @@ test("all supported thinking-state keys exist in English, Chinese, and Japanese"
     "chat_window.toolTimeline.agentThinking",
     "chat_window.toolTimeline.agentComplete",
     "chat_window.toolTimeline.agentSessionStarted",
+    "chat_window.toolTimeline.agentTemporarilyUnavailable",
     "chat_window.toolTimeline.agentFallbackToChat",
     "chat_window.toolTimeline.reconnecting",
     "chat_window.toolTimeline.generationStopped",
@@ -68,6 +69,23 @@ test("stored canonical agent events render in Japanese", () => {
   assert.equal(
     formatTimelineContent("Generation stopped by user.", t),
     "生成を停止しました。"
+  );
+});
+
+test("Agent persistence failures are localized without a false chat fallback", () => {
+  assert.equal(
+    formatTimelineContent(
+      "agent_invocation_store_unavailable",
+      translator(Chinese)
+    ),
+    "智能体服务暂时不可用。您的消息已保留，请稍后重试。"
+  );
+  assert.equal(
+    formatTimelineContent(
+      "agent_persistence_contract_incompatible",
+      translator(Japanese)
+    ),
+    "エージェントサービスは一時的に利用できません。メッセージは保持されています。しばらくしてから再試行してください。"
   );
 });
 

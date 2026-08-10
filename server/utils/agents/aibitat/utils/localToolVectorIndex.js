@@ -112,8 +112,14 @@ function registryFingerprint(tools = []) {
 function forcedToolNames(query, tools, context = {}) {
   const normalizedQuery = String(query || "").toLowerCase();
   const forced = new Set();
+  const explicitWorkspaceRetrievalIntent =
+    /(?:工作区|本地|知识库|向量|资料|文档).*(?:搜索|查找|检索|查询|找|搜)|(?:搜索|查找|检索|查询|找|搜).*(?:工作区|本地|知识库|向量|资料|文档)|(?:workspace|local|knowledge\s*base|vector|document|file).*(?:search|find|retrieve|query)|(?:search|find|retrieve|query).*(?:workspace|local|knowledge\s*base|vector|document|file)/i.test(
+      normalizedQuery
+    );
   for (const tool of tools) {
     const name = String(tool?.name || "").toLowerCase();
+    if (explicitWorkspaceRetrievalIntent && name === "rag-memory")
+      forced.add(tool.name);
     if (name && normalizedQuery.includes(name)) forced.add(tool.name);
   }
   const messages = Array.isArray(context.messages) ? context.messages : [];

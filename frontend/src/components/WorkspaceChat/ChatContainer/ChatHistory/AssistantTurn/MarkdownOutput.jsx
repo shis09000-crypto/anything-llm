@@ -1,7 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import renderMarkdown from "@/utils/chat/markdown";
-import DOMPurify from "@/utils/chat/purify";
 import { runIdleTask } from "@/utils/chat/idleChunk";
+import StreamingMarkdown from "@/components/Markdown/StreamingMarkdown";
 import {
   THOUGHT_REGEX_CLOSE,
   THOUGHT_REGEX_COMPLETE,
@@ -57,14 +56,6 @@ function MarkdownOutput({
     () => splitThoughtContent(content),
     [content]
   );
-  const html = useMemo(
-    () =>
-      !isStreaming && enhanced
-        ? DOMPurify.sanitize(renderMarkdown(markdown))
-        : null,
-    [enhanced, isStreaming, markdown]
-  );
-
   useEffect(() => {
     if (!content || typeof onLayoutChange !== "function") return;
 
@@ -81,15 +72,15 @@ function MarkdownOutput({
       {thoughtChain && (
         <ThoughtChainComponent content={thoughtChain} messageId={messageId} />
       )}
-      {markdown && enhanced && !isStreaming && (
-        <div
-          className="break-words flex flex-col gap-y-1 text-white light:text-slate-900"
-          dangerouslySetInnerHTML={{
-            __html: html,
-          }}
+      {markdown && (isStreaming || enhanced) && (
+        <StreamingMarkdown
+          content={markdown}
+          isStreaming={isStreaming}
+          onRender={onLayoutChange}
+          className="markdown break-words flex flex-col gap-y-1 text-white light:text-slate-900"
         />
       )}
-      {markdown && (isStreaming || !enhanced) && (
+      {markdown && !isStreaming && !enhanced && (
         <div className="whitespace-pre-wrap break-words text-white light:text-slate-900">
           {markdown}
         </div>

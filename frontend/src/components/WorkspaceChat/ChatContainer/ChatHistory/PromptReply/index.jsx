@@ -1,8 +1,7 @@
 /* eslint-disable react-hooks/refs */
 import { memo, useRef, useEffect } from "react";
 import { Warning } from "@phosphor-icons/react";
-import renderMarkdown from "@/utils/chat/markdown";
-import DOMPurify from "@/utils/chat/purify";
+import StreamingMarkdown from "@/components/Markdown/StreamingMarkdown";
 import Citations from "../Citation";
 import {
   THOUGHT_REGEX_CLOSE,
@@ -103,11 +102,10 @@ function RenderAssistantChatContent({ message, messageId }) {
           messageId={messageId}
         />
       )}
-      <span
-        className="break-words"
-        dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(renderMarkdown(contentRef.current)),
-        }}
+      <StreamingMarkdown
+        content={contentRef.current}
+        isStreaming={false}
+        className="markdown break-words"
       />
     </div>
   );

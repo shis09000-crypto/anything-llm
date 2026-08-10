@@ -5,6 +5,7 @@ import {
   middleTruncate,
 } from "@/utils/directories";
 import { File } from "@phosphor-icons/react";
+import DocumentStatusBadge from "../../DocumentStatusBadge";
 
 export default function FileRow({ item, selected, toggleSelection }) {
   return (
@@ -42,11 +43,7 @@ export default function FileRow({ item, selected, toggleSelection }) {
         </p>
       </div>
       <div className="col-span-2 flex justify-end items-center">
-        {item?.cached && (
-          <div className="bg-theme-settings-input-active rounded-3xl">
-            <p className="text-xs px-2 py-0.5">Cached</p>
-          </div>
-        )}
+        {item?.cached && <DocumentStatusBadge status="cached" />}
       </div>
     </tr>
   );

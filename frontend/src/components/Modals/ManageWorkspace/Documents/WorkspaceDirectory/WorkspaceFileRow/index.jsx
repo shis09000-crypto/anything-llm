@@ -8,6 +8,7 @@ import { ArrowUUpLeft, Eye, File, PushPin } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import System from "@/models/system";
+import DocumentStatusBadge from "../../DocumentStatusBadge";
 
 export default function WorkspaceFileRow({
   item,
@@ -133,55 +134,7 @@ function normalizeIndexStatus(status) {
 }
 
 function IndexStatusBadge({ status, details }) {
-  if (!status) return null;
-  const config = {
-    pending: {
-      icon: "⏳",
-      label: "Pending indexing",
-      className: "text-yellow-300 light:text-yellow-700",
-    },
-    indexing: {
-      icon: "🔄",
-      label: "Indexing",
-      className: "text-yellow-300 light:text-yellow-700",
-    },
-    indexed: {
-      icon: "✅",
-      label: "Indexed",
-      className: "text-green-300 light:text-green-700",
-    },
-    outdated: {
-      icon: "⚠️",
-      label: "Outdated index",
-      className: "text-orange-300 light:text-orange-700",
-    },
-    failed: {
-      icon: "❌",
-      label: "Indexing failed",
-      className: "text-red-300 light:text-red-700",
-    },
-  }[status];
-  if (!config) return null;
-
-  const title = [
-    config.label,
-    details?.error ? `Error: ${details.error}` : null,
-    details?.indexedAt ? `Last indexed: ${details.indexedAt}` : null,
-    details?.embeddingCount ? `Embeddings: ${details.embeddingCount}` : null,
-    details?.batchJobId ? `Batch job: ${details.batchJobId}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return (
-    <span
-      title={title}
-      className={`text-xs leading-none mr-1 ${config.className}`}
-      aria-label={config.label}
-    >
-      {config.icon}
-    </span>
-  );
+  return <DocumentStatusBadge status={status} details={details} />;
 }
 
 const PinItemToWorkspace = memo(({ workspace, docPath, item }) => {
