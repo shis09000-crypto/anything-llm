@@ -539,6 +539,8 @@ function main() {
     )
   )
     findings.push("knowledge_ingest_upload_and_embed_route_missing");
+  if (!read("server/knowledge-ingest.js").includes("upload-and-embed"))
+    findings.push("knowledge_ingest_upload_and_embed_scope_missing");
 
   const summary = {
     version: "athena.independent-module-topology:v1",

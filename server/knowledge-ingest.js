@@ -54,7 +54,7 @@ const state = {
 const ingestApiScope = createApiScope({
   prefixes: ["/document"],
   patterns: [
-    /^\/workspace\/[^/]+\/(?:upload|upload-link|update-embeddings)$/,
+    /^\/workspace\/[^/]+\/(?:upload|upload-and-embed|upload-link|update-embeddings)$/,
     /^\/workspace\/[^/]+\/(?:embed-progress|embed-queue)$/,
     /^\/workspace\/[^/]+\/(?:remove-and-unembed|reset-vector-db)$/,
   ],
