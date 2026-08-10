@@ -8,6 +8,7 @@ import type {
   OpenFuturesPositionsCardProps,
 } from "./openFuturesPositionsTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import { liquidationRiskPresentation } from "./openFuturesRiskPresentation";
 
 type PositionFilter = "all" | "long" | "short" | "risk";
 
@@ -15,6 +16,7 @@ const RISK_ORDER: Record<FuturesRiskLevel, number> = {
   danger: 3,
   watch: 2,
   safe: 1,
+  unavailable: 0,
 };
 
 const FILTER_OPTIONS: Array<{ id: PositionFilter; label: string }> = [
@@ -38,17 +40,6 @@ const LIQUIDATION_LIGHT_COLORS = [
   "#FB923C",
   "#EF4444",
 ];
-const LIQUIDATION_RISK_META: Record<
-  LiquidationRiskLevel,
-  { label: string; lights: number }
-> = {
-  safe: { label: "安全", lights: 1 },
-  watch: { label: "注意", lights: 2 },
-  danger: { label: "高危", lights: 3 },
-  critical: { label: "危险", lights: 4 },
-  extreme: { label: "极危", lights: 5 },
-};
-
 const statusMeta: Record<
   NonNullable<OpenFuturesPositionsCardProps["status"]>,
   { color: string; bg: string }
@@ -202,7 +193,7 @@ function LiquidationRiskLights({
 }) {
   const distancePct = parseOptionalNumber(position.liquidationDistancePct);
   const level = liquidationRiskLevel(position);
-  const meta = LIQUIDATION_RISK_META[level];
+  const meta = liquidationRiskPresentation(level);
   const distanceLabel =
     distancePct === null ? "待计算" : `${distancePct.toFixed(2)}%`;
 
