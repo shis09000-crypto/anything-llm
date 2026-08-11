@@ -3,6 +3,7 @@ import { v4 } from "uuid";
 import { getJson, postJson } from "./apiClient";
 import { getJsonSse, postJsonSse } from "./streamClient";
 import {
+  isVisibleChatTerminalEvent,
   normalizeChatStreamEvent,
   normalizeChatTurnEvent,
 } from "./chatStreamProtocol";
@@ -107,6 +108,10 @@ async function streamChat({
   let emittedStop = false;
   let emittedError = false;
   let terminalSeen = false;
+  let resolveVisibleTerminal = null;
+  const visibleTerminal = new Promise((resolve) => {
+    resolveVisibleTerminal = resolve;
+  });
   let lastRevision = 0;
   let reconnectAttempt = 0;
   const clientTurnId = String(body?.clientTurnId || "").trim();
@@ -123,11 +128,10 @@ async function streamChat({
         recordChatStreamRevision(clientTurnId, lastRevision);
       }
     }
-    if (
-      raw?.close === true ||
-      ["abort", "stopGeneration"].includes(raw?.type)
-    ) {
+    if (isVisibleChatTerminalEvent(raw)) {
       terminalSeen = true;
+      resolveVisibleTerminal?.(raw);
+      resolveVisibleTerminal = null;
     }
     if (raw?.action === "rename_thread") dispatchThreadRename(raw.thread);
     onRawEvent?.(raw);
@@ -277,10 +281,26 @@ async function streamChat({
       ),
     };
     try {
-      await postJsonSse({
+      const foregroundTransport = postJsonSse({
         ...streamOptions(path),
         body: requestBody,
       });
+      const foregroundOutcome = await Promise.race([
+        foregroundTransport.then(() => "transport_closed"),
+        visibleTerminal.then(() => "visible_terminal"),
+      ]);
+      if (foregroundOutcome === "visible_terminal") {
+        // Keep receiving chatPersistence metadata in the background, but do
+        // not hold the input bar, stop button, or P0 foreground task open while
+        // encrypted history persistence finishes. Bound that detached reader
+        // to a short grace period; the durable run and Sync V2 own recovery if
+        // persistence takes longer.
+        const detachTimer = window.setTimeout(() => ctrl.abort(), 2_000);
+        void foregroundTransport
+          .finally(() => window.clearTimeout(detachTimer))
+          .catch(() => {});
+        return;
+      }
     } catch (error) {
       // A transport or recoverable server failure may happen after the durable
       // run was claimed, so reconnecting by clientTurnId remains safe. A

@@ -19,19 +19,35 @@ test("foreground terminal and persistence events remain separate", async () => {
     );
     const target = path.join(temporaryDirectory, "chatStreamProtocol.mjs");
     await writeFile(target, source, "utf8");
-    const { normalizeChatStreamEvent } = await import(
-      `${pathToFileURL(target).href}?${Date.now()}`
-    );
+    const { isVisibleChatTerminalEvent, normalizeChatStreamEvent } =
+      await import(`${pathToFileURL(target).href}?${Date.now()}`);
 
     const terminal = normalizeChatStreamEvent({
       type: "finalizeResponseStream",
       clientTurnId: "turn-1",
+      textResponse: "authoritative final answer",
       persistenceStatus: "pending",
       close: false,
     });
     assert.equal(terminal.type, "final");
+    assert.equal(terminal.payload.text, "authoritative final answer");
     assert.equal(terminal.payload.persistenceStatus, "pending");
     assert.equal(terminal.payload.close, false);
+    assert.equal(
+      isVisibleChatTerminalEvent({
+        type: "finalizeResponseStream",
+        persistenceStatus: "pending",
+        close: false,
+      }),
+      true
+    );
+    assert.equal(
+      isVisibleChatTerminalEvent({
+        type: "textResponseChunk",
+        close: false,
+      }),
+      false
+    );
 
     const saved = normalizeChatStreamEvent({
       type: "chatPersistence",

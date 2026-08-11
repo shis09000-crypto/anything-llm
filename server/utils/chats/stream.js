@@ -799,6 +799,10 @@ async function streamChatWithWorkspace(
       writeResponseChunk(response, {
         uuid,
         type: "finalizeResponseStream",
+        // The terminal frame doubles as an authoritative snapshot. This
+        // closes the race where completion arrives before the browser paints
+        // its last throttled delta batch.
+        textResponse: completeText,
         close: false,
         error: false,
         clientTurnId,
@@ -884,6 +888,10 @@ async function streamChatWithWorkspace(
         );
       } catch (error) {
         hotTurnBuffer.updateStatus(clientTurnId, "failed");
+        logRecoverableChatError("chat_history_save_failed", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        });
         void settleModelExecution();
         writeResponseChunk(response, {
           uuid,

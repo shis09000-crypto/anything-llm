@@ -11,12 +11,15 @@ const {
 const { secureCookieOptions } = require("../../utils/security/cookies");
 
 function responseDouble() {
+  const setNoDelay = jest.fn();
   return {
     headers: {},
     statusCode: null,
     body: null,
     redirectCode: null,
     redirectUrl: null,
+    socket: { setNoDelay },
+    setNoDelay,
     setHeader(name, value) {
       this.headers[name] = value;
     },
@@ -247,6 +250,7 @@ describe("production transport security helpers", () => {
       "X-Accel-Buffering": "no",
       "Access-Control-Allow-Origin": "*",
     });
+    expect(response.setNoDelay).toHaveBeenCalledWith(true);
   });
 
   it("returns a redacted transport security status summary", () => {

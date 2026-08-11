@@ -6,6 +6,12 @@ import {
 
 export const CHAT_PROTOCOL_VERSION = 1;
 
+export function isVisibleChatTerminalEvent(raw = {}) {
+  if (["abort", "stopGeneration"].includes(raw?.type)) return true;
+  if (raw?.type === "finalizeResponseStream") return true;
+  return raw?.close === true;
+}
+
 function streamEvent(type, raw = {}, payload = {}) {
   return {
     type,
