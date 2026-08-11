@@ -32,6 +32,12 @@ export function renderStreamingMarkdown(raw = "") {
   );
 }
 
+export function renderStreamingMarkdownInline(raw = "") {
+  return DOMPurify.sanitize(
+    streamingMarkdown.renderInline(stabilizeStreamingMarkdown(raw))
+  );
+}
+
 export function renderStreamingMarkdownSegments(raw = "") {
   const { stable, live } = streamingMarkdownSegments(raw);
   return {

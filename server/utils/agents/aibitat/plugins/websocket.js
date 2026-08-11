@@ -10,6 +10,7 @@ const { safeJsonParse } = require("../../../http");
 const { skillIsAutoApproved } = require("../../../helpers/agents");
 const { resolveEffectivePolicy } = require("../../../fileAccessPolicy");
 const { shellAgent } = require("./shell/index.js");
+const { sanitizeAgentProgress } = require("../../agentProgress.js");
 const {
   compactAgentEventKey,
   sanitizeAgentEvent,
@@ -85,6 +86,7 @@ function recordAgentEvent(aibitat, event = {}) {
 }
 
 function sanitizeReportStreamContent(content = {}) {
+  if (content?.type === "agentProgress") return sanitizeAgentProgress(content);
   if (content?.type === "toolCallInvocation") {
     return {
       type: "toolCallInvocation",
@@ -192,6 +194,16 @@ function eventFromSocketPayload(type, content = {}) {
       totalSize: content.totalSize,
     };
   }
+  if (content.type === "agentProgress") {
+    return {
+      type: "agent_progress",
+      uuid: content.uuid,
+      phase: content.phase,
+      status: content.status,
+      sequence: content.sequence,
+      details: content.details || {},
+    };
+  }
   if (content.type === "chatId") {
     return {
       type: "final_message",
@@ -283,6 +295,9 @@ const websocket = {
           let errorMessage =
             error?.message || "An error occurred while running the agent.";
           console.error(chalk.red(`   error: ${errorMessage}`), error);
+          aibitat.reportProgress?.("synthesis", "failed", {
+            errorCode: error?.code || "agent_execution_failed",
+          });
           aibitat.introspect(
             `Error encountered while running: ${errorMessage}`
           );
@@ -309,6 +324,19 @@ const websocket = {
               animate: true,
             })
           );
+        };
+
+        aibitat.reportProgress = (phase, status = "running", details = {}) => {
+          const progress = sanitizeAgentProgress({
+            phase,
+            status,
+            details,
+            sequence: (aibitat._agentProgressSequence || 0) + 1,
+          });
+          if (!progress) return null;
+          aibitat._agentProgressSequence = progress.sequence;
+          aibitat.socket.send("reportStreamEvent", progress);
+          return progress;
         };
 
         // expose function for sockets across aibitat

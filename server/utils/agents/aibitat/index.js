@@ -59,6 +59,15 @@ function readyToolInvocationEvent(functionCall, depth, fallbackUuid) {
   };
 }
 
+function toolCategory(toolName = "") {
+  const name = String(toolName || "").toLowerCase();
+  if (name.includes("rag") || name.includes("memory")) return "rag";
+  if (name.includes("web") || name.includes("browser")) return "web";
+  if (name.includes("file") || name.includes("document")) return "document";
+  if (name.includes("shell") || name.includes("computer")) return "computer";
+  return "function";
+}
+
 function continuationProviderConfigForFunction(fn = {}) {
   const taskName = String(fn?.continuationTask || "").trim();
   if (!taskName) return null;
@@ -200,6 +209,14 @@ class AIbitat {
   use(plugin) {
     plugin.setup(this);
     return this;
+  }
+
+  completeProgressBeforeFinal() {
+    if (this._finalProgressEmitted) return;
+    this._finalProgressEmitted = true;
+    this.reportProgress?.("synthesis", "completed");
+    this.reportProgress?.("finalizing", "running");
+    this.reportProgress?.("finalizing", "completed");
   }
 
   /**
@@ -901,6 +918,7 @@ ${this.getHistory({ to: route.to })
    * @param route.from The node that will reply to the chat.
    */
   async reply(route) {
+    this.reportProgress?.("session_start", "running");
     const fromConfig = this.getAgentConfig(route.from);
     const chatHistory = this.getOrFormatNodeChatHistory(route);
 
@@ -949,6 +967,9 @@ ${this.getHistory({ to: route.to })
     let functions = fromConfig.functions
       ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
       .filter((a) => !!a);
+
+    this.reportProgress?.("session_start", "completed");
+    this.reportProgress?.("tool_selection", "running");
 
     const userPrompt = this.#extractUserPrompt(messages);
     // Flash uses a warm, local vector index so its tool schema stays bounded.
@@ -1027,6 +1048,10 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       }
     }
 
+    this.reportProgress?.("tool_selection", "completed", {
+      selectedToolCount: functions?.length || 0,
+    });
+
     const provider = this.getProviderForConfig({
       ...this.defaultProvider,
       ...fromConfig,
@@ -1046,6 +1071,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     provider.attachHandlerProps(this.handlerProps);
 
     let content;
+    this.reportProgress?.("synthesis", "running");
     if (provider.supportsAgentStreaming) {
       this.handlerProps.log?.(
         "[DEBUG] Provider supports agent streaming - will use async execution!"
@@ -1067,6 +1093,8 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         route.from
       );
     }
+
+    this.completeProgressBeforeFinal();
 
     // Store the active provider so plugins can access usage metrics
     this.provider = provider;
@@ -1408,6 +1436,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     const eventHandler = (type, data) => {
       if (!shouldForwardProviderStreamEvent(type, data)) return;
       if (type === "reportStreamEvent" && data?.type === "fullTextResponse") {
+        this.completeProgressBeforeFinal();
         emittedFullTextResponse = true;
       }
       this?.socket?.send(type, data);
@@ -1476,6 +1505,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
+      this.reportProgress?.("tool_execution", "running", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+
       const toolCallId =
         completionStream.functionCall?.id ||
         completionStream.functionCall?.call_id ||
@@ -1500,6 +1534,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         arguments: args,
         result: toolRun,
       });
+      this.reportProgress?.("tool_execution", "completed", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+      this.reportProgress?.("synthesis", "running");
 
       /**
        * If the tool call has direct output enabled, return the result directly to the chat
@@ -1716,6 +1755,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
+      this.reportProgress?.("tool_execution", "running", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+
       const toolCallId =
         completion.functionCall?.id ||
         completion.functionCall?.call_id ||
@@ -1740,6 +1784,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         arguments: args,
         result: toolRun,
       });
+      this.reportProgress?.("tool_execution", "completed", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+      this.reportProgress?.("synthesis", "running");
 
       if (this.skipHandleExecution) {
         this.skipHandleExecution = false;

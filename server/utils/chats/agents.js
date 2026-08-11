@@ -96,6 +96,17 @@ async function grepAgents({
 
   const agentHandles = WorkspaceAgentInvocation.parseAgents(message);
   if (agentHandles.length > 0 || nativeToolingEnabled) {
+    writeResponseChunk(response, {
+      id: uuid,
+      type: "agentProgress",
+      phase: "routing",
+      status: "running",
+      sequence: 1,
+      details: {
+        routeKind: agentHandles.length > 0 ? "explicit" : "automatic",
+      },
+      close: false,
+    });
     const submission = {
       prompt: message,
       workspace,
@@ -122,6 +133,15 @@ async function grepAgents({
     if (!newInvocation) {
       writeResponseChunk(response, {
         id: uuid,
+        type: "agentProgress",
+        phase: "routing",
+        status: "failed",
+        sequence: 1,
+        details: { errorCode: "agent_invocation_store_unavailable" },
+        close: false,
+      });
+      writeResponseChunk(response, {
+        id: uuid,
         type: "abort",
         textResponse: null,
         sources: [],
@@ -138,6 +158,18 @@ async function grepAgents({
       workspaceId: workspace?.id || null,
       threadId: thread?.id || null,
       journey: "agent_tool",
+    });
+
+    writeResponseChunk(response, {
+      id: uuid,
+      type: "agentProgress",
+      phase: "routing",
+      status: "completed",
+      sequence: 1,
+      details: {
+        routeKind: agentHandles.length > 0 ? "explicit" : "automatic",
+      },
+      close: false,
     });
 
     // Cache attachments for the websocket handler to retrieve later

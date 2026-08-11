@@ -2320,6 +2320,29 @@ const readable = true;
       modelComplete: "Model has finished thinking",
       agentThinking: "Agent is thinking...",
       agentComplete: "Agent has finished thinking",
+      progress: {
+        runningSummary:
+          "{{phase}} · {{count}} steps completed · {{elapsed}} {{stillWorking}}",
+        completedSummary:
+          "Agent completed · {{count}} steps · {{evidence}} evidence items · {{elapsed}}",
+        failedSummary:
+          "{{phase}} failed · {{count}} steps completed · {{elapsed}}",
+        stillWorking: "· Still working on this step",
+        toolDetail: "Calling {{tool}}",
+        evidenceDetail: "{{count}} evidence items ready",
+        approvalDetail: "Approval requested for {{tool}}",
+        clarificationDetail: "Additional input collected",
+        phases: {
+          routing: "Determining the agent path",
+          session_start: "Entering agent mode",
+          tool_selection: "Selecting available tools",
+          tool_execution: "Calling a tool",
+          retrieval: "Searching workspace knowledge",
+          evidence_ready: "Retrieval evidence is ready",
+          synthesis: "Organizing an evidence-based answer",
+          finalizing: "Finalizing the answer",
+        },
+      },
       showThoughtChain: "Show thought chain",
       hideThoughtChain: "Hide thought chain",
       agentSessionStarted:

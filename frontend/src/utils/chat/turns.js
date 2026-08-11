@@ -21,6 +21,7 @@ const LOCAL_SERVER_TURN_MATCH_EARLY_TOLERANCE_MS = 5_000;
 const LOCAL_SERVER_TURN_MATCH_LATE_TOLERANCE_MS = 2 * 60 * 1000;
 
 const TIMELINE_TYPES = new Set([
+  "agent_progress",
   "thought",
   "tool_call",
   "tool_result",
@@ -130,6 +131,9 @@ export function normalizeTimelineType(type) {
 
 export function timelineEventStableId(event = {}) {
   const type = normalizeTimelineType(event.type);
+  if (type === "agent_progress") {
+    return `agent-progress:${event.phase || "unknown"}:${event.sequence || event.seq || event.uuid || event.id}`;
+  }
   if (type === "approval_request") {
     return event.requestId ? `approval:${event.requestId}` : event.id;
   }

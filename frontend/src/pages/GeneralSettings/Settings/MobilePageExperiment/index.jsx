@@ -52,6 +52,11 @@ import {
   messageWithinSubmittedWindow,
 } from "@/utils/chat/mobilePendingIdentity";
 import { createTurnId } from "@/utils/chat/turns";
+import {
+  agentProgressPhaseLabel,
+  formatAgentElapsed,
+  projectAgentProgress,
+} from "@/utils/chat/agentProgressProjection";
 import { mergeMobileMessagesWithDraft } from "@/utils/chat/mobileMessageMerge";
 import { sortThreadsForDisplay } from "@/utils/workspaceThreads";
 import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
@@ -6553,8 +6558,20 @@ function MobileSurveyIconButton({
 function MobileAgentTimelineSummary({
   timeline = [],
   clarifyingQuestions = [],
+  isRunning = false,
   className = "mb-3",
 }) {
+  const { t } = useTranslation();
+  const [clock, setClock] = useState(0);
+  const progress = useMemo(
+    () => projectAgentProgress(mobileTimelineEvents(timeline), clock),
+    [clock, timeline]
+  );
+  useEffect(() => {
+    if (!isRunning || !progress) return undefined;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning, progress]);
   const rows = useMemo(() => {
     const events = mobileTimelineEvents(timeline);
     const toolNames = [
@@ -6577,25 +6594,52 @@ function MobileAgentTimelineSummary({
       events.some((event) => event?.type === "clarification_request") ||
       arrayPayload(clarifyingQuestions).length > 0;
 
+    const progressRow = progress
+      ? {
+          key: "agent-progress",
+          label:
+            isRunning && !progress.terminal
+              ? t("chat_window.toolTimeline.progress.runningSummary", {
+                  phase: agentProgressPhaseLabel(progress.current?.phase, t),
+                  count: progress.completedCount,
+                  elapsed: formatAgentElapsed(progress.elapsedMs),
+                  stillWorking:
+                    progress.stagnantMs >= 10_000
+                      ? t("chat_window.toolTimeline.progress.stillWorking")
+                      : "",
+                })
+              : t("chat_window.toolTimeline.progress.completedSummary", {
+                  count: progress.completedCount,
+                  evidence: progress.evidenceCount,
+                  elapsed: formatAgentElapsed(progress.elapsedMs),
+                }),
+        }
+      : null;
+
     return [
+      ...(progressRow ? [progressRow] : []),
       ...toolNames.map((name) => ({
         key: `tool:${name}`,
-        label: `已调用 ${name}`,
+        label: t("chat_window.toolTimeline.progress.toolDetail", {
+          tool: name,
+        }),
       })),
       ...approvalNames.map((name) => ({
         key: `approval:${name}`,
-        label: `曾请求批准 ${name}`,
+        label: t("chat_window.toolTimeline.progress.approvalDetail", {
+          tool: name,
+        }),
       })),
       ...(hasClarification
         ? [
             {
               key: "clarification",
-              label: "已收集补充选择",
+              label: t("chat_window.toolTimeline.progress.clarificationDetail"),
             },
           ]
         : []),
     ].slice(0, 4);
-  }, [timeline, clarifyingQuestions]);
+  }, [clarifyingQuestions, isRunning, progress, t, timeline]);
 
   if (!rows.length) return null;
 
@@ -6738,6 +6782,7 @@ function MessageBubble({
             <MobileAgentTimelineSummary
               timeline={message.timeline}
               clarifyingQuestions={message.clarifyingQuestions}
+              isRunning={isStreamingAssistant}
               className={hasAssistantText ? "mb-3" : "mb-1"}
             />
           )}

@@ -36,6 +36,19 @@ export function normalizeChatStreamEvent(raw = {}) {
     });
   }
 
+  if (rawType === "agentProgress") {
+    return streamEvent("status", raw, {
+      event: {
+        type: "agent_progress",
+        uuid: raw.uuid,
+        phase: raw.phase,
+        status: raw.status,
+        sequence: raw.sequence,
+        details: raw.details || {},
+      },
+    });
+  }
+
   if (rawType === "streamReconnectState") {
     return streamEvent("connection_status", raw, {
       state: raw.state === "connected" ? "connected" : "reconnecting",
@@ -210,6 +223,19 @@ export function normalizeChatTurnEvent(raw = {}) {
         uuid,
         content: textResponse || "",
         animate,
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "agentProgress") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "agent_progress",
+        uuid,
+        phase: raw.phase,
+        status: raw.status,
+        sequence: raw.sequence,
+        details: raw.details || {},
       },
       protocolEvent: normalizedStreamEvent,
     };

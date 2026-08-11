@@ -418,6 +418,27 @@ function compactPayload(payload = {}) {
   }, {});
 }
 
+function compactAgentProgressDetails(details = {}) {
+  if (!details || typeof details !== "object") return {};
+  return [
+    "toolCategory",
+    "toolName",
+    "evidenceCount",
+    "selectedToolCount",
+    "approvalRequired",
+    "reconnectAttempt",
+    "errorCode",
+    "routeKind",
+  ].reduce((safe, key) => {
+    if (details[key] === undefined || details[key] === null) return safe;
+    safe[key] =
+      typeof details[key] === "string"
+        ? truncateText(details[key], 96)
+        : details[key];
+    return safe;
+  }, {});
+}
+
 function sanitizeTimelineEventForStorage(event = {}) {
   if (!event || typeof event !== "object") return null;
   const base = {
@@ -429,6 +450,15 @@ function sanitizeTimelineEventForStorage(event = {}) {
     status: event.status,
     content: truncateText(event.summary || event.content || ""),
   };
+
+  if (event.type === "agent_progress") {
+    return {
+      ...base,
+      phase: event.phase,
+      sequence: event.sequence,
+      details: compactAgentProgressDetails(event.details),
+    };
+  }
 
   if (event.type === "tool_call") {
     return {

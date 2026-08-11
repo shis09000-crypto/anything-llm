@@ -74,7 +74,7 @@ function AssistantTurn({
   const thoughtEvents = useMemo(
     () =>
       (turn.timeline || []).filter((event) =>
-        ["thought", "markdown_delta"].includes(event.type)
+        ["thought", "markdown_delta", "agent_progress"].includes(event.type)
       ),
     [turn.timeline]
   );

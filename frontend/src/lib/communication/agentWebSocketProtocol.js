@@ -136,6 +136,22 @@ function toolResultEvent(content = {}) {
 function reportStreamEvent(content = {}) {
   const { type, uuid } = content;
 
+  if (type === "agentProgress") {
+    return {
+      type: "timeline_event",
+      seq: content.seq,
+      event: {
+        type: "agent_progress",
+        seq: content.seq,
+        uuid,
+        phase: content.phase,
+        status: content.status,
+        sequence: content.sequence,
+        details: content.details || {},
+      },
+    };
+  }
+
   if (type === "textResponseChunk") {
     if (content.close) {
       return {
@@ -329,6 +345,23 @@ export function normalizeAgentWebSocketEvent(raw = {}) {
       },
     };
     return withProtocol(normalized, raw, "status");
+  }
+
+  if (raw.type === "agentProgress") {
+    normalized = {
+      type: "timeline_event",
+      seq: raw.seq,
+      event: {
+        type: "agent_progress",
+        seq: raw.seq,
+        uuid: raw.uuid,
+        phase: raw.phase,
+        status: raw.status,
+        sequence: raw.sequence,
+        details: raw.details || {},
+      },
+    };
+    return withProtocol(normalized, raw, "agent_progress");
   }
 
   if (raw.type === "WAITING_ON_INPUT") {

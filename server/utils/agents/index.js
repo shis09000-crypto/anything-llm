@@ -904,6 +904,11 @@ If the user asks about book structure, reading order, timeline, person relations
         userId: this.invocation.user_id || null,
       })
     );
+    this.aibitat.reportProgress?.("routing", "completed", {
+      routeKind: this.invocation?.prompt?.trim?.().startsWith("@agent")
+        ? "explicit"
+        : "automatic",
+    });
 
     // Attach standard chat-history plugin for message storage.
     this.log(

@@ -1836,6 +1836,28 @@ const TRANSLATIONS = {
       modelComplete: "モデルの思考が完了しました",
       agentThinking: "エージェントが思考中...",
       agentComplete: "エージェントの思考が完了しました",
+      progress: {
+        runningSummary:
+          "{{phase}} · {{count}} ステップ完了 · {{elapsed}} {{stillWorking}}",
+        completedSummary:
+          "エージェント完了 · {{count}} ステップ · 証拠 {{evidence}} 件 · {{elapsed}}",
+        failedSummary: "{{phase}}に失敗 · {{count}} ステップ完了 · {{elapsed}}",
+        stillWorking: "· このステップを引き続き実行中",
+        toolDetail: "{{tool}} を呼び出しています",
+        evidenceDetail: "証拠 {{count}} 件を取得しました",
+        approvalDetail: "{{tool}} の承認を要求しました",
+        clarificationDetail: "追加情報を取得しました",
+        phases: {
+          routing: "エージェント経路を判定しています",
+          session_start: "エージェントモードに入っています",
+          tool_selection: "利用可能なツールを選択しています",
+          tool_execution: "ツールを呼び出しています",
+          retrieval: "ワークスペース資料を検索しています",
+          evidence_ready: "検索証拠を取得しました",
+          synthesis: "証拠に基づいて回答を整理しています",
+          finalizing: "回答を仕上げています",
+        },
+      },
       showThoughtChain: "思考チェーンを表示",
       hideThoughtChain: "思考チェーンを非表示",
       agentSessionStarted:

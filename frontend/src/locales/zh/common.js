@@ -1992,6 +1992,28 @@ const TRANSLATIONS = {
       modelComplete: "模型已完成思考",
       agentThinking: "智能体正在思考…",
       agentComplete: "智能体已完成思考",
+      progress: {
+        runningSummary:
+          "{{phase}} · 已完成 {{count}} 步 · {{elapsed}} {{stillWorking}}",
+        completedSummary:
+          "智能体已完成 · {{count}} 步 · 检索到 {{evidence}} 段资料 · {{elapsed}}",
+        failedSummary: "{{phase}}失败 · 已完成 {{count}} 步 · {{elapsed}}",
+        stillWorking: "· 仍在执行当前步骤",
+        toolDetail: "正在调用 {{tool}}",
+        evidenceDetail: "已获得 {{count}} 段证据",
+        approvalDetail: "已请求授权 {{tool}}",
+        clarificationDetail: "已收集补充信息",
+        phases: {
+          routing: "正在判断是否进入智能体链路",
+          session_start: "正在进入智能体模式",
+          tool_selection: "正在选择可用工具",
+          tool_execution: "正在调用工具",
+          retrieval: "正在检索工作区资料",
+          evidence_ready: "已获得检索证据",
+          synthesis: "正在根据证据组织回答",
+          finalizing: "正在完成回答",
+        },
+      },
       showThoughtChain: "显示思考链",
       hideThoughtChain: "隐藏思考链",
       agentSessionStarted: "已进入智能体模式。输入 /exit 可结束智能体会话。",
