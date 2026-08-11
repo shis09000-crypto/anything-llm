@@ -1,14 +1,17 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "browser-egress",
   "name": "Browser Egress Control Service",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "control-plane",
   "owner": "browser-platform",
   "criticality": "medium",
   "runtimeRole": "browser-egress",
-  "sourcePaths": ["server/browser-egress.js", "server/utils/browserEgress/"],
+  "sourcePaths": [
+    "server/browser-egress.js",
+    "server/utils/browserEgress/"
+  ],
   "capabilities": [
     "browser-egress-route",
     "browser-egress-grants",
@@ -16,7 +19,46 @@
   ],
   "routes": {
     "public": [],
-    "internal": ["/internal/v1/browser-egress/"]
+    "internal": [
+      "/internal/v1/browser-egress/"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser-egress/dispatch",
+        "capability": "browser-egress.route.resolve"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -35,20 +77,28 @@
     "consumes": [
       "key-custody.wrap",
       "key-custody.unwrap",
-      "operations.ingest-batch"
+      "operations.ingest-batch",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
-    "publishes": ["browser.egress.*", "module.lifecycle.*"],
+    "publishes": [
+      "browser.egress.*",
+      "module.lifecycle.*"
+    ],
     "subscribes": []
   },
   "data": {
-    "schemas": ["browser_egress"],
+    "schemas": [
+      "browser_egress"
+    ],
     "objectPrefixes": []
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/browser-egress",
-    "keyDomains": ["browser-egress"],
+    "keyDomains": [
+      "browser-egress"
+    ],
     "allowedCallers": [
       "authentication",
       "browser-plane",
@@ -153,7 +203,10 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/browser-egress.health/request/1.0",
         "responseSchema": "athena://contracts/browser-egress.health/response/1.0",
-        "errorCodes": ["caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "none",
         "dataClassification": "internal"
@@ -269,7 +322,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "supported",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "key-custody.unwrap",
@@ -284,7 +339,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "supported",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -300,21 +357,60 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["browser_egress"],
+    "dataSchemas": [
+      "browser_egress"
+    ],
     "objectPrefixes": [],
-    "keyDomains": ["browser-egress"],
-    "configuration": ["runtime:browser-egress"],
-    "runtimeState": ["module-instance:browser-egress"]
+    "keyDomains": [
+      "browser-egress"
+    ],
+    "configuration": [
+      "runtime:browser-egress"
+    ],
+    "runtimeState": [
+      "module-instance:browser-egress"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
-    "aicpPolicy": { "defaultMode": "observe", "links": [] }
+    "centers": [
+      "task",
+      "recovery",
+      "data"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
+    "aicpPolicy": {
+      "defaultMode": "observe",
+      "links": []
+    }
   },
   "lifecycle": {
     "states": [
@@ -338,7 +434,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -350,5 +450,28 @@
       "route-fallback",
       "credential-exposure"
     ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "browser.egress.*",
+        "payloadSchema": "athena://events/browser.egress.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "browser.egress.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": []
   }
 }

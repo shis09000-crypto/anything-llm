@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "chat-runtime",
   "name": "Chat Runtime",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "service",
   "owner": "ai-platform",
   "criticality": "critical",
@@ -21,7 +21,9 @@
     "thread-memory"
   ],
   "routes": {
-    "public": ["/api/workspace/:slug/chat"],
+    "public": [
+      "/api/workspace/:slug/chat"
+    ],
     "internal": [
       "/internal/v1/chat/runs",
       "/internal/v1/chat/runs/:id/drain",
@@ -32,6 +34,68 @@
       "/internal/v1/chat/agent-turns/finalize",
       "/internal/v1/chat/thread-title/generate",
       "/internal/v1/chat/thread-title/reconcile"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/chat/thread-title/generate",
+        "capability": "chat.thread-title.generate"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/chat/thread-title/reconcile",
+        "capability": "chat.thread-title.reconcile"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/chat/runs/:clientTurnId",
+        "capability": "chat.status"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/chat/memory/status",
+        "capability": "chat.memory.status"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/chat/memory/compact",
+        "capability": "chat.memory.compact"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/chat/memory/context/resolve",
+        "capability": "chat.memory.context.resolve"
+      }
     ]
   },
   "rpc": {
@@ -43,50 +107,63 @@
       "chat.memory.context.resolve",
       "chat.agent-turn.reserve",
       "chat.agent-turn.finalize",
-      "chat.thread-title.generate",
-      "chat.thread-title.reconcile",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
       "module.drain",
+      "chat.thread-title.generate",
+      "chat.thread-title.reconcile",
       "module.quiesce",
       "module.resume"
     ],
     "consumes": [
-      "coordination.lifecycle.event",
-      "coordination.lifecycle.heartbeat",
-      "identity.assert",
       "identity.audit.append",
       "identity.client.attach",
       "identity.realtime-ticket.consume",
       "identity.request-signing.verify",
-      "identity.session.validate",
       "identity.user-domain-wrap.queue",
-      "key-custody.wrap",
-      "key-custody.unwrap",
-      "model.stream",
-      "agent.submit",
-      "responses.create",
-      "responses.stream",
       "sync.events.append",
       "workspace.cognition.turn.sync",
       "workspace.thread-title.claim",
       "workspace.thread-title.commit",
+      "agent.submit",
+      "responses.create",
+      "responses.stream",
+      "coordination.lifecycle.event",
+      "coordination.lifecycle.heartbeat",
+      "identity.assert",
+      "identity.session.validate",
+      "key-custody.wrap",
+      "key-custody.unwrap",
+      "model.stream",
       "operations.ingest-batch",
-      "rag.retrieve"
+      "rag.retrieve",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
-    "publishes": ["chat.run.*", "module.lifecycle.*"],
-    "subscribes": ["model.stream.*", "rag.result.*"]
+    "publishes": [
+      "chat.run.*",
+      "module.lifecycle.*"
+    ],
+    "subscribes": [
+      "model.stream.*",
+      "rag.result.*"
+    ]
   },
   "data": {
-    "schemas": ["chat"],
-    "objectPrefixes": ["chat/content"]
+    "schemas": [
+      "chat"
+    ],
+    "objectPrefixes": [
+      "chat/content"
+    ]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/chat-runtime",
-    "keyDomains": ["data"],
+    "keyDomains": [
+      "data"
+    ],
     "allowedCallers": [
       "edge-web",
       "athena-api",
@@ -118,7 +195,12 @@
     "infra:nats"
   ],
   "domain": "ai-runtime",
-  "responsibilities": ["context", "streaming", "durable-runs", "resume"],
+  "responsibilities": [
+    "context",
+    "streaming",
+    "durable-runs",
+    "resume"
+  ],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
@@ -385,7 +467,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.client.attach",
@@ -401,7 +485,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.realtime-ticket.consume",
@@ -417,7 +503,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.request-signing.verify",
@@ -433,7 +521,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.user-domain-wrap.queue",
@@ -449,7 +539,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "sync.events.append",
@@ -465,7 +557,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "sync-v2",
+        "requiredForReadiness": true
       },
       {
         "id": "workspace.cognition.turn.sync",
@@ -481,7 +575,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "athena-api",
+        "requiredForReadiness": false
       },
       {
         "id": "workspace.thread-title.claim",
@@ -497,7 +593,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "athena-api",
+        "requiredForReadiness": false
       },
       {
         "id": "workspace.thread-title.commit",
@@ -513,7 +611,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "athena-api",
+        "requiredForReadiness": false
       },
       {
         "id": "agent.submit",
@@ -529,7 +629,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "agent-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "responses.create",
@@ -544,12 +646,14 @@
         ],
         "timeoutMs": 300000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "responses-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "responses.stream",
         "version": "1.0",
-        "callType": "Task",
+        "callType": "Stream",
         "requestSchema": "athena://contracts/responses.stream/request/1.0",
         "responseSchema": "athena://contracts/responses.stream/response/1.0",
         "errorCodes": [
@@ -559,7 +663,9 @@
         ],
         "timeoutMs": 300000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "responses-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "coordination.lifecycle.event",
@@ -575,7 +681,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -591,7 +699,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "identity.assert",
@@ -607,7 +717,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.session.validate",
@@ -623,7 +735,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "none",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "key-custody.wrap",
@@ -639,7 +753,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "key-custody.unwrap",
@@ -655,12 +771,14 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "model.stream",
         "version": "1.0",
-        "callType": "Call",
+        "callType": "Stream",
         "requestSchema": "athena://contracts/model.stream/request/1.0",
         "responseSchema": "athena://contracts/model.stream/response/1.0",
         "errorCodes": [
@@ -671,7 +789,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "model-gateway",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -687,7 +807,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "rag.retrieve",
@@ -703,20 +825,60 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "rag",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["chat"],
-    "objectPrefixes": ["chat/content"],
-    "keyDomains": ["data"],
-    "configuration": ["runtime:chat-runtime"],
-    "runtimeState": ["module-instance:chat-runtime"]
+    "dataSchemas": [
+      "chat"
+    ],
+    "objectPrefixes": [
+      "chat/content"
+    ],
+    "keyDomains": [
+      "data"
+    ],
+    "configuration": [
+      "runtime:chat-runtime"
+    ],
+    "runtimeState": [
+      "module-instance:chat-runtime"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data", "cache", "optimistic"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery",
+      "data",
+      "cache",
+      "optimistic"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -744,7 +906,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -755,6 +921,59 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": [
+      {
+        "capability": "responses.stream",
+        "frameSchema": "athena://aicp/stream-frame/1.1",
+        "heartbeatMs": 25000,
+        "terminalRequired": true,
+        "recovery": "cursor"
+      },
+      {
+        "capability": "model.stream",
+        "frameSchema": "athena://aicp/stream-frame/1.1",
+        "heartbeatMs": 25000,
+        "terminalRequired": true,
+        "recovery": "cursor"
+      }
+    ]
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "chat.run.*",
+        "payloadSchema": "athena://events/chat.run.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "chat.run.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "model.stream.*",
+        "payloadSchema": "athena://events/model.stream.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "model.stream.*.DLQ"
+      },
+      {
+        "subject": "rag.result.*",
+        "payloadSchema": "athena://events/rag.result.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "rag.result.*.DLQ"
+      }
     ]
   }
 }

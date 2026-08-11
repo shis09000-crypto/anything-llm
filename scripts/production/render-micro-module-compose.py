@@ -332,6 +332,15 @@ def render(source: Path) -> dict:
             environment["APP_ENV"] = "production"
             environment["NODE_ENV"] = "production"
             environment["ATHENA_RUNTIME_TOPOLOGY"] = "micro-modules"
+            environment["ATHENA_AICP_EMIT_VERSION"] = (
+                "${ATHENA_PROD_AICP_EMIT_VERSION:-1.0}"
+            )
+            environment["ATHENA_AICP_ENFORCEMENT_MODE"] = (
+                "${ATHENA_PROD_AICP_ENFORCEMENT_MODE:-observe}"
+            )
+            environment["ATHENA_AICP_READINESS_ENFORCEMENT"] = (
+                "${ATHENA_PROD_AICP_READINESS_ENFORCEMENT:-true}"
+            )
             environment["ATHENA_NATS_TLS_SERVER_NAME"] = "athena-production-nats"
             environment["ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER"] = "true"
             environment["ATHENA_KEY_CUSTODY_CUTOVER"] = (
@@ -424,6 +433,11 @@ def render(source: Path) -> dict:
 
         if name == "anything-llm-api":
             environment["ATHENA_IOS_HIGH_RISK_PQ_REQUIRED"] = "true"
+
+        if name == "anything-llm-operations-plane":
+            environment["ATHENA_EXPECTED_MODULE_STATES"] = (
+                "${ATHENA_PROD_EXPECTED_MODULE_STATES:-crypto-forecast=maintenance}"
+            )
 
         if name in {"anything-llm-chat-runtime", "anything-llm-agent-runtime"}:
             service["volumes"] = [

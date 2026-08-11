@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "crypto-account-access",
   "name": "Crypto Account Access",
-  "version": "1.1.0",
+  "version": "2.6.14",
   "kind": "security-service",
   "owner": "security",
   "criticality": "high",
@@ -20,7 +20,46 @@
   ],
   "routes": {
     "public": [],
-    "internal": ["/internal/v1/crypto/account/read"]
+    "internal": [
+      "/internal/v1/crypto/account/read"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/crypto/account/read",
+        "capability": "crypto.account"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -33,6 +72,7 @@
       "module.resume"
     ],
     "consumes": [
+      "identity.user-domain-wrap.queue",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "crypto.market",
@@ -42,9 +82,9 @@
       "identity.session.validate",
       "identity.session.touch",
       "identity.audit.append",
-      "identity.user-domain-wrap.queue",
       "key-custody.unwrap",
-      "operations.ingest-batch"
+      "operations.ingest-batch",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -54,16 +94,26 @@
       "crypto.account.equity_recording.*",
       "module.lifecycle.*"
     ],
-    "subscribes": ["key-custody.rotation.*"]
+    "subscribes": [
+      "key-custody.rotation.*"
+    ]
   },
   "data": {
-    "schemas": ["crypto_account"],
+    "schemas": [
+      "crypto_account"
+    ],
     "objectPrefixes": []
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/crypto-account",
-    "keyDomains": ["agent"],
-    "allowedCallers": ["tool-runtime", "scheduler", "coordination-plane"],
+    "keyDomains": [
+      "agent"
+    ],
+    "allowedCallers": [
+      "tool-runtime",
+      "scheduler",
+      "coordination-plane"
+    ],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 10000
   },
@@ -223,7 +273,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "coordination.lifecycle.event",
@@ -239,7 +291,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -255,7 +309,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "crypto.market",
@@ -271,7 +327,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "crypto-market",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.assert",
@@ -287,7 +345,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.client.attach",
@@ -303,7 +363,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.request-signing.verify",
@@ -319,7 +381,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.session.validate",
@@ -335,7 +399,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "none",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.session.touch",
@@ -351,7 +417,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.audit.append",
@@ -367,7 +435,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "key-custody.unwrap",
@@ -383,7 +453,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -399,20 +471,56 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["crypto_account"],
+    "dataSchemas": [
+      "crypto_account"
+    ],
     "objectPrefixes": [],
-    "keyDomains": ["agent"],
-    "configuration": ["runtime:crypto-account"],
-    "runtimeState": ["module-instance:crypto-account-access"]
+    "keyDomains": [
+      "agent"
+    ],
+    "configuration": [
+      "runtime:crypto-account"
+    ],
+    "runtimeState": [
+      "module-instance:crypto-account-access"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery",
+      "data"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -440,7 +548,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -451,6 +563,51 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "crypto.account.read.*",
+        "payloadSchema": "athena://events/crypto.account.read.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "crypto.account.read.*.DLQ"
+      },
+      {
+        "subject": "crypto.connection.*",
+        "payloadSchema": "athena://events/crypto.connection.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "crypto.connection.*.DLQ"
+      },
+      {
+        "subject": "crypto.account.equity_recording.*",
+        "payloadSchema": "athena://events/crypto.account.equity_recording.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "crypto.account.equity_recording.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "key-custody.rotation.*",
+        "payloadSchema": "athena://events/key-custody.rotation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "key-custody.rotation.*.DLQ"
+      }
     ]
   }
 }

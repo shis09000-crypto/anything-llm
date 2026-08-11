@@ -1,6 +1,7 @@
 const { canonicalJson, sha256 } = require("../canonical");
 const { loadManifests } = require("../manifestRegistry");
 const { stableLinkId } = require("./links");
+const schemaCatalog = require("../../../aicp-schemas/catalog.json");
 
 const CENTER_SET = new Set(["task", "data", "cache", "recovery", "optimistic"]);
 const PRIORITY_SET = new Set(["P0", "P1", "P2", "P3", "P4"]);
@@ -47,6 +48,17 @@ function aicpLinkEnforcementMode({
 
 function major(version) {
   return String(version || "").split(".")[0];
+}
+
+function compatibleVersion(requested, provided, protocolVersion = "1.0") {
+  if (String(protocolVersion) === "1.1")
+    return String(requested || "") === String(provided || "");
+  return major(requested) === major(provided);
+}
+
+function schemaFingerprint(uri) {
+  const schema = schemaCatalog.schemas?.[String(uri)];
+  return schema ? sha256(canonicalJson(schema)) : null;
 }
 
 function legacyCallType(capability) {
@@ -165,6 +177,7 @@ class AicpContractRegistry {
     capability,
     version = null,
     callType = null,
+    protocolVersion = "1.0",
   } = {}) {
     const caller = this.module(callerModule);
     const target = this.module(targetModule);
@@ -195,9 +208,9 @@ class AicpContractRegistry {
         callerModule: caller.id,
         targetModule: target.id,
       });
-    if (major(provided.version) !== major(consumed.version))
+    if (!compatibleVersion(consumed.version, provided.version, protocolVersion))
       throw aicpContractError("aicp_contract_version_incompatible", 409);
-    if (version && major(version) !== major(provided.version))
+    if (version && !compatibleVersion(version, provided.version, protocolVersion))
       throw aicpContractError("aicp_requested_version_incompatible", 409);
     if (callType && provided.callType !== callType)
       throw aicpContractError("aicp_call_type_incompatible", 409);
@@ -208,17 +221,28 @@ class AicpContractRegistry {
       capability: provided.id,
       transport: "mtls-https",
     };
-    const contractFingerprint = sha256(
-      canonicalJson({
-        provided,
-        consumed,
-        caller: caller.id,
-        target: target.id,
-      })
-    );
+    const fingerprintInput = {
+      provided,
+      consumed,
+      caller: caller.id,
+      target: target.id,
+      ...(String(protocolVersion) === "1.1"
+        ? { protocolVersion, schemaCatalogDigest: schemaCatalog.digest }
+        : {}),
+    };
+    const contractFingerprint = sha256(canonicalJson(fingerprintInput));
+    const requestSchemaFingerprint = schemaFingerprint(provided.requestSchema);
+    const responseSchemaFingerprint = schemaFingerprint(provided.responseSchema);
+    if (
+      String(protocolVersion) === "1.1" &&
+      (!requestSchemaFingerprint || !responseSchemaFingerprint)
+    )
+      throw aicpContractError("aicp_contract_schema_missing", 409, {
+        capability: provided.id,
+      });
     return {
       schema: "athena.aicp.link-negotiation",
-      schemaVersion: "1.0",
+      schemaVersion: String(protocolVersion),
       linkId: stableLinkId(identity),
       state: "negotiated",
       callerModule: caller.id,
@@ -229,6 +253,11 @@ class AicpContractRegistry {
       timeoutMs: Math.min(provided.timeoutMs, consumed.timeoutMs),
       idempotency: provided.idempotency,
       dataClassification: provided.dataClassification,
+      requestSchema: provided.requestSchema,
+      responseSchema: provided.responseSchema,
+      requestSchemaFingerprint,
+      responseSchemaFingerprint,
+      schemaCatalogDigest: schemaCatalog.digest,
       contractFingerprint,
     };
   }
@@ -239,6 +268,7 @@ class AicpContractRegistry {
       schemaVersion: "1.0",
       generatedAt: new Date().toISOString(),
       modules: this.manifests.length,
+      schemaCatalogDigest: schemaCatalog.digest,
       contracts: [...this.providers.values()].flatMap((providers) =>
         providers.map(({ manifest, contract }) => ({
           ...contract,
@@ -269,5 +299,7 @@ module.exports = {
   aicpLinkEnforcementMode,
   decodeAicpHeader,
   encodeAicpHeader,
+  compatibleVersion,
+  schemaFingerprint,
   validateCoordinationContext,
 };

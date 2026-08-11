@@ -139,6 +139,10 @@ async function remoteCustodyStatus(env = process.env) {
   }
   const response = await requestInternalService({
     callerRole: callerRole(env),
+    callerModule: callerModule(env),
+    targetModule: "key-custody",
+    capability: "key-custody.audit-descriptor",
+    contractVersion: "1.0",
     url: `${keyCustodyUrl(env)}/internal/v1/keys/status`,
     method: "GET",
     env,
@@ -175,6 +179,10 @@ async function remoteAuditKeyDescriptor(
   const context = auditContext({ chainId, throughSequence });
   const response = await requestInternalService({
     callerRole: callerRole(env),
+    callerModule: callerModule(env),
+    targetModule: "key-custody",
+    capability: "key-custody.audit-descriptor",
+    contractVersion: "1.0",
     url: `${keyCustodyUrl(env)}/internal/v1/keys/audit-descriptor`,
     body: { keyId: bounded(keyId, 160) || null, context },
     env,
@@ -212,6 +220,10 @@ async function remoteSignAuditCheckpoint(
   const payloadBase64 = payload.toString("base64");
   const response = await requestInternalService({
     callerRole: callerRole(env),
+    callerModule: callerModule(env),
+    targetModule: "key-custody",
+    capability: "key-custody.audit-sign",
+    contractVersion: "1.0",
     url: `${keyCustodyUrl(env)}/internal/v1/keys/audit-sign`,
     body: {
       keyId: bounded(keyId, 160) || null,

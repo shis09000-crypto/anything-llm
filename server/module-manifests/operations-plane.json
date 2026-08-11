@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "operations-plane",
   "name": "AI Operations Plane",
-  "version": "1.1.0",
+  "version": "2.6.14",
   "kind": "control-plane",
   "owner": "sre",
   "criticality": "high",
@@ -23,8 +23,154 @@
     "cross-module-correlation"
   ],
   "routes": {
-    "public": ["/api/operations/"],
-    "internal": ["/internal/v1/operations/"]
+    "public": [
+      "/api/operations/"
+    ],
+    "internal": [
+      "/internal/v1/operations/"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/ingest",
+        "capability": "operations.ingest-batch"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/ingest-batch",
+        "capability": "operations.ingest-batch"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/health",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/services",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/agents",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/shadow-agents",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/evaluations/latest",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/evaluations/corpus",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/actions/catalog",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/actions/runs/query",
+        "capability": "operations.guard"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/actions/runs/:runId",
+        "capability": "operations.guard"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/actions/runs",
+        "capability": "operations.guard"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/actions/runs/:runId/decide",
+        "capability": "operations.guard"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/actions/runs/:runId/execute",
+        "capability": "operations.guard"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/actions/runs/:runId/reconcile",
+        "capability": "operations.guard"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/timeline",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/state-graph",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/flows",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/explain",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/operations/module-health/refresh",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/module-health",
+        "capability": "operations.catalog"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/infrastructure-health",
+        "capability": "operations.catalog"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -41,7 +187,8 @@
     "consumes": [
       "coordination.status",
       "coordination.lifecycle.event",
-      "coordination.lifecycle.heartbeat"
+      "coordination.lifecycle.heartbeat",
+      "operations.shadow.evaluate"
     ]
   },
   "events": {
@@ -51,7 +198,9 @@
       "operations.semantic.*",
       "module.lifecycle.*"
     ],
-    "subscribes": ["*"]
+    "subscribes": [
+      "*"
+    ]
   },
   "data": {
     "schemas": [],
@@ -59,7 +208,9 @@
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/operations-plane",
-    "keyDomains": ["audit"],
+    "keyDomains": [
+      "audit"
+    ],
     "allowedCallers": [
       "agent-runtime",
       "athena-api",
@@ -97,7 +248,11 @@
     "availabilityTarget": 0.995,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["infra:nats", "infra:clickhouse", "infra:otel"],
+  "dependsOn": [
+    "infra:nats",
+    "infra:clickhouse",
+    "infra:otel"
+  ],
   "domain": "operations",
   "responsibilities": [
     "semantic-events",
@@ -273,7 +428,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.event",
@@ -289,7 +446,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -305,20 +464,53 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "operations.shadow.evaluate",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/operations.shadow.evaluate/request/1.0",
+        "responseSchema": "athena://contracts/operations.shadow.evaluate/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "internal",
+        "targetModule": "operations-shadow-agents",
+        "requiredForReadiness": false
       }
     ]
   },
   "ownership": {
     "dataSchemas": [],
     "objectPrefixes": [],
-    "keyDomains": ["audit"],
-    "configuration": ["runtime:operations-plane"],
-    "runtimeState": ["module-instance:operations-plane"]
+    "keyDomains": [
+      "audit"
+    ],
+    "configuration": [
+      "runtime:operations-plane"
+    ],
+    "runtimeState": [
+      "module-instance:operations-plane"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": [
@@ -352,7 +544,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -363,6 +559,51 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "operations.action.*",
+        "payloadSchema": "athena://events/operations.action.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "operations.action.*.DLQ"
+      },
+      {
+        "subject": "deployment.slot.*",
+        "payloadSchema": "athena://events/deployment.slot.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "deployment.slot.*.DLQ"
+      },
+      {
+        "subject": "operations.semantic.*",
+        "payloadSchema": "athena://events/operations.semantic.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "operations.semantic.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "*",
+        "payloadSchema": "athena://events/*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "*.DLQ"
+      }
     ]
   }
 }

@@ -1,7 +1,4 @@
-const {
-  createEventEnvelope,
-  validateEventEnvelope,
-} = require("./eventEnvelope");
+const eventEnvelope = require("./eventEnvelope");
 const {
   loadManifests,
   manifestSnapshot,
@@ -17,12 +14,11 @@ const aicp = require("./aicp");
 
 module.exports = {
   aicp,
-  createEventEnvelope,
+  ...eventEnvelope,
   issuePrincipalAssertion,
   loadManifests,
   manifestSnapshot,
   moduleManifest,
-  validateEventEnvelope,
   validateManifest,
   verifyPrincipalAssertion,
   ...toolInvocationContract,

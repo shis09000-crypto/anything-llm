@@ -1,5 +1,9 @@
 const AICP_SCHEMA = "athena.aicp.envelope";
 const AICP_VERSION = "1.0";
+const AICP_CONTEXT_SCHEMA = "athena.aicp.context";
+const AICP_CONTEXT_VERSION = "1.1";
+const AICP_CONTEXT_HEADER = "x-athena-aicp-context";
+const AICP_RESULT_HEADER = "x-athena-aicp-result";
 const MAX_AICP_PAYLOAD_BYTES = 128 * 1024;
 
 const CALL_TYPES = Object.freeze([
@@ -37,6 +41,10 @@ const DATA_CLASSIFICATIONS = new Set([
 module.exports = {
   AICP_SCHEMA,
   AICP_VERSION,
+  AICP_CONTEXT_HEADER,
+  AICP_CONTEXT_SCHEMA,
+  AICP_CONTEXT_VERSION,
+  AICP_RESULT_HEADER,
   CALL_TYPES,
   CALL_TYPE_SET,
   CONTROL_CALL_TYPES,

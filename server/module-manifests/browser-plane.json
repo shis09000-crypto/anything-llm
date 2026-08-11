@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "browser-plane",
   "name": "Browser Plane Control Service",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "control-plane",
   "owner": "browser-platform",
   "criticality": "medium",
@@ -21,8 +21,75 @@
     "browser-audit"
   ],
   "routes": {
-    "public": ["/api/browser/"],
-    "internal": ["/internal/v1/browser/sessions", "/internal/v1/browser/nodes"]
+    "public": [
+      "/api/browser/"
+    ],
+    "internal": [
+      "/internal/v1/browser/sessions",
+      "/internal/v1/browser/nodes"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/dispatch",
+        "capability": "browser.task"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions",
+        "capability": "browser.session"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId",
+        "capability": "browser.session"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/actions",
+        "capability": "browser.task"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/nodes/heartbeat",
+        "capability": "browser.node"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/nodes",
+        "capability": "browser.node"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -39,15 +106,16 @@
     ],
     "consumes": [
       "browser.worker",
+      "coordination.lifecycle.event",
+      "coordination.lifecycle.heartbeat",
+      "identity.assert",
+      "operations.ingest-batch",
       "browser-egress.route.resolve",
       "browser-egress.grant.issue",
       "browser-egress.grant.renew",
       "browser-egress.grant.revoke",
       "browser-egress.health",
-      "coordination.lifecycle.event",
-      "coordination.lifecycle.heartbeat",
-      "identity.assert",
-      "operations.ingest-batch"
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -57,15 +125,25 @@
       "browser.node.*",
       "module.lifecycle.*"
     ],
-    "subscribes": ["approval.*", "sync.client.*"]
+    "subscribes": [
+      "approval.*",
+      "sync.client.*"
+    ]
   },
   "data": {
-    "schemas": ["browser_plane"],
-    "objectPrefixes": ["browser/profiles", "browser/artifacts"]
+    "schemas": [
+      "browser_plane"
+    ],
+    "objectPrefixes": [
+      "browser/profiles",
+      "browser/artifacts"
+    ]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/browser-plane",
-    "keyDomains": ["browser-profile"],
+    "keyDomains": [
+      "browser-profile"
+    ],
     "allowedCallers": [
       "athena-api",
       "tool-runtime",
@@ -284,7 +362,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "browser-worker",
+        "requiredForReadiness": true
       },
       {
         "id": "coordination.lifecycle.event",
@@ -300,7 +380,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -316,7 +398,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "identity.assert",
@@ -332,7 +416,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -348,7 +434,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "browser-egress.route.resolve",
@@ -363,7 +451,9 @@
         ],
         "timeoutMs": 15000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "browser-egress",
+        "requiredForReadiness": true
       },
       {
         "id": "browser-egress.grant.issue",
@@ -378,7 +468,9 @@
         ],
         "timeoutMs": 15000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "browser-egress",
+        "requiredForReadiness": true
       },
       {
         "id": "browser-egress.grant.renew",
@@ -393,7 +485,9 @@
         ],
         "timeoutMs": 15000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "browser-egress",
+        "requiredForReadiness": true
       },
       {
         "id": "browser-egress.grant.revoke",
@@ -408,7 +502,9 @@
         ],
         "timeoutMs": 15000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "browser-egress",
+        "requiredForReadiness": true
       },
       {
         "id": "browser-egress.health",
@@ -416,23 +512,65 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/browser-egress.health/request/1.0",
         "responseSchema": "athena://contracts/browser-egress.health/response/1.0",
-        "errorCodes": ["caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "browser-egress",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["browser_plane"],
-    "objectPrefixes": ["browser/profiles", "browser/artifacts"],
-    "keyDomains": ["browser-profile"],
-    "configuration": ["runtime:browser-plane"],
-    "runtimeState": ["module-instance:browser-plane"]
+    "dataSchemas": [
+      "browser_plane"
+    ],
+    "objectPrefixes": [
+      "browser/profiles",
+      "browser/artifacts"
+    ],
+    "keyDomains": [
+      "browser-profile"
+    ],
+    "configuration": [
+      "runtime:browser-plane"
+    ],
+    "runtimeState": [
+      "module-instance:browser-plane"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery",
+      "data"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -460,7 +598,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -471,6 +613,58 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "browser.session.*",
+        "payloadSchema": "athena://events/browser.session.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "browser.session.*.DLQ"
+      },
+      {
+        "subject": "browser.task.*",
+        "payloadSchema": "athena://events/browser.task.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "browser.task.*.DLQ"
+      },
+      {
+        "subject": "browser.node.*",
+        "payloadSchema": "athena://events/browser.node.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "browser.node.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "approval.*",
+        "payloadSchema": "athena://events/approval.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "approval.*.DLQ"
+      },
+      {
+        "subject": "sync.client.*",
+        "payloadSchema": "athena://events/sync.client.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "sync.client.*.DLQ"
+      }
     ]
   }
 }

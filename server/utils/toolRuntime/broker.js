@@ -70,6 +70,10 @@ async function dispatchCryptoAccount({
   });
   const response = await requestInternalService({
     callerRole: "tool-broker",
+    callerModule: "tool-runtime",
+    targetModule: "crypto-account-access",
+    capability: "crypto.account",
+    contractVersion: "1.0",
     url: `${cryptoAccountServiceUrl(env)}/internal/v1/crypto/account/read`,
     body: {
       approvalRequestId: context.approvalRequestId,
@@ -159,6 +163,10 @@ async function saveBrowserPageToKnowledge(context, session, args, env) {
   );
   const response = await requestInternalService({
     callerRole: "tool-broker",
+    callerModule: "tool-runtime",
+    targetModule: "knowledge-ingest",
+    capability: "knowledge.ingest",
+    contractVersion: "1.0",
     url: `${baseUrl}/internal/v1/knowledge/browser-ingest`,
     body: {
       workspaceId: context.workspaceId,

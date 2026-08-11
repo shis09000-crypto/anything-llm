@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "coordination-plane",
   "name": "Unified Coordination Plane",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "control-plane",
   "owner": "platform",
   "criticality": "high",
@@ -29,6 +29,83 @@
       "/internal/v1/describe",
       "/internal/v1/self-test",
       "/internal/drain"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/start",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/coordination/runs/:runId",
+        "capability": "coordination.status"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/autonomy-attempts",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/escalations",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/cancel",
+        "capability": "coordination.cancel"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/modules/heartbeat",
+        "capability": "coordination.lifecycle.heartbeat"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/modules/lifecycle-events",
+        "capability": "coordination.lifecycle.event"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/coordination/modules",
+        "capability": "coordination.status"
+      }
     ]
   },
   "rpc": {
@@ -56,7 +133,9 @@
       "operations.guard",
       "operations.ingest-batch",
       "scheduler.create",
-      "scheduler.status"
+      "scheduler.status",
+      "operations.catalog",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -125,7 +204,8 @@
     "scheduler",
     "infra:postgresql",
     "infra:nats",
-    "infra:otel"
+    "infra:otel",
+    "key-custody"
   ],
   "domain": "platform-coordination",
   "responsibilities": [
@@ -337,7 +417,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "module.describe",
@@ -353,7 +435,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "module.drain",
@@ -369,7 +453,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "module.lifecycle.query",
@@ -385,7 +471,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "module.quiesce",
@@ -401,7 +489,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "module.resume",
@@ -417,7 +507,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "module.self-test",
@@ -433,7 +525,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.guard",
@@ -449,7 +543,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -465,7 +561,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": true
       },
       {
         "id": "scheduler.create",
@@ -481,7 +579,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "scheduler",
+        "requiredForReadiness": true
       },
       {
         "id": "scheduler.status",
@@ -497,7 +597,45 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "scheduler",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "operations.catalog",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/operations.catalog/request/1.0",
+        "responseSchema": "athena://contracts/operations.catalog/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
@@ -589,6 +727,72 @@
       "unsigned-control",
       "autonomy-level-skip",
       "business-authority-takeover"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "coordination.run.*",
+        "payloadSchema": "athena://events/coordination.run.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "coordination.run.*.DLQ"
+      },
+      {
+        "subject": "coordination.escalation.*",
+        "payloadSchema": "athena://events/coordination.escalation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "coordination.escalation.*.DLQ"
+      },
+      {
+        "subject": "background.requested",
+        "payloadSchema": "athena://events/background.requested/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "background.requested.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      },
+      {
+        "subject": "chat.run.*",
+        "payloadSchema": "athena://events/chat.run.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "chat.run.*.DLQ"
+      },
+      {
+        "subject": "agent.run.*",
+        "payloadSchema": "athena://events/agent.run.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "agent.run.*.DLQ"
+      },
+      {
+        "subject": "tool.invocation.*",
+        "payloadSchema": "athena://events/tool.invocation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "tool.invocation.*.DLQ"
+      }
     ]
   }
 }

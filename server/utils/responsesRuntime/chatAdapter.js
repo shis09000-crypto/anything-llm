@@ -5,6 +5,7 @@ const {
 } = require("../microModules");
 const { createProviderAdapter } = require("../AiProviders/providerAdapter");
 const { FLASH_MODEL } = require("./contract");
+const { readAicpNdjson } = require("../modulePlatform/aicp");
 
 function enabled({ provider, model, env = process.env } = {}) {
   const role = String(env.ATHENA_RUNTIME_ROLE || "");
@@ -62,28 +63,14 @@ function requestBody(messages, options = {}, metadata = {}) {
 }
 
 async function* responseEvents(response) {
-  let buffered = "";
-  for await (const raw of response) {
-    buffered += raw.toString("utf8");
-    let newline = buffered.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffered.slice(0, newline).trim();
-      buffered = buffered.slice(newline + 1);
-      if (line) {
-        const parsed = JSON.parse(line);
-        if (parsed.event) yield parsed.event;
-        if (parsed.error) {
-          const error = new Error(parsed.error);
-          error.code = parsed.error;
-          throw error;
-        }
-      }
-      newline = buffered.indexOf("\n");
-    }
-  }
-  if (buffered.trim()) {
-    const parsed = JSON.parse(buffered);
+  for await (const { payload: parsed } of readAicpNdjson(response)) {
+    if (!parsed) continue;
     if (parsed.event) yield parsed.event;
+    if (parsed.error) {
+      const error = new Error(parsed.error);
+      error.code = parsed.error;
+      throw error;
+    }
   }
 }
 

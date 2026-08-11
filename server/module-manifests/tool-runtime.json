@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "tool-runtime",
   "name": "Tool Registry and Broker",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "control-plane",
   "owner": "ai-platform",
   "criticality": "high",
@@ -26,6 +26,48 @@
     "internal": [
       "/internal/v1/tools/invoke",
       "/internal/v1/tools/catalog"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/tools/catalog",
+        "capability": "tool.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/tools/invoke",
+        "capability": "tool.invoke"
+      }
     ]
   },
   "rpc": {
@@ -49,7 +91,8 @@
       "crypto.market",
       "identity.assert",
       "knowledge.ingest",
-      "operations.ingest-batch"
+      "operations.ingest-batch",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -80,7 +123,8 @@
       "agent-runtime",
       "scheduler",
       "athena-api",
-      "coordination-plane"
+      "coordination-plane",
+      "responses-runtime"
     ],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 30000
@@ -100,7 +144,8 @@
     "browser-plane",
     "knowledge-ingest",
     "infra:postgresql",
-    "infra:nats"
+    "infra:nats",
+    "key-custody"
   ],
   "domain": "ai-runtime",
   "responsibilities": [
@@ -260,7 +305,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "browser-plane",
+        "requiredForReadiness": true
       },
       {
         "id": "browser.task",
@@ -276,7 +323,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "browser-plane",
+        "requiredForReadiness": true
       },
       {
         "id": "browser.workspace",
@@ -292,7 +341,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "browser-plane",
+        "requiredForReadiness": true
       },
       {
         "id": "coordination.lifecycle.event",
@@ -308,7 +359,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -324,7 +377,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "crypto.account",
@@ -340,7 +395,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "crypto-account-access",
+        "requiredForReadiness": true
       },
       {
         "id": "crypto.market",
@@ -356,7 +413,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "crypto-market",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.assert",
@@ -372,7 +431,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "knowledge.ingest",
@@ -388,7 +449,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "knowledge-ingest",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -404,7 +467,27 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
@@ -478,6 +561,51 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "tool.invocation.*",
+        "payloadSchema": "athena://events/tool.invocation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "tool.invocation.*.DLQ"
+      },
+      {
+        "subject": "tool.registry.*",
+        "payloadSchema": "athena://events/tool.registry.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "tool.registry.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "approval.*",
+        "payloadSchema": "athena://events/approval.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "approval.*.DLQ"
+      },
+      {
+        "subject": "crypto.*",
+        "payloadSchema": "athena://events/crypto.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "crypto.*.DLQ"
+      }
     ]
   }
 }

@@ -7,7 +7,7 @@ const {
   loadServiceIdentity,
   serviceIdentitySummary,
 } = require("../security/serviceIdentity");
-const { metricsEndpoint } = require("../observability/metrics");
+const { metrics, metricsEndpoint } = require("../observability/metrics");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 const { ModuleLifecycle } = require("./lifecycle");
 const {
@@ -17,6 +17,16 @@ const {
   decodeAicpHeader,
   validateCoordinationContext,
 } = require("../modulePlatform/aicp/contractRegistry");
+const {
+  AICP_CONTEXT_HEADER,
+  AICP_RESULT_HEADER,
+  createAicpResult,
+  decodeAicpContext,
+  encodeAicpContext,
+  validateAicpContext,
+} = require("../modulePlatform/aicp/context");
+const { aicpSchemaRegistry } = require("../modulePlatform/aicp/schemaRegistry");
+const { canonicalJson, sha256 } = require("../modulePlatform/canonical");
 
 const LIFECYCLE_CAPABILITIES = Object.freeze({
   "/internal/v1/describe": "module.describe",
@@ -71,6 +81,13 @@ function internalRouteCapability(capabilities, method, requestPath) {
   return null;
 }
 
+function aicpRequestPayload(request) {
+  const hasBody =
+    Number(request.get?.("content-length") || 0) > 0 ||
+    Boolean(request.get?.("transfer-encoding"));
+  return hasBody ? (request.body ?? null) : null;
+}
+
 function internalPeerAuthorized(request, manifest, env = process.env) {
   if (!distributedTopology(env)) return { authorized: true, caller: "local" };
   if (!request.socket?.authorized)
@@ -106,15 +123,35 @@ async function validateAicpPeerRequest(
   const globalMode = aicpEnforcementMode(env);
   if (globalMode === "off") return { authorized: true, mode: globalMode };
   const registry = new AicpContractRegistry();
+  let unifiedContext = null;
+  const encodedUnifiedContext = request.get(AICP_CONTEXT_HEADER);
+  if (encodedUnifiedContext) {
+    try {
+      unifiedContext = decodeAicpContext(encodedUnifiedContext);
+    } catch (error) {
+      return {
+        authorized: false,
+        mode: globalMode,
+        reason: error.code || "aicp_context_invalid",
+      };
+    }
+  }
+  const protocolVersion = unifiedContext ? "1.1" : "1.0";
   const callerRole = String(callerServiceId || "")
     .split("/")
     .filter(Boolean)
     .at(-1);
   const caller = registry.module(
-    request.get("x-athena-aicp-caller") || callerRole
+    unifiedContext?.source || request.get("x-athena-aicp-caller") || callerRole
   );
-  const capability = String(request.get("x-athena-aicp-capability") || "");
-  const target = String(request.get("x-athena-aicp-target") || "");
+  const capability = String(
+    unifiedContext?.capability?.id ||
+      request.get("x-athena-aicp-capability") ||
+      ""
+  );
+  const target = String(
+    unifiedContext?.target || request.get("x-athena-aicp-target") || ""
+  );
   const requestPath = String(request.originalUrl || request.path || "").split(
     "?"
   )[0];
@@ -145,7 +182,10 @@ async function validateAicpPeerRequest(
         callerModule: caller.id,
         targetModule: manifest.id,
         capability,
-        version: request.get("x-athena-aicp-contract-version"),
+        version:
+          unifiedContext?.capability?.version ||
+          request.get("x-athena-aicp-contract-version"),
+        protocolVersion,
       });
     } catch (error) {
       return mode === "enforce"
@@ -163,7 +203,10 @@ async function validateAicpPeerRequest(
         callerModule: caller.id,
         targetModule: manifest.id,
         capability,
-        version: request.get("x-athena-aicp-contract-version"),
+        version:
+          unifiedContext?.capability?.version ||
+          request.get("x-athena-aicp-contract-version"),
+        protocolVersion,
       });
     } catch (error) {
       return mode === "enforce"
@@ -178,7 +221,9 @@ async function validateAicpPeerRequest(
   }
 
   const linkId = request.get("x-athena-aicp-link-id");
-  const fingerprint = request.get("x-athena-aicp-contract-fingerprint");
+  const fingerprint =
+    unifiedContext?.capability?.fingerprint ||
+    request.get("x-athena-aicp-contract-fingerprint");
   if (linkId !== negotiation.linkId)
     return { authorized: false, mode, reason: "aicp_link_id_mismatch" };
   if (fingerprint !== negotiation.contractFingerprint)
@@ -187,6 +232,59 @@ async function validateAicpPeerRequest(
       mode,
       reason: "aicp_contract_fingerprint_mismatch",
     };
+
+  if (unifiedContext) {
+    const requestPayload = aicpRequestPayload(request);
+    const validation = validateAicpContext(unifiedContext, {
+      payload: requestPayload,
+      method: request.method,
+      path: request.originalUrl || request.path,
+    });
+    if (!validation.valid)
+      return {
+        authorized: false,
+        mode,
+        reason: validation.findings[0],
+      };
+    if (
+      unifiedContext.source !== caller.id ||
+      unifiedContext.target !== manifest.id ||
+      unifiedContext.callType !== negotiation.callType
+    )
+      return {
+        authorized: false,
+        mode,
+        reason: "aicp_context_contract_mismatch",
+      };
+    if (
+      negotiation.idempotency === "required" &&
+      !unifiedContext.delivery?.idempotencyKey
+    )
+      return {
+        authorized: false,
+        mode,
+        reason: "aicp_idempotency_key_required",
+      };
+    if (
+      String(request.get("idempotency-key") || "") !==
+      String(unifiedContext.delivery?.idempotencyKey || "")
+    )
+      return {
+        authorized: false,
+        mode,
+        reason: "aicp_idempotency_key_mismatch",
+      };
+    const schemaValidation = aicpSchemaRegistry().validate(
+      negotiation.requestSchema,
+      requestPayload
+    );
+    if (!schemaValidation.valid)
+      return {
+        authorized: false,
+        mode,
+        reason: "aicp_request_schema_invalid",
+      };
+  }
 
   let coordinationContext = null;
   const encodedContext = request.get("x-athena-aicp-coordination");
@@ -262,9 +360,38 @@ async function validateAicpPeerRequest(
         ? { authorized: false, mode, reason: "aicp_principal_verifier_missing" }
         : { authorized: true, mode, observed: false };
     try {
+      const assertion = decodeAicpHeader(encodedAssertion);
+      if (
+        unifiedContext?.security?.principalAssertionHash &&
+        sha256(canonicalJson(assertion)) !==
+          unifiedContext.security.principalAssertionHash
+      )
+        return {
+          authorized: false,
+          mode,
+          reason: "aicp_principal_hash_mismatch",
+        };
+      if (
+        unifiedContext &&
+        assertion.requestHash &&
+        assertion.requestHash !== unifiedContext.requestBindingHash
+      )
+        return {
+          authorized: false,
+          mode,
+          reason: "aicp_principal_request_binding_mismatch",
+        };
       const result = await principalAssertionVerifier(
-        decodeAicpHeader(encodedAssertion),
-        { audience: manifest.id, capability }
+        assertion,
+        {
+          audience: manifest.id,
+          capability,
+          requestBindingHash: unifiedContext?.requestBindingHash || null,
+          payloadHash: unifiedContext?.payloadHash || null,
+          idempotencyKey: unifiedContext?.delivery?.idempotencyKey || null,
+          method: request.method,
+          path: requestPath,
+        }
       );
       if (result?.valid !== true)
         return { authorized: false, mode, reason: "aicp_principal_invalid" };
@@ -286,6 +413,8 @@ async function validateAicpPeerRequest(
     capability,
     linkId: negotiation.linkId,
     coordinationContext,
+    context: unifiedContext,
+    negotiation,
   };
 }
 
@@ -385,9 +514,24 @@ class MicroModuleServiceHost {
     this.onLifecycleTransition = onLifecycleTransition;
     this.principalAssertionVerifier = principalAssertionVerifier;
     this.operationsApprovalVerifier = operationsApprovalVerifier;
+    const manifestRouteCapabilities = Object.fromEntries(
+      (this.manifest.routes?.bindings || []).map((binding) => [
+        `${binding.method} ${binding.path}`,
+        binding.capability,
+      ])
+    );
     this.internalRouteCapabilities = Object.freeze({
+      ...manifestRouteCapabilities,
       ...internalRouteCapabilities,
     });
+    this.contractClosure = {
+      valid: this.manifest.schemaVersion !== "1.2",
+      findings:
+        this.manifest.schemaVersion === "1.2"
+          ? ["route_registration_not_audited"]
+          : [],
+      checkedAt: null,
+    };
     this.lifecycle = new ModuleLifecycle({
       moduleId: this.manifest.id,
       version: this.manifest.version,
@@ -454,17 +598,29 @@ class MicroModuleServiceHost {
     const component = this.readiness?.() || {};
     const componentReady =
       component.ready === undefined ? true : Boolean(component.ready);
+    const enforceContractReadiness =
+      String(this.env.ATHENA_AICP_READINESS_ENFORCEMENT || "false").toLowerCase() ===
+      "true";
+    const contractReady =
+      !enforceContractReadiness || this.contractClosure.valid === true;
     return {
       moduleId: this.manifest.id,
       role: this.role,
       version: this.manifest.version,
       manifestFingerprint: this.manifest.fingerprint,
       status: this.status,
-      ready: this.status === "running" && componentReady,
+      ready: this.status === "running" && componentReady && contractReady,
       inflight: this.inflight,
       startedAt: this.startedAt,
       lastError: this.lastError,
       component,
+      aicp: {
+        protocol: "1.1",
+        manifestSchemaVersion: this.manifest.schemaVersion,
+        readinessEnforced: enforceContractReadiness,
+        contractClosure: this.contractClosure,
+        schemaCatalog: aicpSchemaRegistry().summary(),
+      },
       lifecycle: this.lifecycle.snapshot(),
       serviceIdentity: serviceIdentitySummary(this.role, {
         env: this.env,
@@ -533,13 +689,77 @@ class MicroModuleServiceHost {
           String(request.originalUrl || request.path || "").split("?")[0]
         ),
       });
-      if (!aicp.authorized)
+      if (!aicp.authorized) {
+        metrics.aicpContractRejections.inc({
+          reason: String(aicp.reason || "unknown").slice(0, 80),
+          mode: aicp.mode || "observe",
+        });
         return response.status(409).json({
           success: false,
           error: "aicp_link_rejected",
           reasonCode: aicp.reason,
         });
+      }
       response.locals.aicp = aicp;
+      if (aicp.context) {
+        const controller = new AbortController();
+        const deadlineDelay = Math.max(
+          1,
+          Date.parse(aicp.context.coordination.deadlineAt) - Date.now()
+        );
+        const deadlineTimer = setTimeout(
+          () => controller.abort(new Error("aicp_deadline_exceeded")),
+          deadlineDelay
+        );
+        deadlineTimer.unref?.();
+        const abort = () => {
+          if (!response.writableEnded)
+            controller.abort(new Error("aicp_client_disconnected"));
+        };
+        request.once("aborted", abort);
+        response.once("finish", () => clearTimeout(deadlineTimer));
+        response.once("close", () => {
+          clearTimeout(deadlineTimer);
+          abort();
+        });
+        response.locals.aicp.abortSignal = controller.signal;
+        const sendJson = response.json.bind(response);
+        response.json = (value) => {
+          const failed = response.statusCode >= 400 || value?.success === false;
+          const schemaValidation = failed
+            ? { valid: true }
+            : aicpSchemaRegistry().validate(
+                aicp.negotiation.responseSchema,
+                value
+              );
+          if (!schemaValidation.valid) {
+            response.status(500);
+            value = {
+              success: false,
+              error: "aicp_response_schema_invalid",
+              reasonCode: "provider_response_contract_mismatch",
+            };
+          }
+          const result = createAicpResult({
+            context: aicp.context,
+            status:
+              response.statusCode >= 400 || value?.success === false
+                ? "failed"
+                : "completed",
+            payload: value,
+            errorCode:
+              response.statusCode >= 400 || value?.success === false
+                ? value?.error || "internal_service_failed"
+                : null,
+          });
+          response.setHeader(AICP_RESULT_HEADER, encodeAicpContext(result));
+          response.setHeader(
+            "x-athena-aicp-capability-version",
+            aicp.context.capability.version
+          );
+          return sendJson(value);
+        };
+      }
       next();
     });
     this.app.post("/internal/drain", async (_request, response) => {
@@ -622,6 +842,7 @@ class MicroModuleServiceHost {
       next();
     });
     this.registerRoutes(this.app, this);
+    this.contractClosure = this.auditContractClosure();
     this.app.use((error, _request, response, _next) => {
       this.lastError = safeError(error);
       response.status(Number(error?.httpStatus) || 500).json({
@@ -629,6 +850,70 @@ class MicroModuleServiceHost {
         error: this.lastError,
       });
     });
+  }
+
+  auditContractClosure() {
+    const findings = [];
+    const provided = new Set(
+      (this.manifest.contracts?.provides || []).map((contract) => contract.id)
+    );
+    const registered = [];
+    for (const layer of this.app._router?.stack || []) {
+      if (!layer.route?.path) continue;
+      const routePath = String(layer.route.path);
+      if (!routePath.startsWith("/internal/")) continue;
+      for (const method of Object.keys(layer.route.methods || {}))
+        if (layer.route.methods[method])
+          registered.push(`${method.toUpperCase()} ${routePath}`);
+    }
+    for (const identity of registered) {
+      const separator = identity.indexOf(" ");
+      const method = identity.slice(0, separator);
+      const routePath = identity.slice(separator + 1);
+      const capability = internalRouteCapability(
+        this.internalRouteCapabilities,
+        method,
+        routePath
+      );
+      if (!capability) findings.push(`route_unbound:${identity}`);
+      else if (!provided.has(capability))
+        findings.push(`route_capability_not_provided:${identity}:${capability}`);
+    }
+    const registeredSet = new Set(registered);
+    for (const binding of this.manifest.routes?.bindings || []) {
+      const identity = `${String(binding.method).toUpperCase()} ${binding.path}`;
+      if (!registeredSet.has(identity))
+        findings.push(`manifest_route_not_registered:${identity}`);
+    }
+    for (const contract of this.manifest.contracts?.consumes || []) {
+      if (!contract.requiredForReadiness) continue;
+      try {
+        new AicpContractRegistry().negotiate({
+          callerModule: this.manifest.id,
+          targetModule: contract.targetModule,
+          capability: contract.id,
+          version: contract.version,
+          callType: contract.callType,
+          protocolVersion: "1.1",
+        });
+      } catch (error) {
+        findings.push(
+          `dependency_contract_incompatible:${contract.id}:${
+            error.code || error.message
+          }`
+        );
+      }
+    }
+    return {
+      valid: findings.length === 0,
+      findings,
+      registeredRoutes: registered.length,
+      manifestRouteBindings: (this.manifest.routes?.bindings || []).length,
+      boundRoutes: registered.length - findings.filter((value) =>
+        value.startsWith("route_")
+      ).length,
+      checkedAt: new Date().toISOString(),
+    };
   }
 
   createServer() {

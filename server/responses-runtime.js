@@ -27,6 +27,7 @@ const {
 } = require("./utils/microModules");
 const { ResponsesRuntime } = require("./utils/responsesRuntime/runtime");
 const { protect, unprotect } = require("./utils/responsesRuntime/repository");
+const { AicpNdjsonWriter } = require("./utils/modulePlatform/aicp");
 
 const role = "responses-runtime";
 const port = Number(process.env.RESPONSES_RUNTIME_PORT || 3034);
@@ -197,12 +198,25 @@ const host = new MicroModuleServiceHost({
         response.setHeader("Content-Type", "application/x-ndjson");
         response.setHeader("X-Accel-Buffering", "no");
         response.flushHeaders?.();
-        for await (const event of runtime.stream(runtimeBody(request))) {
-          if (response.destroyed) break;
-          response.write(`${JSON.stringify({ event })}\n`);
+        const writer = new AicpNdjsonWriter(response, {
+          aicp: response.locals.aicp,
+        });
+        writer.open({ capability: "responses.stream" });
+        try {
+          for await (const event of runtime.stream(runtimeBody(request))) {
+            if (response.destroyed) break;
+            writer.data({ event }, { cursor: event?.sequence ?? null });
+          }
+          if (!response.destroyed) writer.end("completed");
+        } catch (error) {
+          if (!response.destroyed)
+            writer.end("failed", {
+              error: String(error?.code || "responses_stream_failed").slice(
+                0,
+                160
+              ),
+            }, { error: "responses_stream_failed" });
         }
-        if (!response.destroyed)
-          response.end(`${JSON.stringify({ end: true })}\n`);
       })
     );
     app.get(

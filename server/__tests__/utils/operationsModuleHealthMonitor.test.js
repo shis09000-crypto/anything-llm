@@ -4,6 +4,7 @@ const {
   ModuleHealthMonitor,
   normalizedRemoteState,
   parseEndpointMap,
+  parseExpectedModuleStates,
 } = require("../../utils/operations/moduleHealthMonitor");
 
 const manifest = {
@@ -62,6 +63,54 @@ describe("Operations module health monitor", () => {
         readinessPath: "/internal/v1/module-readiness/authentication",
       },
     });
+  });
+
+  test("excludes explicitly maintained modules from readiness without reporting a crash", async () => {
+    expect(
+      parseExpectedModuleStates({
+        ATHENA_EXPECTED_MODULE_STATES:
+          "crypto-forecast=maintenance,reader-worker=running",
+      })
+    ).toEqual({
+      "crypto-forecast": "maintenance",
+      "reader-worker": "running",
+    });
+    const maintained = {
+      ...manifest,
+      id: "crypto-forecast",
+    };
+    const monitor = new ModuleHealthMonitor({
+      env: {
+        ATHENA_EXPECTED_MODULE_STATES: JSON.stringify({
+          "crypto-forecast": "maintenance",
+        }),
+      },
+      request: jest.fn(),
+      emit: jest.fn(),
+      manifests: () => [maintained],
+    });
+    monitor.started = true;
+    await monitor.refresh();
+    expect(monitor.request).not.toHaveBeenCalled();
+    expect(monitor.snapshot()).toMatchObject({
+      status: "running",
+      modules: [
+        {
+          moduleId: "crypto-forecast",
+          expectedState: "maintenance",
+          status: "inactive",
+          reasonCode: "module_expected_maintenance",
+        },
+      ],
+      summary: {
+        total: 1,
+        active: 0,
+        inactive: 1,
+        degraded: 0,
+        complete: false,
+      },
+    });
+    await monitor.stop();
   });
 
   test("rejects version, manifest, and identity drift", () => {

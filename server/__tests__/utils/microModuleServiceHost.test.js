@@ -94,6 +94,96 @@ describe("MicroModuleServiceHost", () => {
     expect(lifecycle).toEqual(["start", "drain", "stop"]);
   });
 
+  test("round-trips an AICP v1.1 call with schema, result hash and cancellation enforcement", async () => {
+    let serverObservedAbort = false;
+    let markRouteEntered;
+    const routeEntered = new Promise((resolve) => {
+      markRouteEntered = resolve;
+    });
+    const host = new MicroModuleServiceHost({
+      manifestId: "operations-plane",
+      role: "operations-plane",
+      port: 0,
+      env: {
+        NODE_ENV: "test",
+        APP_ENV: "test",
+        ATHENA_RUNTIME_TOPOLOGY: "local",
+        ATHENA_AICP_EMIT_VERSION: "1.1",
+        ATHENA_AICP_ENFORCEMENT_MODE: "enforce",
+      },
+      registerRoutes: (app) => {
+        app.get(
+          "/internal/v1/operations/health",
+          (request, response) => {
+            expect(response.locals.aicp.context.schemaVersion).toBe("1.1");
+            expect(response.locals.aicp.context.capability.id).toBe(
+              "operations.catalog"
+            );
+            response.json({ success: true, modules: [] });
+          }
+        );
+        app.post(
+          "/internal/v1/operations/ingest-batch",
+          (_request, response) => {
+            markRouteEntered();
+            response.locals.aicp.abortSignal.addEventListener(
+              "abort",
+              () => {
+                serverObservedAbort = true;
+              },
+              { once: true }
+            );
+          }
+        );
+      },
+    });
+
+    await host.start();
+    try {
+      const env = {
+        NODE_ENV: "test",
+        APP_ENV: "test",
+        ATHENA_RUNTIME_TOPOLOGY: "local",
+        ATHENA_AICP_EMIT_VERSION: "1.1",
+        ATHENA_AICP_ENFORCEMENT_MODE: "enforce",
+      };
+      await expect(
+        requestInternalService({
+          callerRole: "coordination-plane",
+          callerModule: "coordination-plane",
+          targetModule: "operations-plane",
+          capability: "operations.catalog",
+          url: `http://127.0.0.1:${host.port}/internal/v1/operations/health`,
+          method: "GET",
+          env,
+        })
+      ).resolves.toEqual({ success: true, modules: [] });
+
+      const controller = new AbortController();
+      const pending = requestInternalService({
+        callerRole: "coordination-plane",
+        callerModule: "coordination-plane",
+        targetModule: "operations-plane",
+        capability: "operations.ingest-batch",
+        url: `http://127.0.0.1:${host.port}/internal/v1/operations/ingest-batch`,
+        body: { events: [] },
+        idempotencyKey: "runtime-action:cancel-test",
+        durableIdempotency: true,
+        signal: controller.signal,
+        env,
+      });
+      await routeEntered;
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({
+        code: "INTERNAL_SERVICE_ABORTED",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(serverObservedAbort).toBe(true);
+    } finally {
+      await host.stop();
+    }
+  });
+
   test("refuses cleartext internal RPC in distributed topology", async () => {
     await expect(
       requestInternalService({

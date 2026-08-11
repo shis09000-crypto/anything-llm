@@ -11,6 +11,9 @@ const { OperationsJetStreamTransport } = require("./jetStreamTransport");
 const { validateRegistered } = require("./schemaRegistry");
 const { metrics } = require("../observability/metrics");
 const { loadManifests } = require("../modulePlatform/manifestRegistry");
+const {
+  parseExpectedModuleStates,
+} = require("./moduleHealthMonitor");
 
 const MAX_RETRY_QUEUE = 1_000;
 
@@ -110,6 +113,16 @@ class OperationsPlane {
     this.queued = 0;
     this.producers = new Map();
     this.moduleHeartbeats = new Map();
+    const expectedStates = parseExpectedModuleStates(env);
+    this.expectedModuleIds = Object.freeze(
+      loadManifests()
+        .filter(
+          (manifest) => (expectedStates[manifest.id] || "running") === "running"
+        )
+        .map((manifest) => manifest.id)
+        .sort()
+    );
+    this.plannedModuleStates = Object.freeze({ ...expectedStates });
   }
 
   securityFindings() {
@@ -441,9 +454,7 @@ class OperationsPlane {
           producerStaleAfterMs,
       }))
       .sort((left, right) => left.runtimeRole.localeCompare(right.runtimeRole));
-    const expectedModuleIds = loadManifests()
-      .map((manifest) => manifest.id)
-      .sort();
+    const expectedModuleIds = this.expectedModuleIds;
     const moduleHeartbeats = [...this.moduleHeartbeats.values()]
       .map((heartbeat) => ({
         ...heartbeat,
@@ -478,6 +489,9 @@ class OperationsPlane {
         stale: moduleHeartbeats.filter((heartbeat) => heartbeat.stale).length,
         missing: expectedModuleIds.filter((id) => !freshModuleIds.has(id)),
         staleAfterMs: producerStaleAfterMs,
+        planned: Object.entries(this.plannedModuleStates)
+          .filter(([, state]) => state !== "running")
+          .map(([moduleId, state]) => ({ moduleId, state })),
         heartbeats: moduleHeartbeats,
       },
       jetstream,

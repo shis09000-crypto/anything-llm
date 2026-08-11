@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "model-gateway",
   "name": "Model Gateway",
-  "version": "1.2.0",
+  "version": "2.6.14",
   "kind": "service",
   "owner": "ai-platform",
   "criticality": "critical",
@@ -29,10 +29,88 @@
       "/internal/v1/models/responses/stream",
       "/internal/v1/models/agent/complete",
       "/internal/v1/models/agent/stream"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/models/responses/capabilities",
+        "capability": "model.responses.capabilities"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/models/health",
+        "capability": "model.health"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/models/catalog",
+        "capability": "model.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/models/complete",
+        "capability": "model.stream"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/models/stream",
+        "capability": "model.stream"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/models/responses/complete",
+        "capability": "model.responses.complete"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/models/responses/stream",
+        "capability": "model.responses.stream"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/models/agent/complete",
+        "capability": "model.agent.complete"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/models/agent/stream",
+        "capability": "model.agent.stream"
+      }
     ]
   },
   "rpc": {
     "provides": [
+      "model.responses.capabilities",
       "model.health",
       "model.stream",
       "model.catalog",
@@ -40,7 +118,6 @@
       "model.agent.stream",
       "model.responses.complete",
       "model.responses.stream",
-      "model.responses.capabilities",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -52,7 +129,8 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
-      "operations.ingest-batch"
+      "operations.ingest-batch",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -99,7 +177,8 @@
   "dependsOn": [
     "authentication",
     "infra:model-provider",
-    "infra:nats"
+    "infra:nats",
+    "key-custody"
   ],
   "domain": "ai-runtime",
   "responsibilities": [
@@ -120,7 +199,11 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/model.responses.capabilities/request/1.0",
         "responseSchema": "athena://contracts/model.responses.capabilities/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "none",
         "dataClassification": "internal"
@@ -144,7 +227,7 @@
       {
         "id": "model.stream",
         "version": "1.0",
-        "callType": "Call",
+        "callType": "Stream",
         "requestSchema": "athena://contracts/model.stream/request/1.0",
         "responseSchema": "athena://contracts/model.stream/response/1.0",
         "errorCodes": [
@@ -192,7 +275,7 @@
       {
         "id": "model.agent.stream",
         "version": "1.0",
-        "callType": "Call",
+        "callType": "Stream",
         "requestSchema": "athena://contracts/model.agent.stream/request/1.0",
         "responseSchema": "athena://contracts/model.agent.stream/response/1.0",
         "errorCodes": [
@@ -224,7 +307,7 @@
       {
         "id": "model.responses.stream",
         "version": "1.0",
-        "callType": "Call",
+        "callType": "Stream",
         "requestSchema": "athena://contracts/model.responses.stream/request/1.0",
         "responseSchema": "athena://contracts/model.responses.stream/response/1.0",
         "errorCodes": [
@@ -349,7 +432,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -365,7 +450,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "identity.assert",
@@ -381,7 +468,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -397,7 +486,27 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
@@ -473,5 +582,64 @@
       "cross-account-data",
       "unsigned-control"
     ]
+  },
+  "streams": {
+    "provides": [
+      {
+        "capability": "model.stream",
+        "frameSchema": "athena://aicp/stream-frame/1.1",
+        "heartbeatMs": 25000,
+        "terminalRequired": true,
+        "recovery": "cursor"
+      },
+      {
+        "capability": "model.agent.stream",
+        "frameSchema": "athena://aicp/stream-frame/1.1",
+        "heartbeatMs": 25000,
+        "terminalRequired": true,
+        "recovery": "cursor"
+      },
+      {
+        "capability": "model.responses.stream",
+        "frameSchema": "athena://aicp/stream-frame/1.1",
+        "heartbeatMs": 25000,
+        "terminalRequired": true,
+        "recovery": "cursor"
+      }
+    ],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "model.stream.*",
+        "payloadSchema": "athena://events/model.stream.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "model.stream.*.DLQ"
+      },
+      {
+        "subject": "model.provider.*",
+        "payloadSchema": "athena://events/model.provider.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "model.provider.*.DLQ"
+      },
+      {
+        "subject": "model.configuration.*",
+        "payloadSchema": "athena://events/model.configuration.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "model.configuration.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": []
   }
 }

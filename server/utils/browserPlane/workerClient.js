@@ -252,6 +252,13 @@ async function workerDownloadToFile(
       process.env.ATHENA_RUNTIME_ROLE === "api"
         ? "athena-api"
         : "browser-plane",
+    callerModule:
+      process.env.ATHENA_RUNTIME_ROLE === "api"
+        ? "athena-api"
+        : "browser-plane",
+    targetModule: "browser-worker",
+    capability: "browser.worker",
+    contractVersion: "1.0",
     url:
       `${endpoint()}/internal/v1/browser/sessions/` +
       `${encodeURIComponent(options.sessionId)}/downloads/` +

@@ -37,6 +37,10 @@ function baseOperationsUrl() {
 async function operations(pathname, method = "GET") {
   return requestInternalService({
     callerRole: "api",
+    callerModule: "coordination-plane",
+    targetModule: "operations-plane",
+    capability: "operations.catalog",
+    contractVersion: "1.0",
     url: `${baseOperationsUrl()}${pathname}`,
     method,
     env: process.env,

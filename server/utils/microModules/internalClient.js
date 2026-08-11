@@ -8,6 +8,7 @@ const {
 } = require("../observability/operationContext");
 const { aicpShadowObserver } = require("../modulePlatform/aicp/shadowObserver");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
+const { metrics } = require("../observability/metrics");
 const {
   AicpContractRegistry,
   aicpEnforcementMode,
@@ -15,6 +16,21 @@ const {
   encodeAicpHeader,
   validateCoordinationContext,
 } = require("../modulePlatform/aicp/contractRegistry");
+const {
+  AICP_CONTEXT_HEADER,
+  AICP_RESULT_HEADER,
+  createAicpContext,
+  decodeAicpContext,
+  encodeAicpContext,
+  payloadHash,
+} = require("../modulePlatform/aicp/context");
+const { aicpSchemaRegistry } = require("../modulePlatform/aicp/schemaRegistry");
+
+function aicpEmitVersion(env = process.env) {
+  return String(env.ATHENA_AICP_EMIT_VERSION || "1.0") === "1.1"
+    ? "1.1"
+    : "1.0";
+}
 
 function inheritedCoordinationContext(explicitContext = null) {
   if (explicitContext) return explicitContext;
@@ -47,6 +63,12 @@ function aicpRequestHeaders({
   coordinationContext = null,
   principalAssertion = null,
   approvalId = null,
+  body = null,
+  method = "POST",
+  url = "/",
+  idempotencyKey = null,
+  timeoutMs = null,
+  attempt = 1,
   env = process.env,
 } = {}) {
   coordinationContext = inheritedCoordinationContext(coordinationContext);
@@ -69,11 +91,13 @@ function aicpRequestHeaders({
     return {};
   }
   const registry = new AicpContractRegistry();
+  const protocolVersion = aicpEmitVersion(env);
   const negotiation = registry.negotiate({
     callerModule: callerRole,
     targetModule,
     capability,
     version: contractVersion,
+    protocolVersion,
   });
   if (coordinationContext) {
     const validation = validateCoordinationContext(coordinationContext, {
@@ -86,7 +110,30 @@ function aicpRequestHeaders({
       throw error;
     }
   }
-  return {
+  if (
+    protocolVersion === "1.1" &&
+    negotiation.idempotency === "required" &&
+    !String(idempotencyKey || "")
+  ) {
+    const error = new Error("aicp_idempotency_key_required");
+    error.code = "AICP_IDEMPOTENCY_KEY_REQUIRED";
+    error.httpStatus = 409;
+    throw error;
+  }
+  if (protocolVersion === "1.1") {
+    const requestValidation = aicpSchemaRegistry().validate(
+      negotiation.requestSchema,
+      body
+    );
+    if (!requestValidation.valid) {
+      const error = new Error("aicp_request_schema_invalid");
+      error.code = "AICP_REQUEST_SCHEMA_INVALID";
+      error.httpStatus = 400;
+      error.findings = requestValidation.findings;
+      throw error;
+    }
+  }
+  const headers = {
     "x-athena-aicp-link-id": negotiation.linkId,
     "x-athena-aicp-capability": negotiation.capability,
     "x-athena-aicp-contract-version": negotiation.version,
@@ -107,6 +154,41 @@ function aicpRequestHeaders({
       ? { "x-athena-operations-approval": String(approvalId) }
       : {}),
   };
+  if (protocolVersion === "1.1") {
+    const operationContext = currentOperationContext() || {};
+    const context = createAicpContext({
+      negotiation,
+      payload: body,
+      method,
+      path: url,
+      coordinationContext,
+      idempotencyKey,
+      principalAssertion,
+      approvalId,
+      operationContext: {
+        traceId: operationContext.traceId,
+        correlationId: operationContext.correlationId,
+        causationId: operationContext.causationId,
+        operationId: operationContext.operationId,
+        runId: operationContext.coordinationRunId,
+        stepId: operationContext.stepId,
+        center: operationContext.coordinationCenter,
+        priority: operationContext.taskPriority,
+      },
+      deadlineAt:
+        coordinationContext?.deadlineAt ||
+        new Date(
+          Date.now() +
+            Math.min(
+              negotiation.timeoutMs,
+              Math.max(1_000, Number(timeoutMs) || negotiation.timeoutMs)
+            )
+        ).toISOString(),
+      attempt,
+    });
+    headers[AICP_CONTEXT_HEADER] = encodeAicpContext(context);
+  }
+  return headers;
 }
 
 function shadowSampled(observationId, env = process.env) {
@@ -123,9 +205,15 @@ function shadowSampled(observationId, env = process.env) {
   return bucket / 0xffffffff < rate;
 }
 
-function rpcShadowObservation({ callerRole, url, method, env }) {
+function rpcShadowObservation({
+  callerRole,
+  url,
+  method,
+  env,
+  operationContext = null,
+}) {
   const startedAt = Date.now();
-  const context = currentOperationContext() || {};
+  const context = operationContext || currentOperationContext() || {};
   const observationId = crypto.randomUUID();
   let recorded = false;
   return ({ outcome, statusCode = null, errorCode = null }) => {
@@ -178,7 +266,7 @@ function rpcShadowObservation({ callerRole, url, method, env }) {
   };
 }
 
-function requestInternalService({
+function requestInternalServiceOnce({
   callerRole,
   callerModule = callerRole,
   url,
@@ -193,8 +281,17 @@ function requestInternalService({
   approvalId = null,
   env = process.env,
   timeoutMs = 10_000,
+  attempt = 1,
+  signal = null,
+  _operationContext = null,
 } = {}) {
-  const observe = rpcShadowObservation({ callerRole, url, method, env });
+  const observe = rpcShadowObservation({
+    callerRole,
+    url,
+    method,
+    env,
+    operationContext: _operationContext,
+  });
   const target = new URL(url);
   const secure = target.protocol === "https:";
   if (distributedTopology(env) && !secure) {
@@ -222,6 +319,12 @@ function requestInternalService({
       coordinationContext,
       principalAssertion,
       approvalId,
+      body,
+      method,
+      url,
+      idempotencyKey,
+      timeoutMs,
+      attempt,
       env,
     });
   } catch (error) {
@@ -269,6 +372,49 @@ function requestInternalService({
             response.statusCode < 300 &&
             parsed?.success !== false
           ) {
+            if (aicpEmitVersion(env) === "1.1") {
+              const encodedResult = response.headers[AICP_RESULT_HEADER];
+              if (!encodedResult) {
+                const error = new Error("aicp_result_context_missing");
+                error.code = "AICP_RESULT_CONTEXT_MISSING";
+                error.httpStatus = 502;
+                observe({
+                  outcome: "failed",
+                  statusCode: response.statusCode,
+                  errorCode: error.code,
+                });
+                return reject(error);
+              }
+              const resultContext = decodeAicpContext(encodedResult);
+              if (
+                resultContext.capability?.id !== capability ||
+                resultContext.resultHash !== payloadHash(parsed)
+              ) {
+                const error = new Error("aicp_result_context_invalid");
+                error.code = "AICP_RESULT_CONTEXT_INVALID";
+                error.httpStatus = 502;
+                return reject(error);
+              }
+              const registry = new AicpContractRegistry();
+              const negotiation = registry.negotiate({
+                callerModule,
+                targetModule,
+                capability,
+                version: contractVersion,
+                protocolVersion: "1.1",
+              });
+              const validation = aicpSchemaRegistry().validate(
+                negotiation.responseSchema,
+                parsed
+              );
+              if (!validation.valid) {
+                const error = new Error("aicp_response_schema_invalid");
+                error.code = "AICP_RESPONSE_SCHEMA_INVALID";
+                error.findings = validation.findings;
+                error.httpStatus = 502;
+                return reject(error);
+              }
+            }
             observe({ outcome: "success", statusCode: response.statusCode });
             return resolve(parsed);
           }
@@ -298,12 +444,106 @@ function requestInternalService({
       observe({ outcome: "failed", errorCode: error?.code || error?.message });
       reject(error);
     });
+    if (signal) {
+      if (signal.aborted)
+        request.destroy(
+          Object.assign(new Error("internal_service_aborted"), {
+            code: "INTERNAL_SERVICE_ABORTED",
+          })
+        );
+      else
+        signal.addEventListener(
+          "abort",
+          () =>
+            request.destroy(
+              Object.assign(new Error("internal_service_aborted"), {
+                code: "INTERNAL_SERVICE_ABORTED",
+              })
+            ),
+          { once: true }
+        );
+    }
     if (payload) request.write(payload);
     request.end();
   });
 }
 
-function requestInternalStream({
+function retryableUnaryError(error) {
+  if ([502, 503, 504].includes(Number(error?.httpStatus))) return true;
+  return [
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "EPIPE",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "ETIMEDOUT",
+  ].includes(String(error?.code || ""));
+}
+
+async function requestInternalService(options = {}) {
+  const operationContext = currentOperationContext() || null;
+  let callType = null;
+  let timeoutMs = Math.max(1_000, Number(options.timeoutMs) || 10_000);
+  if (options.capability && options.targetModule) {
+    const negotiation = new AicpContractRegistry().negotiate({
+      callerModule: options.callerModule || options.callerRole,
+      targetModule: options.targetModule,
+      capability: options.capability,
+      version: options.contractVersion,
+      protocolVersion: aicpEmitVersion(options.env || process.env),
+    });
+    callType = negotiation.callType;
+    timeoutMs = Math.min(timeoutMs, negotiation.timeoutMs);
+  }
+  const maxRetries = ["Query", "Call"].includes(callType)
+    ? 2
+    : ["Task", "Command"].includes(callType) &&
+        options.durableIdempotency === true &&
+        options.idempotencyKey
+      ? 2
+      : 0;
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
+    try {
+      const result = await requestInternalServiceOnce({
+        ...options,
+        timeoutMs,
+        attempt,
+        _operationContext: operationContext,
+      });
+      metrics.aicpCalls.inc({
+        protocol: aicpEmitVersion(options.env || process.env),
+        call_type: callType || "undeclared",
+        outcome: "completed",
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt > maxRetries ||
+        !retryableUnaryError(error) ||
+        options.signal?.aborted
+      ) {
+        metrics.aicpCalls.inc({
+          protocol: aicpEmitVersion(options.env || process.env),
+          call_type: callType || "undeclared",
+          outcome:
+            error.code === "INTERNAL_SERVICE_ABORTED"
+              ? "cancelled"
+              : "failed",
+        });
+        throw error;
+      }
+      metrics.aicpRetries.inc({
+        call_type: callType || "undeclared",
+        outcome: "scheduled",
+      });
+    }
+  }
+  throw lastError;
+}
+
+function requestInternalStreamOnce({
   callerRole,
   callerModule = callerRole,
   url,
@@ -318,8 +558,17 @@ function requestInternalStream({
   approvalId = null,
   env = process.env,
   timeoutMs = 120_000,
+  attempt = 1,
+  signal = null,
+  _operationContext = null,
 } = {}) {
-  const observe = rpcShadowObservation({ callerRole, url, method, env });
+  const observe = rpcShadowObservation({
+    callerRole,
+    url,
+    method,
+    env,
+    operationContext: _operationContext,
+  });
   const target = new URL(url);
   const secure = target.protocol === "https:";
   if (distributedTopology(env) && !secure) {
@@ -347,6 +596,12 @@ function requestInternalStream({
       coordinationContext,
       principalAssertion,
       approvalId,
+      body,
+      method,
+      url,
+      idempotencyKey,
+      timeoutMs,
+      attempt,
       env,
     });
   } catch (error) {
@@ -418,14 +673,57 @@ function requestInternalStream({
       observe({ outcome: "failed", errorCode: error?.code || error?.message });
       reject(error);
     });
+    if (signal) {
+      if (signal.aborted)
+        request.destroy(
+          Object.assign(new Error("internal_stream_aborted"), {
+            code: "INTERNAL_STREAM_ABORTED",
+          })
+        );
+      else
+        signal.addEventListener(
+          "abort",
+          () =>
+            request.destroy(
+              Object.assign(new Error("internal_stream_aborted"), {
+                code: "INTERNAL_STREAM_ABORTED",
+              })
+            ),
+          { once: true }
+        );
+    }
     if (payload) request.write(payload);
     request.end();
   });
 }
 
+async function requestInternalStream(options = {}) {
+  const operationContext = currentOperationContext() || null;
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await requestInternalStreamOnce({
+        ...options,
+        attempt,
+        _operationContext: operationContext,
+      });
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt === 2 ||
+        !retryableUnaryError(error) ||
+        options.signal?.aborted
+      )
+        throw error;
+    }
+  }
+  throw lastError;
+}
+
 module.exports = {
   aicpRequestHeaders,
   inheritedCoordinationContext,
+  aicpEmitVersion,
   requestInternalService,
   requestInternalStream,
 };

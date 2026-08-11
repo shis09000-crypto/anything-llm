@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "key-custody",
   "name": "Key Custody",
-  "version": "1.2.0",
+  "version": "2.6.14",
   "kind": "security-service",
   "owner": "security",
   "criticality": "critical",
@@ -29,6 +29,63 @@
       "/internal/v1/keys/audit-descriptor",
       "/internal/v1/keys/audit-sign",
       "/internal/v1/keys/status"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/wrap",
+        "capability": "key-custody.wrap"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/unwrap",
+        "capability": "key-custody.unwrap"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/audit-descriptor",
+        "capability": "key-custody.audit-descriptor"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/audit-sign",
+        "capability": "key-custody.audit-sign"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/keys/status",
+        "capability": "key-custody.audit-descriptor"
+      }
     ]
   },
   "rpc": {
@@ -300,7 +357,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -316,7 +375,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "operations.ingest-batch",
@@ -332,7 +393,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
       }
     ]
   },
@@ -410,5 +473,35 @@
       "cross-account-data",
       "unsigned-control"
     ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "key-custody.rotation.*",
+        "payloadSchema": "athena://events/key-custody.rotation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "key-custody.rotation.*.DLQ"
+      },
+      {
+        "subject": "key-custody.quarantine.*",
+        "payloadSchema": "athena://events/key-custody.quarantine.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "key-custody.quarantine.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": []
   }
 }

@@ -34,6 +34,7 @@ const {
   installStandaloneShutdown,
   secureDatabaseStart,
 } = require("./utils/microModules");
+const { AicpNdjsonWriter } = require("./utils/modulePlatform/aicp");
 
 const role = "model-gateway";
 const port = Number(process.env.MODEL_GATEWAY_PORT || 3018);
@@ -216,21 +217,31 @@ const host = new MicroModuleServiceHost({
       response.setHeader("Content-Type", "application/x-ndjson");
       response.setHeader("X-Accel-Buffering", "no");
       response.flushHeaders?.();
-      await withCompletion(input, async (provider) => {
-        const stream = await provider.streamGetChatCompletion(
-          input.messages,
-          input.options
-        );
-        let usage = null;
-        for await (const chunk of stream) {
-          if (response.destroyed) break;
-          if (chunk?.usage) usage = chunk.usage;
-          response.write(`${JSON.stringify({ chunk })}\n`);
-        }
-        stream?.endMeasurement?.(usage || {});
+      const writer = new AicpNdjsonWriter(response, {
+        aicp: response.locals.aicp,
       });
-      if (!response.destroyed)
-        response.end(`${JSON.stringify({ end: true })}\n`);
+      writer.open({ capability: "model.stream" });
+      try {
+        await withCompletion(input, async (provider) => {
+          const stream = await provider.streamGetChatCompletion(
+            input.messages,
+            input.options
+          );
+          let usage = null;
+          for await (const chunk of stream) {
+            if (response.destroyed) break;
+            if (chunk?.usage) usage = chunk.usage;
+            writer.data({ chunk });
+          }
+          stream?.endMeasurement?.(usage || {});
+        });
+        if (!response.destroyed) writer.end("completed");
+      } catch (error) {
+        if (!response.destroyed)
+          writer.end("failed", {
+            error: String(error?.code || "model_stream_failed").slice(0, 160),
+          }, { error: "model_stream_failed" });
+      }
     });
     app.post(
       "/internal/v1/models/responses/complete",
@@ -256,21 +267,34 @@ const host = new MicroModuleServiceHost({
         response.setHeader("Content-Type", "application/x-ndjson");
         response.setHeader("X-Accel-Buffering", "no");
         response.flushHeaders?.();
-        await withCompletion(input, async () => {
-          const stream = deepSeekResponsesStream(input, {
-            providerFactory: (requestInput) =>
-              getLLMProvider({
-                provider: requestInput.provider,
-                model: requestInput.model,
-              }),
-          });
-          for await (const event of stream) {
-            if (response.destroyed) break;
-            response.write(`${JSON.stringify({ event })}\n`);
-          }
+        const writer = new AicpNdjsonWriter(response, {
+          aicp: response.locals.aicp,
         });
-        if (!response.destroyed)
-          response.end(`${JSON.stringify({ end: true })}\n`);
+        writer.open({ capability: "model.responses.stream" });
+        try {
+          await withCompletion(input, async () => {
+            const stream = deepSeekResponsesStream(input, {
+              providerFactory: (requestInput) =>
+                getLLMProvider({
+                  provider: requestInput.provider,
+                  model: requestInput.model,
+                }),
+            });
+            for await (const event of stream) {
+              if (response.destroyed) break;
+              writer.data({ event }, { cursor: event?.sequence ?? null });
+            }
+          });
+          if (!response.destroyed) writer.end("completed");
+        } catch (error) {
+          if (!response.destroyed)
+            writer.end("failed", {
+              error: String(error?.code || "model_responses_stream_failed").slice(
+                0,
+                160
+              ),
+            }, { error: "model_responses_stream_failed" });
+        }
       }
     );
     app.post(
@@ -305,34 +329,39 @@ const host = new MicroModuleServiceHost({
       response.setHeader("Content-Type", "application/x-ndjson");
       response.setHeader("X-Accel-Buffering", "no");
       response.flushHeaders?.();
-      await withCompletion(
-        input,
-        async (provider) => {
-          const result = provider.supportsAgentStreaming
-            ? await provider.stream(
-                input.messages,
-                input.functions,
-                (type, data) => {
-                  if (!response.destroyed)
-                    response.write(
-                      `${JSON.stringify({ event: { type, data } })}\n`
-                    );
-                }
-              )
-            : await provider.complete(input.messages, input.functions);
-          if (!response.destroyed) {
-            response.write(
-              `${JSON.stringify({
+      const writer = new AicpNdjsonWriter(response, {
+        aicp: response.locals.aicp,
+      });
+      writer.open({ capability: "model.agent.stream" });
+      try {
+        await withCompletion(
+          input,
+          async (provider) => {
+            const result = provider.supportsAgentStreaming
+              ? await provider.stream(
+                  input.messages,
+                  input.functions,
+                  (type, data) => writer.data({ event: { type, data } })
+                )
+              : await provider.complete(input.messages, input.functions);
+            if (!response.destroyed)
+              writer.data({
                 result,
                 usage: provider.getUsage?.() || null,
-              })}\n`
-            );
-          }
-        },
-        createAgentProvider
-      );
-      if (!response.destroyed)
-        response.end(`${JSON.stringify({ end: true })}\n`);
+              });
+          },
+          createAgentProvider
+        );
+        if (!response.destroyed) writer.end("completed");
+      } catch (error) {
+        if (!response.destroyed)
+          writer.end("failed", {
+            error: String(error?.code || "model_agent_stream_failed").slice(
+              0,
+              160
+            ),
+          }, { error: "model_agent_stream_failed" });
+      }
     });
   },
 });

@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "authentication",
   "name": "Identity and Security Control",
-  "version": "1.2.0",
+  "version": "2.6.14",
   "kind": "security-service",
   "owner": "security",
   "criticality": "critical",
@@ -25,7 +25,11 @@
     "principal-assertion"
   ],
   "routes": {
-    "public": ["/api/auth/", "/api/security/", "/api/vault/"],
+    "public": [
+      "/api/auth/",
+      "/api/security/",
+      "/api/vault/"
+    ],
     "internal": [
       "/internal/v1/principal/assert",
       "/internal/v1/session/introspect",
@@ -39,6 +43,98 @@
       "/internal/v1/user-state/read",
       "/internal/v1/user-state/upsert",
       "/internal/v1/user-state/delete"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/principal/assert",
+        "capability": "identity.assert"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/session/introspect",
+        "capability": "identity.introspect"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/client-identity/attach",
+        "capability": "identity.client.attach"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/realtime/tickets/consume",
+        "capability": "identity.realtime-ticket.consume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/request-signing/verify",
+        "capability": "identity.request-signing.verify"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/session/validate",
+        "capability": "identity.session.validate"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/session/touch",
+        "capability": "identity.session.touch"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/audit/append",
+        "capability": "identity.audit.append"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/user-state/read",
+        "capability": "identity.user-state.read"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/user-state/upsert",
+        "capability": "identity.user-state.upsert"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/user-state/delete",
+        "capability": "identity.user-state.delete"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/user-domain-wraps/queue",
+        "capability": "identity.user-domain-wrap.queue"
+      }
     ]
   },
   "rpc": {
@@ -51,10 +147,10 @@
       "identity.session.validate",
       "identity.session.touch",
       "identity.audit.append",
-      "identity.user-domain-wrap.queue",
       "identity.user-state.read",
       "identity.user-state.upsert",
       "identity.user-state.delete",
+      "identity.user-domain-wrap.queue",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -68,23 +164,35 @@
       "coordination.lifecycle.heartbeat",
       "key-custody.unwrap",
       "key-custody.wrap",
-      "sync.security.clients.reconcile",
       "sync.events.append",
+      "sync.security.clients.reconcile",
       "sync.user-state.reconcile",
-      "operations.ingest-batch"
+      "operations.ingest-batch",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
-    "publishes": ["auth.*", "security.*", "module.lifecycle.*"],
-    "subscribes": ["key-custody.rotation.*"]
+    "publishes": [
+      "auth.*",
+      "security.*",
+      "module.lifecycle.*"
+    ],
+    "subscribes": [
+      "key-custody.rotation.*"
+    ]
   },
   "data": {
-    "schemas": ["identity"],
+    "schemas": [
+      "identity"
+    ],
     "objectPrefixes": []
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/identity",
-    "keyDomains": ["identity", "audit"],
+    "keyDomains": [
+      "identity",
+      "audit"
+    ],
     "allowedCallers": [
       "edge-web",
       "athena-api",
@@ -112,7 +220,11 @@
     "availabilityTarget": 0.999,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["key-custody", "infra:postgresql", "infra:nats"],
+  "dependsOn": [
+    "key-custody",
+    "infra:postgresql",
+    "infra:nats"
+  ],
   "domain": "security",
   "responsibilities": [
     "password",
@@ -432,7 +544,9 @@
         ],
         "timeoutMs": 15000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "browser-egress",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.event",
@@ -448,7 +562,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -464,7 +580,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "key-custody.unwrap",
@@ -480,7 +598,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "key-custody.wrap",
@@ -496,7 +616,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "sync.events.append",
@@ -512,7 +634,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "sync-v2",
+        "requiredForReadiness": false
       },
       {
         "id": "sync.security.clients.reconcile",
@@ -528,7 +652,9 @@
         ],
         "timeoutMs": 2000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "sync-v2",
+        "requiredForReadiness": false
       },
       {
         "id": "sync.user-state.reconcile",
@@ -544,7 +670,9 @@
         ],
         "timeoutMs": 2000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "sync-v2",
+        "requiredForReadiness": false
       },
       {
         "id": "operations.ingest-batch",
@@ -560,20 +688,57 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["identity"],
+    "dataSchemas": [
+      "identity"
+    ],
     "objectPrefixes": [],
-    "keyDomains": ["identity", "audit"],
-    "configuration": ["runtime:identity"],
-    "runtimeState": ["module-instance:authentication"]
+    "keyDomains": [
+      "identity",
+      "audit"
+    ],
+    "configuration": [
+      "runtime:identity"
+    ],
+    "runtimeState": [
+      "module-instance:authentication"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery",
+      "data"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -601,7 +766,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -612,6 +781,44 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "auth.*",
+        "payloadSchema": "athena://events/auth.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "auth.*.DLQ"
+      },
+      {
+        "subject": "security.*",
+        "payloadSchema": "athena://events/security.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "security.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "key-custody.rotation.*",
+        "payloadSchema": "athena://events/key-custody.rotation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "key-custody.rotation.*.DLQ"
+      }
     ]
   }
 }

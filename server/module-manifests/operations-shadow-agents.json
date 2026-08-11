@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "operations-shadow-agents",
   "name": "Operations Shadow Agents",
-  "version": "1.1.0",
+  "version": "2.6.14",
   "kind": "diagnostic",
   "owner": "sre",
   "criticality": "medium",
@@ -21,6 +21,53 @@
     "public": [],
     "internal": [
       "/internal/v1/operations/shadow"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/shadow",
+        "capability": "operations.shadow.evaluate"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/shadow/evaluations/latest",
+        "capability": "operations.shadow.evaluate"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/operations/shadow/evaluations/corpus",
+        "capability": "operations.shadow.evaluate"
+      }
     ]
   },
   "rpc": {
@@ -219,7 +266,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -235,7 +284,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "operations.catalog",
@@ -251,7 +302,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "none",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -267,7 +320,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": true
       }
     ]
   },
@@ -336,6 +391,37 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "operations.shadow.*",
+        "payloadSchema": "athena://events/operations.shadow.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "operations.shadow.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "operations.semantic.*",
+        "payloadSchema": "athena://events/operations.semantic.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "operations.semantic.*.DLQ"
+      }
     ]
   }
 }

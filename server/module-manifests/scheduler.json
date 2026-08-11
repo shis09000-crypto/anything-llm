@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "scheduler",
   "name": "Unified Scheduler",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "control-plane",
   "owner": "platform",
   "criticality": "high",
@@ -23,8 +23,65 @@
     "retry"
   ],
   "routes": {
-    "public": ["/api/scheduled-jobs/"],
-    "internal": ["/internal/v1/scheduler/jobs/", "/internal/drain"]
+    "public": [
+      "/api/scheduled-jobs/"
+    ],
+    "internal": [
+      "/internal/v1/scheduler/jobs/",
+      "/internal/drain"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/scheduler/jobs/:jobId/sync",
+        "capability": "scheduler.create"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/scheduler/jobs/:jobId",
+        "capability": "scheduler.create"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/scheduler/jobs/:jobId/trigger",
+        "capability": "scheduler.status"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/scheduler/jobs/:jobId/runs/:runId/kill",
+        "capability": "scheduler.status"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -38,15 +95,16 @@
       "module.resume"
     ],
     "consumes": [
-      "agent.submit",
+      "chat.thread-title.reconcile",
       "responses.background.claim",
       "responses.background.execute",
       "responses.maintenance",
-      "chat.thread-title.reconcile",
+      "agent.submit",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "operations.ingest-batch",
-      "tool.invoke"
+      "tool.invoke",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -55,16 +113,27 @@
       "background.requested",
       "module.lifecycle.*"
     ],
-    "subscribes": ["agent.run.*", "tool.invocation.*"]
+    "subscribes": [
+      "agent.run.*",
+      "tool.invocation.*"
+    ]
   },
   "data": {
-    "schemas": ["scheduler"],
+    "schemas": [
+      "scheduler"
+    ],
     "objectPrefixes": []
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/scheduler",
-    "keyDomains": ["agent"],
-    "allowedCallers": ["athena-api", "operations-plane", "coordination-plane"],
+    "keyDomains": [
+      "agent"
+    ],
+    "allowedCallers": [
+      "athena-api",
+      "operations-plane",
+      "coordination-plane"
+    ],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 30000
   },
@@ -82,7 +151,8 @@
     "responses-runtime",
     "tool-runtime",
     "infra:postgresql",
-    "infra:nats"
+    "infra:nats",
+    "key-custody"
   ],
   "domain": "platform-control",
   "responsibilities": [
@@ -234,10 +304,17 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/chat.thread-title.reconcile/request/1.0",
         "responseSchema": "athena://contracts/chat.thread-title.reconcile/response/1.0",
-        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "chat-runtime",
+        "requiredForReadiness": false
       },
       {
         "id": "responses.background.claim",
@@ -245,10 +322,15 @@
         "callType": "Command",
         "requestSchema": "athena://contracts/responses.background.claim/request/1.0",
         "responseSchema": "athena://contracts/responses.background.claim/response/1.0",
-        "errorCodes": ["caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "responses-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "responses.background.execute",
@@ -263,7 +345,9 @@
         ],
         "timeoutMs": 900000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "responses-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "responses.maintenance",
@@ -278,7 +362,9 @@
         ],
         "timeoutMs": 300000,
         "idempotency": "required",
-        "dataClassification": "restricted"
+        "dataClassification": "restricted",
+        "targetModule": "responses-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "agent.submit",
@@ -294,7 +380,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "agent-runtime",
+        "requiredForReadiness": true
       },
       {
         "id": "coordination.lifecycle.event",
@@ -310,7 +398,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -326,7 +416,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "operations.ingest-batch",
@@ -342,7 +434,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "tool.invoke",
@@ -358,20 +452,56 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "tool-runtime",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["scheduler"],
+    "dataSchemas": [
+      "scheduler"
+    ],
     "objectPrefixes": [],
-    "keyDomains": ["agent"],
-    "configuration": ["runtime:scheduler"],
-    "runtimeState": ["module-instance:scheduler"]
+    "keyDomains": [
+      "agent"
+    ],
+    "configuration": [
+      "runtime:scheduler"
+    ],
+    "runtimeState": [
+      "module-instance:scheduler"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery",
+      "data"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -399,7 +529,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -410,6 +544,51 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "scheduler.run.*",
+        "payloadSchema": "athena://events/scheduler.run.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "scheduler.run.*.DLQ"
+      },
+      {
+        "subject": "background.requested",
+        "payloadSchema": "athena://events/background.requested/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "background.requested.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "agent.run.*",
+        "payloadSchema": "athena://events/agent.run.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "agent.run.*.DLQ"
+      },
+      {
+        "subject": "tool.invocation.*",
+        "payloadSchema": "athena://events/tool.invocation.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "tool.invocation.*.DLQ"
+      }
     ]
   }
 }

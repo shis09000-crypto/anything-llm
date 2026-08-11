@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "knowledge-ingest",
   "name": "Knowledge Ingest",
-  "version": "1.1.0",
+  "version": "2.6.14",
   "kind": "service",
   "owner": "knowledge",
   "criticality": "high",
@@ -13,12 +13,61 @@
     "server/utils/DocumentEmbeddingBatch/",
     "server/services/documentVectorConsistencyService.js"
   ],
-  "capabilities": ["parse", "chunk", "embed", "index"],
+  "capabilities": [
+    "parse",
+    "chunk",
+    "embed",
+    "index"
+  ],
   "routes": {
-    "public": ["/api/document/"],
+    "public": [
+      "/api/document/"
+    ],
     "internal": [
       "/internal/v1/knowledge/browser-ingest",
       "/internal/v1/knowledge/metrics/recompute"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/knowledge/browser-ingest",
+        "capability": "knowledge.ingest"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/knowledge/metrics/recompute",
+        "capability": "knowledge.metrics.recompute"
+      }
     ]
   },
   "rpc": {
@@ -40,7 +89,8 @@
       "identity.audit.append",
       "identity.request-signing.verify",
       "operations.ingest-batch",
-      "reader.process"
+      "reader.process",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -49,15 +99,24 @@
       "reader.requested",
       "module.lifecycle.*"
     ],
-    "subscribes": ["reader.job.*"]
+    "subscribes": [
+      "reader.job.*"
+    ]
   },
   "data": {
-    "schemas": ["knowledge_ingest"],
-    "objectPrefixes": ["knowledge/documents", "knowledge/previews"]
+    "schemas": [
+      "knowledge_ingest"
+    ],
+    "objectPrefixes": [
+      "knowledge/documents",
+      "knowledge/previews"
+    ]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/knowledge-ingest",
-    "keyDomains": ["file"],
+    "keyDomains": [
+      "file"
+    ],
     "allowedCallers": [
       "athena-api",
       "background-worker",
@@ -82,10 +141,16 @@
     "rag",
     "infra:postgresql",
     "infra:object-store",
-    "infra:nats"
+    "infra:nats",
+    "key-custody"
   ],
   "domain": "knowledge",
-  "responsibilities": ["parse", "chunk", "embed", "index"],
+  "responsibilities": [
+    "parse",
+    "chunk",
+    "embed",
+    "index"
+  ],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
@@ -236,7 +301,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "collector",
+        "requiredForReadiness": true
       },
       {
         "id": "coordination.lifecycle.event",
@@ -252,7 +319,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -268,7 +337,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "identity.assert",
@@ -284,7 +355,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.audit.append",
@@ -300,7 +373,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "identity.request-signing.verify",
@@ -316,7 +391,9 @@
         ],
         "timeoutMs": 10000,
         "idempotency": "required",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -332,7 +409,9 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "reader.process",
@@ -348,20 +427,60 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "reader-worker",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
   "ownership": {
-    "dataSchemas": ["knowledge_ingest"],
-    "objectPrefixes": ["knowledge/documents", "knowledge/previews"],
-    "keyDomains": ["file"],
-    "configuration": ["runtime:knowledge-ingest"],
-    "runtimeState": ["module-instance:knowledge-ingest"]
+    "dataSchemas": [
+      "knowledge_ingest"
+    ],
+    "objectPrefixes": [
+      "knowledge/documents",
+      "knowledge/previews"
+    ],
+    "keyDomains": [
+      "file"
+    ],
+    "configuration": [
+      "runtime:knowledge-ingest"
+    ],
+    "runtimeState": [
+      "module-instance:knowledge-ingest"
+    ]
   },
   "coordination": {
-    "centers": ["task", "recovery", "data", "cache"],
-    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "centers": [
+      "task",
+      "recovery",
+      "data",
+      "cache"
+    ],
+    "acceptedCommands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -389,7 +508,11 @@
       "stop",
       "reconcile"
     ],
-    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "commands": [
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
@@ -400,6 +523,44 @@
       "security-downgrade",
       "cross-account-data",
       "unsigned-control"
+    ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "knowledge.index.*",
+        "payloadSchema": "athena://events/knowledge.index.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "knowledge.index.*.DLQ"
+      },
+      {
+        "subject": "reader.requested",
+        "payloadSchema": "athena://events/reader.requested/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "reader.requested.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": [
+      {
+        "subject": "reader.job.*",
+        "payloadSchema": "athena://events/reader.job.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "reader.job.*.DLQ"
+      }
     ]
   }
 }

@@ -49,6 +49,9 @@ class RemoteSchedulerControl {
   request(path, options = {}) {
     return requestInternalService({
       callerRole: "athena-api",
+      targetModule: "scheduler",
+      capability: options.capability,
+      contractVersion: "1.0",
       url: `${this.baseUrl}${path}`,
       env: this.env,
       ...options,
@@ -61,12 +64,14 @@ class RemoteSchedulerControl {
 
   syncScheduledJob(jobId) {
     return this.request(`/internal/v1/scheduler/jobs/${Number(jobId)}/sync`, {
+      capability: "scheduler.create",
       idempotencyKey: `scheduler-sync:${Number(jobId)}`,
     });
   }
 
   removeScheduledJob(jobId) {
     return this.request(`/internal/v1/scheduler/jobs/${Number(jobId)}`, {
+      capability: "scheduler.create",
       method: "DELETE",
       idempotencyKey: `scheduler-remove:${Number(jobId)}`,
     });
@@ -75,7 +80,10 @@ class RemoteSchedulerControl {
   killRun(jobId, runId) {
     return this.request(
       `/internal/v1/scheduler/jobs/${Number(jobId)}/runs/${Number(runId)}/kill`,
-      { idempotencyKey: `scheduler-kill:${Number(runId)}` }
+      {
+        capability: "scheduler.status",
+        idempotencyKey: `scheduler-kill:${Number(runId)}`,
+      }
     );
   }
 
@@ -83,7 +91,7 @@ class RemoteSchedulerControl {
     const stableKey = idempotencyKey || crypto.randomUUID();
     const result = await this.request(
       `/internal/v1/scheduler/jobs/${Number(jobId)}/trigger`,
-      { idempotencyKey: stableKey }
+      { capability: "scheduler.status", idempotencyKey: stableKey }
     );
     return result.run
       ? {

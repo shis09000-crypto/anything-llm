@@ -4,6 +4,7 @@ const {
   requestInternalStream,
 } = require("../microModules");
 const { createProviderAdapter } = require("../AiProviders/providerAdapter");
+const { readAicpNdjson } = require("../modulePlatform/aicp");
 
 function gatewayEnabled(env = process.env) {
   const role = String(env.ATHENA_RUNTIME_ROLE || "").toLowerCase();
@@ -24,28 +25,14 @@ function requestBody(provider, model, messages, options) {
 }
 
 async function* ndjsonChunks(response) {
-  let buffered = "";
-  for await (const raw of response) {
-    buffered += raw.toString("utf8");
-    let newline = buffered.indexOf("\n");
-    while (newline >= 0) {
-      const line = buffered.slice(0, newline).trim();
-      buffered = buffered.slice(newline + 1);
-      if (line) {
-        const parsed = JSON.parse(line);
-        if (parsed.chunk) yield parsed.chunk;
-        if (parsed.error) {
-          const error = new Error(parsed.error);
-          error.code = parsed.error;
-          throw error;
-        }
-      }
-      newline = buffered.indexOf("\n");
-    }
-  }
-  if (buffered.trim()) {
-    const parsed = JSON.parse(buffered);
+  for await (const { payload: parsed } of readAicpNdjson(response)) {
+    if (!parsed) continue;
     if (parsed.chunk) yield parsed.chunk;
+    if (parsed.error) {
+      const error = new Error(parsed.error);
+      error.code = parsed.error;
+      throw error;
+    }
   }
 }
 
@@ -72,6 +59,9 @@ function wrapWithModelGateway(
     getChatCompletion: async (messages, options = {}) => {
       const response = await requestInternalService({
         callerRole,
+        targetModule: "model-gateway",
+        capability: "model.stream",
+        contractVersion: "1.0",
         url: `${baseUrl}/internal/v1/models/complete`,
         body: requestBody(provider, model, messages, options),
         idempotencyKey: crypto
@@ -86,6 +76,9 @@ function wrapWithModelGateway(
     streamGetChatCompletion: async (messages, options = {}) => {
       const response = await requestInternalStream({
         callerRole,
+        targetModule: "model-gateway",
+        capability: "model.stream",
+        contractVersion: "1.0",
         url: `${baseUrl}/internal/v1/models/stream`,
         body: requestBody(provider, model, messages, options),
         idempotencyKey: crypto.randomUUID(),

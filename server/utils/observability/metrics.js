@@ -474,6 +474,55 @@ const natsConsumerLag = new client.Gauge({
   labelNames: ["consumer"],
   registers: [registry],
 });
+const aicpCalls = new client.Counter({
+  name: "athena_aicp_calls_total",
+  help: "AICP calls by protocol, call type, and terminal outcome.",
+  labelNames: ["protocol", "call_type", "outcome"],
+  registers: [registry],
+});
+const aicpContractRejections = new client.Counter({
+  name: "athena_aicp_contract_rejections_total",
+  help: "AICP contract, schema, route, deadline, and identity rejections.",
+  labelNames: ["reason", "mode"],
+  registers: [registry],
+});
+const aicpRetries = new client.Counter({
+  name: "athena_aicp_retries_total",
+  help: "AICP retry attempts by call type and outcome.",
+  labelNames: ["call_type", "outcome"],
+  registers: [registry],
+});
+const aicpSchemaValidationDuration = new client.Histogram({
+  name: "athena_aicp_schema_validation_seconds",
+  help: "Compiled AICP JSON Schema validation duration.",
+  labelNames: ["direction", "outcome"],
+  buckets: [0.0001, 0.00025, 0.0005, 0.001, 0.002, 0.003, 0.005, 0.01],
+  registers: [registry],
+});
+const aicpStreamEvents = new client.Counter({
+  name: "athena_aicp_stream_events_total",
+  help: "AICP stream frames, recovery, sequence, and terminal outcomes.",
+  labelNames: ["event", "outcome"],
+  registers: [registry],
+});
+const aicpEventDelivery = new client.Counter({
+  name: "athena_aicp_event_delivery_total",
+  help: "AICP event ACK, redelivery, quarantine, and DLQ outcomes.",
+  labelNames: ["stage", "outcome"],
+  registers: [registry],
+});
+const aicpShadowObservations = new client.Counter({
+  name: "athena_aicp_shadow_observations_total",
+  help: "Metadata-only AICP shadow observations by kind and outcome.",
+  labelNames: ["kind", "outcome"],
+  registers: [registry],
+});
+const aicpShadowTraceCoverage = new client.Counter({
+  name: "athena_aicp_shadow_trace_coverage_total",
+  help: "Trace correlation coverage for AICP shadow observations.",
+  labelNames: ["kind", "coverage"],
+  registers: [registry],
+});
 const contentObjectOperations = new client.Counter({
   name: "athena_content_object_operations_total",
   help: "Encrypted content object lifecycle outcomes.",
@@ -838,6 +887,14 @@ module.exports = {
   observeHttp,
   registry,
   metrics: {
+    aicpCalls,
+    aicpContractRejections,
+    aicpEventDelivery,
+    aicpRetries,
+    aicpSchemaValidationDuration,
+    aicpShadowObservations,
+    aicpShadowTraceCoverage,
+    aicpStreamEvents,
     aiCostMicros,
     aiExecutions,
     aiTokens,

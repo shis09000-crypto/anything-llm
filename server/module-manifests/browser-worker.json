@@ -1,9 +1,9 @@
 {
   "schema": "athena.module.manifest",
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.2",
   "id": "browser-worker",
   "name": "Browser Worker Service",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "worker",
   "owner": "browser-platform",
   "criticality": "medium",
@@ -27,6 +27,103 @@
     "internal": [
       "/internal/v1/browser/sessions",
       "/internal/v1/browser/profiles"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/stream-ticket",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/actions",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/tabs",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/browser/sessions/:sessionId/tabs/:tabId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId/cookies",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/risk-inspection",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId/downloads/:downloadId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/browser/sessions/:sessionId/downloads/:downloadId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/cookies/clear",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/close",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/browser/profiles/:profileId",
+        "capability": "browser.worker"
+      }
     ]
   },
   "rpc": {
@@ -44,7 +141,8 @@
       "coordination.lifecycle.heartbeat",
       "key-custody.unwrap",
       "key-custody.wrap",
-      "operations.ingest-batch"
+      "operations.ingest-batch",
+      "key-custody.audit-descriptor"
     ]
   },
   "events": {
@@ -227,7 +325,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "coordination.lifecycle.heartbeat",
@@ -243,7 +343,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "required",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "coordination-plane",
+        "requiredForReadiness": false
       },
       {
         "id": "key-custody.unwrap",
@@ -259,7 +361,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "key-custody.wrap",
@@ -275,7 +379,9 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
-        "dataClassification": "confidential"
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       },
       {
         "id": "operations.ingest-batch",
@@ -291,7 +397,27 @@
         ],
         "timeoutMs": 5000,
         "idempotency": "supported",
-        "dataClassification": "internal"
+        "dataClassification": "internal",
+        "targetModule": "operations-plane",
+        "requiredForReadiness": false
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential",
+        "targetModule": "key-custody",
+        "requiredForReadiness": true
       }
     ]
   },
@@ -364,5 +490,28 @@
       "cross-account-data",
       "unsigned-control"
     ]
+  },
+  "streams": {
+    "provides": [],
+    "consumes": []
+  },
+  "eventContracts": {
+    "publishes": [
+      {
+        "subject": "browser.worker.*",
+        "payloadSchema": "athena://events/browser.worker.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "browser.worker.*.DLQ"
+      },
+      {
+        "subject": "module.lifecycle.*",
+        "payloadSchema": "athena://events/module.lifecycle.*/payload/1.1",
+        "orderingKey": "subject.id",
+        "delivery": "at-least-once",
+        "dlq": "module.lifecycle.*.DLQ"
+      }
+    ],
+    "subscribes": []
   }
 }
