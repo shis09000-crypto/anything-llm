@@ -152,7 +152,12 @@ function endpointConfigError(env = process.env) {
   }
 }
 
-function normalizedRemoteState(manifest, response, durationMs) {
+function normalizedRemoteState(
+  manifest,
+  response,
+  durationMs,
+  { allowContractDrift = false } = {}
+) {
   if (response?.moduleId && response.moduleId !== manifest.id)
     return {
       status: "degraded",
@@ -161,7 +166,11 @@ function normalizedRemoteState(manifest, response, durationMs) {
       observedModuleId: response.moduleId,
       durationMs,
     };
-  if (response?.version && response.version !== manifest.version)
+  if (
+    !allowContractDrift &&
+    response?.version &&
+    response.version !== manifest.version
+  )
     return {
       status: "degraded",
       ready: false,
@@ -170,6 +179,7 @@ function normalizedRemoteState(manifest, response, durationMs) {
       durationMs,
     };
   if (
+    !allowContractDrift &&
     response?.manifestFingerprint &&
     response.manifestFingerprint !== manifest.fingerprint
   )
@@ -197,8 +207,24 @@ function normalizedRemoteState(manifest, response, durationMs) {
     reasonCode: response.ready === false ? "module_reported_not_ready" : null,
     observedVersion: response.version,
     observedManifestFingerprint: response.manifestFingerprint,
+    ...(allowContractDrift &&
+    (response.version !== manifest.version ||
+      response.manifestFingerprint !== manifest.fingerprint)
+      ? {
+          compatibilityStatus: "contract_drift_observed",
+          expectedVersion: manifest.version,
+          expectedManifestFingerprint: manifest.fingerprint,
+        }
+      : {}),
     durationMs,
   };
+}
+
+function readinessContractEnforced(env = process.env) {
+  return (
+    String(env.ATHENA_AICP_READINESS_ENFORCEMENT || "true").toLowerCase() !==
+    "false"
+  );
 }
 
 class ModuleHealthMonitor {
@@ -305,7 +331,9 @@ class ModuleHealthMonitor {
         ),
       });
       return {
-        ...normalizedRemoteState(manifest, response, Date.now() - startedAt),
+        ...normalizedRemoteState(manifest, response, Date.now() - startedAt, {
+          allowContractDrift: !readinessContractEnforced(this.env),
+        }),
         source: "probe",
       };
     } catch (error) {
@@ -526,4 +554,5 @@ module.exports = {
   normalizedEndpoint,
   parseEndpointMap,
   parseExpectedModuleStates,
+  readinessContractEnforced,
 };

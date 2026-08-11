@@ -161,6 +161,43 @@ describe("Operations module health monitor", () => {
     });
   });
 
+  test("observes compatible contract drift during a staged rollout", async () => {
+    const request = jest.fn().mockResolvedValue({
+      moduleId: manifest.id,
+      version: "1.0.0",
+      manifestFingerprint: "previous-release-fingerprint",
+      ready: true,
+    });
+    const monitor = new ModuleHealthMonitor({
+      env: {
+        ATHENA_AICP_READINESS_ENFORCEMENT: "false",
+        ATHENA_MODULE_RUNTIME_ENDPOINTS: JSON.stringify({
+          [manifest.id]: "https://chat:3016",
+        }),
+      },
+      request,
+      emit: jest.fn(),
+      manifests: () => [manifest],
+    });
+
+    monitor.started = true;
+    await monitor.refresh();
+    expect(monitor.snapshot()).toMatchObject({
+      status: "running",
+      modules: [
+        {
+          moduleId: manifest.id,
+          status: "healthy",
+          ready: true,
+          compatibilityStatus: "contract_drift_observed",
+          observedVersion: "1.0.0",
+        },
+      ],
+      summary: { complete: true, healthy: 1, degraded: 0 },
+    });
+    await monitor.stop();
+  });
+
   test("probes configured modules and emits metadata-only transitions", async () => {
     const emit = jest.fn();
     const request = jest.fn().mockResolvedValue({
