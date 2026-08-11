@@ -372,12 +372,17 @@ def render(source: Path) -> dict:
             )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
 
-        if name in {"anything-llm-api", "anything-llm-background-worker"}:
-            # Preserve the existing hybrid audit/agent signing boundary while
-            # moving the runtime from the monolith to independent roles. Only
-            # the roles that already held these keys receive private material.
+        if name in {
+            "anything-llm-api",
+            "anything-llm-background-worker",
+            "anything-llm-identity",
+        }:
+            # Identity verifies and appends the security audit ledger during
+            # startup, so it must receive the same audit-signing material as
+            # the other audit-owning runtimes. Without these mounts every
+            # hybrid checkpoint is reported as unreadable and Identity fails
+            # closed on restart.
             environment["ATHENA_AUDIT_HYBRID_SIGNATURES"] = "required"
-            environment["ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED"] = "true"
             environment["ATHENA_AUDIT_MLDSA65_KEY_ID"] = (
                 "${ATHENA_PROD_AUDIT_MLDSA65_KEY_ID:?required}"
             )
@@ -390,23 +395,31 @@ def render(source: Path) -> dict:
             environment["ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION"] = (
                 "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:?required}"
             )
-            environment["ATHENA_AGENT_MLDSA65_KEY_ID"] = (
-                "${ATHENA_PROD_AGENT_MLDSA65_KEY_ID:?required}"
-            )
-            environment["ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE"] = (
-                "/run/secrets/agent-mldsa65-private.pem"
-            )
-            environment["ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE"] = (
-                "/run/secrets/agent-mldsa65-public.pem"
-            )
             service.setdefault("volumes", []).extend(
                 [
                     "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-private.pem:/run/secrets/audit-mldsa65-private.pem:ro",
                     "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-public.pem:/run/secrets/audit-mldsa65-public.pem:ro",
-                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-private.pem:/run/secrets/agent-mldsa65-private.pem:ro",
-                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-public.pem:/run/secrets/agent-mldsa65-public.pem:ro",
                 ]
             )
+            if name in {"anything-llm-api", "anything-llm-background-worker"}:
+                # Only Agent-executing roles receive the separate Agent
+                # signing key. Identity does not need or receive it.
+                environment["ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED"] = "true"
+                environment["ATHENA_AGENT_MLDSA65_KEY_ID"] = (
+                    "${ATHENA_PROD_AGENT_MLDSA65_KEY_ID:?required}"
+                )
+                environment["ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE"] = (
+                    "/run/secrets/agent-mldsa65-private.pem"
+                )
+                environment["ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE"] = (
+                    "/run/secrets/agent-mldsa65-public.pem"
+                )
+                service["volumes"].extend(
+                    [
+                        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-private.pem:/run/secrets/agent-mldsa65-private.pem:ro",
+                        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-public.pem:/run/secrets/agent-mldsa65-public.pem:ro",
+                    ]
+                )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
 
         if name == "anything-llm-api":
