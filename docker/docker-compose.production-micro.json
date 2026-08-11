@@ -3983,8 +3983,8 @@
         "BROWSER_WORKER_MAX_SESSIONS": "1",
         "BROWSER_WORKER_MAX_TABS": "8",
         "BROWSER_WORKER_IDLE_TIMEOUT_MS": "900000",
-        "BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES": "1073741824",
-        "BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES": "268435456",
+        "BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES": "${ATHENA_PROD_BROWSER_WORKER_MIN_AVAILABLE_MEMORY_BYTES:-536870912}",
+        "BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES": "${ATHENA_PROD_BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES:-268435456}",
         "BROWSER_WORKER_PROFILE_ROOT": "/tmp/athena-browser-worker",
         "STORAGE_DIR": "/tmp/athena-browser-worker",
         "TRUST_PROXY": "true",
@@ -4015,7 +4015,7 @@
         "start_period": "45s",
         "retries": 20
       },
-      "mem_limit": "768m"
+      "mem_limit": "${ATHENA_PROD_BROWSER_WORKER_MEMORY_LIMIT:-1g}"
     },
     "anything-llm-browser-egress": {
       "depends_on": {
