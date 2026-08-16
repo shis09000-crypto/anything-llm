@@ -9,7 +9,6 @@ const {
   publishWorkspaceSyncEvent,
 } = require("../../../chats/workspaceSyncEvents");
 const { compactAgentEvents } = require("../../toolResultStore.js");
-const { promptForHistory } = require("../../../chats/displayPrompt");
 const { executionMetadata } = require("../../../chats/executionMetadata");
 const {
   finalizeAgentChatTurn,
@@ -208,6 +207,7 @@ const chatHistory = {
         aibitat,
         { prompt, response, attachments = [], imageAnalysis = null } = {}
       ) {
+        const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
@@ -262,6 +262,7 @@ const chatHistory = {
           options = {},
         } = {}
       ) {
+        const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];

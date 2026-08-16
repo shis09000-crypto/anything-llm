@@ -8,10 +8,35 @@ const {
   sha256,
   validateCreateRequest,
 } = require("./contract");
-const { ResponsesRepository } = require("./repository");
+const { ResponsesRepository, mapConcurrent } = require("./repository");
 const ModelClient = require("./modelClient");
+const { DurableEventBatcher } = require("./eventBatcher");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 const { requestInternalService } = require("../microModules");
+const {
+  stripCurrentDateTimePromptBlock,
+} = require("../chats/currentDateTimeContext");
+
+function stateInputWithoutDynamicTime(input = []) {
+  return input.map((item) => {
+    if (
+      item?.type === "message" &&
+      item?.role === "user" &&
+      typeof item.content === "string"
+    ) {
+      return {
+        ...item,
+        content: stripCurrentDateTimePromptBlock(item.content),
+      };
+    }
+    return item;
+  });
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function emitRuntimeEvent(
   eventType,
@@ -32,7 +57,7 @@ function emitRuntimeEvent(
         component: "responses-runtime",
         operation: eventType,
       },
-      impact: { scope: response.model, status: response.status },
+      impact: { scope: "deepseek-v4-flash", status: response.status },
       metadata,
       sensitivity: "metadata_only",
     });
@@ -130,6 +155,20 @@ class ResponsesRuntime {
     this.completed = 0;
     this.failed = 0;
     this.pruned = 0;
+    this.persistedEventBatches = 0;
+    this.persistedEventCount = 0;
+    this.hotResponses = new Map();
+    this.hotConversationHeads = new Map();
+    this.persistenceChains = new Map();
+    this.hotResponseBytes = 0;
+    this.maxHotResponses = positiveInteger(
+      process.env.ATHENA_HOT_TURN_MAX_TURNS,
+      64
+    );
+    this.maxHotResponseBytes = positiveInteger(
+      process.env.ATHENA_HOT_TURN_MAX_BYTES,
+      64 * 1024 * 1024
+    );
   }
 
   snapshot() {
@@ -140,6 +179,12 @@ class ResponsesRuntime {
       completedResponses: this.completed,
       failedResponses: this.failed,
       prunedResponses: this.pruned,
+      persistedEventBatches: this.persistedEventBatches,
+      persistedEventCount: this.persistedEventCount,
+      hotResponses: this.hotResponses.size,
+      hotResponseBytes: this.hotResponseBytes,
+      pendingPersistenceQueues: this.persistenceChains.size,
+      ...(this.repository.snapshot?.() || {}),
     };
   }
 
@@ -206,13 +251,53 @@ class ResponsesRuntime {
     if (!request.store || !conversation)
       return { parent: null, previousInput: [] };
     const parentId =
-      request.previousResponseId || conversation.currentHeadResponseId;
+      request.previousResponseId ||
+      this.hotConversationHeads.get(conversation.id) ||
+      conversation.currentHeadResponseId;
     if (!parentId) return { parent: null, previousInput: [] };
-    const parent = await this.repository.findResponse(parentId);
+    const hotParent = this.hotResponses.get(parentId) || null;
+    const parent =
+      hotParent?.row || (await this.repository.findResponse(parentId));
     if (!parent || parent.conversationId !== conversation.id || !parent.store)
       throw runtimeError("previous_response_mismatch", 409);
-    const checkpoint = await this.repository.readCheckpoint(parent.id);
+    const checkpoint =
+      hotParent?.checkpoint ||
+      (await this.repository.readCheckpoint(parent.id));
     return { parent, previousInput: checkpoint?.state?.input || [] };
+  }
+
+  deferredForeground(request) {
+    return (
+      request.store &&
+      !request.background &&
+      request.persistenceMode === "foreground_deferred"
+    );
+  }
+
+  releaseHotResponse(id) {
+    const hot = this.hotResponses.get(id);
+    if (!hot) return false;
+    this.hotResponses.delete(id);
+    this.hotResponseBytes = Math.max(
+      0,
+      this.hotResponseBytes - Number(hot.bytes || 0)
+    );
+    if (hot.expiryTimer) clearTimeout(hot.expiryTimer);
+    hot.response = null;
+    hot.checkpoint = null;
+    return true;
+  }
+
+  enqueuePersistence(conversationIdValue, operation) {
+    const key = String(conversationIdValue || "unscoped");
+    const previous = this.persistenceChains.get(key) || Promise.resolve();
+    const current = previous.catch(() => {}).then(operation);
+    this.persistenceChains.set(key, current);
+    current.finally(() => {
+      if (this.persistenceChains.get(key) === current)
+        this.persistenceChains.delete(key);
+    });
+    return current;
   }
 
   async create(body = {}) {
@@ -273,6 +358,7 @@ class ResponsesRuntime {
     }
     const previousResponseId = parent?.id || null;
     const executionRequest = { ...request, input: effectiveInput };
+    const stateInput = stateInputWithoutDynamicTime(effectiveInput);
     const id = responseId();
     const now = new Date();
     const response = baseResponse({
@@ -306,44 +392,98 @@ class ResponsesRuntime {
       status: request.background ? "queued" : "in_progress",
       background: request.background,
       store: request.store,
-      inputHash: sha256(effectiveInput),
+      inputHash: sha256(stateInput),
       branchReason: historyChanged ? "history_diverged" : null,
       expiresAt: request.store
         ? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
         : now,
     });
-    if (request.store) {
-      const suffix = effectiveInput.slice(prefixLength);
-      let sequence = 0;
-      for (const item of suffix) {
-        await this.repository.appendItem({
-          responseId: id,
-          sequence: sequence++,
-          itemType: item.type || "message",
-          role: item.role || null,
-          callId: item.call_id || item.tool_call_id || null,
-          status: "completed",
-          payload: item,
-        });
+    const hotBytes = Buffer.byteLength(JSON.stringify(stateInput), "utf8");
+    const deferredForeground =
+      this.deferredForeground(request) &&
+      this.hotResponses.size < this.maxHotResponses &&
+      hotBytes <= this.maxHotResponseBytes &&
+      this.hotResponseBytes + hotBytes <= this.maxHotResponseBytes;
+    const checkpointState = {
+      input: stateInput,
+      instructions: request.instructions,
+      tools: request.tools,
+      reasoning: request.reasoning,
+      temperature: request.temperature,
+      maxOutputTokens: request.maxOutputTokens,
+      inputPrefixLength: prefixLength,
+      historyChanged,
+    };
+    if (request.store && !deferredForeground) {
+      const suffix = stateInput.slice(prefixLength);
+      const initialPersistence = [
+        mapConcurrent(suffix, 4, (item, sequence) =>
+          this.repository.appendItem({
+            responseId: id,
+            sequence,
+            itemType: item.type || "message",
+            role: item.role || null,
+            callId: item.call_id || item.tool_call_id || null,
+            status: "completed",
+            payload: item,
+          })
+        ),
+        this.repository.writeCheckpoint(id, checkpointState),
+        this.persistEvent(id, 0, "response.created", { response }),
+      ];
+      if (!request.background) {
+        response.status = "in_progress";
+        initialPersistence.push(
+          this.persistEvent(id, 1, "response.in_progress", { response })
+        );
       }
-      await this.repository.writeCheckpoint(id, {
-        input: effectiveInput,
-        instructions: request.instructions,
-        tools: request.tools,
-        reasoning: request.reasoning,
-        temperature: request.temperature,
-        maxOutputTokens: request.maxOutputTokens,
-        inputPrefixLength: prefixLength,
-        historyChanged,
-      });
-      await this.persistEvent(id, 0, "response.created", { response });
-    }
-    if (!request.background) {
+      await Promise.all(initialPersistence);
+    } else if (!request.background) {
       response.status = "in_progress";
-      if (request.store)
-        await this.persistEvent(id, 1, "response.in_progress", { response });
     }
-    return { request: executionRequest, scope, conversation, response };
+    if (deferredForeground) {
+      const hot = {
+        row: {
+          id,
+          conversationId: conversation?.id || null,
+          previousResponseId,
+          chatRunId: scope.chatRunId,
+          agentRunId: scope.agentRunId,
+          ownerUserId: scope.ownerUserId,
+          model: request.model,
+          background: false,
+          store: true,
+          status: "in_progress",
+        },
+        response,
+        checkpoint: { state: checkpointState },
+        bytes: hotBytes,
+        expiryTimer: null,
+      };
+      hot.expiryTimer = setTimeout(
+        () => {
+          this.releaseHotResponse(id);
+          if (this.hotConversationHeads.get(conversation?.id) === id)
+            this.hotConversationHeads.delete(conversation.id);
+        },
+        10 * 60 * 1000
+      );
+      hot.expiryTimer.unref?.();
+      this.hotResponses.set(id, hot);
+      this.hotResponseBytes += hotBytes;
+    }
+    return {
+      request: executionRequest,
+      scope,
+      conversation,
+      response,
+      persistence: {
+        deferredForeground,
+        prefixLength,
+        checkpointState,
+        stateInput,
+      },
+    };
   }
 
   async persistEvent(responseIdValue, sequence, eventType, payload) {
@@ -423,8 +563,13 @@ class ResponsesRuntime {
   }
 
   async *stream(body = {}) {
+    const runtimeStartedAt = Date.now();
+    const batchesAtStart = this.persistedEventBatches;
+    const custodyAtStart = this.repository.snapshot?.() || {};
     const created = await this.create({ ...body, background: false });
+    const preprocessingMs = Date.now() - runtimeStartedAt;
     const { request, conversation, response } = created;
+    const deferredForeground = created.persistence?.deferredForeground === true;
     if (created.replay) {
       const events = response.conversation
         ? await this.repository.listEvents(response.id, -1)
@@ -433,35 +578,67 @@ class ResponsesRuntime {
       return;
     }
     this.active.set(response.id, { cancelled: false, abort: null });
-    let sequence = request.store ? 2 : 0;
-    if (request.store) {
+    let sequence = request.store && !deferredForeground ? 2 : 0;
+    const deferredEvents = [];
+    if (request.store && !deferredForeground) {
       const initial = await this.repository.listEvents(response.id, -1);
       for (const event of initial) yield event.payload;
     } else {
-      yield { type: "response.created", sequence_number: sequence++, response };
-      yield {
+      const createdEvent = {
+        type: "response.created",
+        sequence_number: sequence++,
+        response,
+      };
+      const inProgressEvent = {
         type: "response.in_progress",
         sequence_number: sequence++,
         response,
       };
+      if (deferredForeground)
+        deferredEvents.push(createdEvent, inProgressEvent);
+      yield createdEvent;
+      yield inProgressEvent;
     }
     const collectedOutput = [];
     let outputText = "";
     let usage = {};
     let protocol = "responses";
     let degradedReason = null;
+    let providerStatus = "completed";
+    let providerStartedAt = null;
+    let providerFirstEventAt = null;
+    let firstVisibleDeltaAt = null;
+    let providerProjectionMs = null;
+    let rawStream = null;
+    const eventBatcher =
+      request.store && !deferredForeground
+        ? new DurableEventBatcher({
+            responseId: response.id,
+            persist: (batch) => this.repository.appendEventBatch(batch),
+            observe: ({ eventCount }) => {
+              this.persistedEventBatches += 1;
+              this.persistedEventCount += eventCount;
+            },
+            onError: () => rawStream?.destroy?.(),
+          })
+        : null;
+    const activeResponse = this.active.get(response.id);
+    if (activeResponse) activeResponse.eventBatcher = eventBatcher;
     try {
+      providerStartedAt = Date.now();
       let executionRequest = request;
       for (let attempt = 0; attempt < 3; attempt += 1) {
         let providerMaterialEventCount = 0;
         try {
-          const rawStream = await this.modelClient.stream(executionRequest);
+          rawStream = await this.modelClient.stream(executionRequest);
           const active = this.active.get(response.id);
           if (active && typeof rawStream?.destroy === "function")
             active.abort = () => rawStream.destroy();
           for await (const providerEvent of this.modelClient.events(
             rawStream
           )) {
+            const providerEventAt = Date.now();
+            eventBatcher?.throwIfFailed();
             if (this.active.get(response.id)?.cancelled)
               throw runtimeError("response_cancelled", 409);
             if (
@@ -470,13 +647,7 @@ class ResponsesRuntime {
               )
             )
               continue;
-            if (providerEvent.type === "response.failed") {
-              const code =
-                providerEvent.response?.error?.code ||
-                providerEvent.error?.code ||
-                "model_responses_stream_failed";
-              throw runtimeError(code, 502);
-            }
+            providerFirstEventAt ||= providerEventAt;
             const event = {
               ...providerEvent,
               sequence_number: sequence,
@@ -485,11 +656,25 @@ class ResponsesRuntime {
             if (providerEvent.type === "response.output_text.delta")
               outputText += providerEvent.delta || "";
             if (
+              providerEvent.type === "response.output_text.delta" &&
+              providerEvent.delta &&
+              firstVisibleDeltaAt === null
+            ) {
+              firstVisibleDeltaAt = Date.now();
+              providerProjectionMs = firstVisibleDeltaAt - providerEventAt;
+            }
+            if (
               providerEvent.type === "response.output_item.done" &&
               providerEvent.item
             )
               collectedOutput.push(providerEvent.item);
-            if (providerEvent.type === "response.completed") {
+            if (
+              [
+                "response.completed",
+                "response.incomplete",
+                "response.failed",
+              ].includes(providerEvent.type)
+            ) {
               usage =
                 providerEvent.response?.usage || providerEvent.usage || usage;
               protocol =
@@ -500,11 +685,36 @@ class ResponsesRuntime {
                 providerEvent.response?.degradedReason ||
                 providerEvent.athena?.degradedReason ||
                 degradedReason;
+              if (providerEvent.type === "response.failed") {
+                const error = runtimeError(
+                  providerEvent.response?.error?.code ||
+                    providerEvent.error?.code ||
+                    "provider_response_failed",
+                  502
+                );
+                error.providerEvent = providerEvent;
+                throw error;
+              }
+              providerStatus =
+                providerEvent.type === "response.incomplete"
+                  ? "incomplete"
+                  : providerEvent.response?.status || "completed";
+              if (providerEvent.response?.output_text && !outputText)
+                outputText = providerEvent.response.output_text;
               continue;
             }
             providerMaterialEventCount += 1;
-            if (request.store)
-              await this.persistEvent(response.id, sequence, event.type, event);
+            if (request.store && !deferredForeground)
+              eventBatcher.append(event, {
+                boundary: [
+                  "response.output_item.added",
+                  "response.output_item.done",
+                  "response.content_part.added",
+                  "response.content_part.done",
+                  "response.function_call_arguments.done",
+                ].includes(event.type),
+              });
+            if (deferredForeground) deferredEvents.push(event);
             yield event;
             sequence += 1;
           }
@@ -521,37 +731,115 @@ class ResponsesRuntime {
           }
         }
       }
+      if (request.store && !deferredForeground) await eventBatcher.drain();
       const result = {
         output: collectedOutput,
         output_text: outputText,
         usage,
         effectiveProtocol: protocol,
         degradedReason,
-        status: "completed",
+        status: providerStatus,
+        runtimeMetrics: {
+          preprocessingMs,
+          providerTtftMs:
+            providerFirstEventAt === null || providerStartedAt === null
+              ? null
+              : providerFirstEventAt - providerStartedAt,
+          firstVisibleDeltaMs:
+            firstVisibleDeltaAt === null
+              ? null
+              : firstVisibleDeltaAt - runtimeStartedAt,
+          providerProjectionMs,
+          persistedEventBatches: this.persistedEventBatches - batchesAtStart,
+          keyCustodyWrapCalls:
+            (this.repository.snapshot?.().keyCustodyWrapCalls || 0) -
+            (custodyAtStart.keyCustodyWrapCalls || 0),
+        },
       };
-      const finalized = await this.finalize({
-        response,
-        request,
-        conversation,
-        result,
-        sequence,
-      });
+      const finalized = deferredForeground
+        ? this.buildFinalizedResponse(response, result)
+        : await this.finalize({
+            response,
+            request,
+            conversation,
+            result,
+            sequence,
+          });
+      if (deferredForeground) finalized.athena.persistenceStatus = "pending";
       const event = {
-        type: "response.completed",
+        type:
+          finalized.status === "incomplete"
+            ? "response.incomplete"
+            : "response.completed",
         sequence_number: sequence,
         response: finalized,
       };
-      if (request.store)
+      if (request.store && !deferredForeground)
         await this.persistEvent(response.id, sequence, event.type, {
           response: finalized,
         });
+      if (deferredForeground) deferredEvents.push(event);
       yield event;
       this.completed += 1;
+      if (deferredForeground) {
+        const hot = this.hotResponses.get(response.id);
+        if (hot) {
+          hot.response = finalized;
+          hot.row.status = finalized.status;
+          hot.checkpoint = {
+            state: {
+              ...(created.persistence?.checkpointState || {}),
+              output: finalized.output,
+              outputText: finalized.output_text,
+              usage: finalized.usage,
+            },
+          };
+        }
+        if (conversation)
+          this.hotConversationHeads.set(conversation.id, response.id);
+        const persistOperation = async () => {
+          let lastError = null;
+          for (const delayMs of [
+            0, 250, 1_000, 4_000, 15_000, 30_000, 60_000, 120_000, 240_000,
+          ]) {
+            if (delayMs)
+              await new Promise((resolve) => setTimeout(resolve, delayMs));
+            try {
+              await this.persistDeferredForeground({
+                created,
+                finalized,
+                events: deferredEvents,
+              });
+              return;
+            } catch (error) {
+              lastError = error;
+            }
+          }
+          throw lastError || runtimeError("response_persistence_failed", 503);
+        };
+        void this.enqueuePersistence(conversation?.id, persistOperation).catch(
+          (error) =>
+            emitRuntimeEvent(
+              "response.persistence.failed",
+              finalized,
+              { errorCode: error?.code || error?.message },
+              "failed"
+            )
+        );
+      }
     } catch (error) {
+      let persistenceError = null;
+      if (request.store && eventBatcher) {
+        try {
+          await eventBatcher.drain();
+        } catch (batchError) {
+          persistenceError = batchError;
+        }
+      }
       const failureError = this.active.get(response.id)?.cancelled
         ? runtimeError("response_cancelled", 409)
-        : error;
-      const failed = await this.fail(response, request, failureError, sequence);
+        : persistenceError || error;
+      const failed = await this.fail(response, request, failureError, null);
       yield {
         type:
           failed.status === "cancelled"
@@ -559,13 +847,95 @@ class ResponsesRuntime {
             : "response.failed",
         sequence_number: sequence,
         response: failed,
-        error: { code: error.code || error.message },
+        error: {
+          code: failureError.code || failureError.message,
+        },
       };
       this.failed += 1;
-      throw error;
+      throw failureError;
     } finally {
       this.active.delete(response.id);
     }
+  }
+
+  buildFinalizedResponse(response, result = {}) {
+    const { output, outputText } = outputFromProvider(result);
+    const usage = normalizeUsage(result.usage || {});
+    const finalized = {
+      ...response,
+      status: result.status === "incomplete" ? "incomplete" : "completed",
+      output,
+      output_text: outputText,
+      usage,
+      athena: {
+        ...response.athena,
+        effectiveProtocol: result.effectiveProtocol || "responses",
+        degradedReason: result.degradedReason || null,
+      },
+    };
+    finalized.athena.resultSha256 = sha256({
+      output,
+      output_text: outputText,
+      usage,
+    });
+    return finalized;
+  }
+
+  async persistDeferredForeground({ created, finalized, events = [] } = {}) {
+    const { conversation, response, persistence } = created;
+    const suffix = persistence.stateInput.slice(persistence.prefixLength || 0);
+    await Promise.all([
+      mapConcurrent(suffix, 4, (item, sequence) =>
+        this.repository.appendItem({
+          responseId: response.id,
+          sequence,
+          itemType: item.type || "message",
+          role: item.role || null,
+          callId: item.call_id || item.tool_call_id || null,
+          status: "completed",
+          payload: item,
+        })
+      ),
+      mapConcurrent(finalized.output, 4, (item, index) =>
+        this.repository.appendItem({
+          responseId: response.id,
+          sequence: 10_000 + index,
+          itemType: item.type || "message",
+          role: item.role || null,
+          callId: item.call_id || null,
+          status: item.status || "completed",
+          payload: item,
+        })
+      ),
+      this.repository.writeCheckpoint(response.id, {
+        ...(persistence.checkpointState || {}),
+        output: finalized.output,
+        outputText: finalized.output_text,
+        usage: finalized.usage,
+      }),
+      this.repository.appendEventBatch({ responseId: response.id, events }),
+    ]);
+    await this.repository.updateResponse(response.id, {
+      status: finalized.status,
+      effectiveProtocol: finalized.athena.effectiveProtocol,
+      degradedReason: finalized.athena.degradedReason,
+      usageJson: JSON.stringify(finalized.usage),
+      resultSha256: finalized.athena.resultSha256,
+      completedAt: new Date(),
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    if (conversation)
+      await this.repository.advanceConversationHead(
+        conversation.id,
+        response.id
+      );
+    this.releaseHotResponse(response.id);
+    if (this.hotConversationHeads.get(conversation?.id) === response.id)
+      this.hotConversationHeads.delete(conversation.id);
+    emitRuntimeEvent("response.persistence.saved", finalized, {
+      eventCount: events.length,
+    });
   }
 
   async finalize({ response, request, conversation, result, sequence = null }) {
@@ -635,7 +1005,9 @@ class ResponsesRuntime {
     emitRuntimeEvent(
       finalized.athena.degradedReason
         ? "response.protocol.degraded"
-        : "response.state.completed",
+        : finalized.status === "incomplete"
+          ? "response.state.incomplete"
+          : "response.state.completed",
       finalized,
       {
         requestedProtocol: "responses",
@@ -645,6 +1017,12 @@ class ResponsesRuntime {
         cacheMissTokens: usage.input_tokens_details.cache_miss_tokens,
         inputTokens: usage.input_tokens,
         outputTokens: usage.output_tokens,
+        preprocessingMs: result.runtimeMetrics?.preprocessingMs,
+        providerTtftMs: result.runtimeMetrics?.providerTtftMs,
+        firstVisibleDeltaMs: result.runtimeMetrics?.firstVisibleDeltaMs,
+        providerProjectionMs: result.runtimeMetrics?.providerProjectionMs,
+        persistedEventBatches: result.runtimeMetrics?.persistedEventBatches,
+        keyCustodyWrapCalls: result.runtimeMetrics?.keyCustodyWrapCalls,
       }
     );
     return finalized;
@@ -692,6 +1070,8 @@ class ResponsesRuntime {
 
   async hydrateResponse(row) {
     if (!row) return null;
+    const hot = this.hotResponses.get(row.id);
+    if (hot?.response) return hot.response;
     const checkpoint = row.store
       ? await this.repository.readCheckpoint(row.id)
       : null;
@@ -723,6 +1103,20 @@ class ResponsesRuntime {
   async retrieve(id, athena, options = {}) {
     const row = await this.authorizeResponse(id, athena, options);
     return this.hydrateResponse(row);
+  }
+
+  async agentRunStatus(agentRunId) {
+    const row =
+      await this.repository.findLatestResponseByAgentRunId(agentRunId);
+    if (!row) return null;
+    return {
+      responseId: row.id,
+      agentRunId: row.agentRunId,
+      status: row.status,
+      completedAt: row.completedAt,
+      errorCode: row.errorCode,
+      resultSha256: row.resultSha256,
+    };
   }
 
   async cancel(id, athena, options = {}) {
@@ -917,10 +1311,18 @@ class ResponsesRuntime {
 
   async stop() {
     this.accepting = false;
+    const drains = [];
     for (const active of this.active.values()) {
       active.cancelled = true;
       active.abort?.();
+      if (active.eventBatcher) drains.push(active.eventBatcher.drain());
     }
+    await Promise.allSettled(drains);
+    await Promise.race([
+      Promise.allSettled([...this.persistenceChains.values()]),
+      new Promise((resolve) => setTimeout(resolve, 30_000)),
+    ]);
+    this.repository.clearCheckpointCache?.();
   }
 }
 

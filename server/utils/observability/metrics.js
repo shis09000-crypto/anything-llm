@@ -559,18 +559,6 @@ const semanticEvents = new client.Counter({
   labelNames: ["category", "severity"],
   registers: [registry],
 });
-const aicpShadowObservations = new client.Counter({
-  name: "athena_aicp_shadow_observations_total",
-  help: "Metadata-only AICP shadow observations by kind and outcome.",
-  labelNames: ["kind", "outcome"],
-  registers: [registry],
-});
-const aicpShadowTraceCoverage = new client.Counter({
-  name: "athena_aicp_shadow_trace_coverage_total",
-  help: "Trace correlation coverage for AICP shadow observations.",
-  labelNames: ["kind", "coverage"],
-  registers: [registry],
-});
 const operationsEvents = new client.Counter({
   name: "athena_operations_events_total",
   help: "AI Operations Plane event lifecycle outcomes.",
@@ -899,8 +887,14 @@ module.exports = {
   observeHttp,
   registry,
   metrics: {
+    aicpCalls,
+    aicpContractRejections,
+    aicpEventDelivery,
+    aicpRetries,
+    aicpSchemaValidationDuration,
     aicpShadowObservations,
     aicpShadowTraceCoverage,
+    aicpStreamEvents,
     aiCostMicros,
     aiExecutions,
     aiTokens,

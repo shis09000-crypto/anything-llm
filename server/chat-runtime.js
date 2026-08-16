@@ -40,6 +40,9 @@ const {
   threadMemoryKeyCustodySelfTest,
 } = require("./utils/chats/threadMemoryRuntime");
 const {
+  registerAgentTurnPersistenceRoutes,
+} = require("./utils/chats/agentTurnPersistenceRuntime");
+const {
   maybeEnqueueTitleGenerationAfterChat,
   refreshRecentThreadTitles,
 } = require("./utils/chats/threadTitleGeneration");
@@ -121,6 +124,9 @@ const host = new MicroModuleServiceHost({
         threadMemory.ready === true &&
         threeDSessionMemoryRuntime.snapshot().ready === true,
       threadMemory,
+      hotTurns: hotTurnBuffer.snapshot(),
+      finalizedTurns: finalizedTurnPersister.snapshot(),
+      promptTimeZone: configuredPromptTimeZone(),
       threeDSessionMemory: threeDSessionMemoryRuntime.snapshot(),
       threeDFastLane: threeDFastLane
         ? {
@@ -163,9 +169,14 @@ const host = new MicroModuleServiceHost({
     threeDFastLane = null;
     unsubscribeTitleFinalization?.();
     unsubscribeTitleFinalization = null;
-    return await chatStreamRunManager.drain({
+    const streamDrain = await chatStreamRunManager.drain({
       timeoutMs: drainTimeoutMs,
     });
+    await Promise.race([
+      finalizedTurnPersister.drain(),
+      new Promise((resolve) => setTimeout(resolve, 30_000)),
+    ]);
+    return streamDrain;
   },
   onStop: async () => {
     await threeDFastLane?.close?.();
@@ -174,6 +185,7 @@ const host = new MicroModuleServiceHost({
   registerRoutes: (app) => {
     registerCompatibleApi(app, chatEndpoints);
     registerThreadMemoryRoutes(app);
+    registerAgentTurnPersistenceRoutes(app);
     app.use(
       "/internal/v1/3d-center/memory",
       require("express").json({ limit: "10mb" })
@@ -229,6 +241,8 @@ const host = new MicroModuleServiceHost({
     );
   },
   internalRouteCapabilities: {
+    "/internal/v1/chat/agent-turns/reserve": "chat.agent-turn.reserve",
+    "/internal/v1/chat/agent-turns/finalize": "chat.agent-turn.finalize",
     "/internal/v1/chat/memory/status": "chat.memory.status",
     "/internal/v1/chat/memory/compact": "chat.memory.compact",
     "/internal/v1/chat/memory/context/resolve": "chat.memory.context.resolve",

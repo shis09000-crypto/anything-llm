@@ -41,7 +41,8 @@
       "/internal/v1/audit/append",
       "/internal/v1/user-state/read",
       "/internal/v1/user-state/upsert",
-      "/internal/v1/user-state/delete"
+      "/internal/v1/user-state/delete",
+      "/internal/v1/user-domain-wraps/queue"
     ]
   },
   "rpc": {
@@ -57,6 +58,7 @@
       "identity.user-state.read",
       "identity.user-state.upsert",
       "identity.user-state.delete",
+      "identity.user-domain-wrap.queue",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -309,6 +311,22 @@
         "timeoutMs": 10000,
         "idempotency": "required",
         "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.user-domain-wrap.queue",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.user-domain-wrap.queue/request/1.0",
+        "responseSchema": "athena://contracts/identity.user-domain-wrap.queue/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
       },
       {
         "id": "module.describe",

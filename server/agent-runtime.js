@@ -37,6 +37,11 @@ const { DataAccessCenter } = require("./utils/dataAccess");
 const {
   submitAgentInvocation,
 } = require("./utils/agents/invocationCapability");
+const { startAgentRunRecovery } = require("./utils/agents/agentRunRecovery");
+const {
+  agentPersistenceContractSnapshot,
+  refreshAgentPersistenceContract,
+} = require("./utils/agents/invocationPersistenceContract");
 
 const role = "agent-runtime";
 const port = Number(process.env.AGENT_RUNTIME_PORT || 3017);
@@ -64,6 +69,13 @@ const host = new MicroModuleServiceHost({
   registerRoutes: (app) => {
     registerCompatibleApi(app, agentWebsocket);
     app.post("/internal/v1/agent/invocations", async (request, response) => {
+      const persistenceContract = agentPersistenceContractSnapshot();
+      if (!persistenceContract.ready)
+        return response.status(503).json({
+          success: false,
+          error: "agent_persistence_contract_incompatible",
+          reasonCode: persistenceContract.reasonCode,
+        });
       try {
         const result = await submitAgentInvocation(request.body);
         response.status(result.replayed ? 200 : 201).json({
@@ -178,10 +190,6 @@ const host = new MicroModuleServiceHost({
       "agent.turn.action",
     "POST /internal/v1/agent/invocations/:invocationId/cancel":
       "agent.turn.cancel",
-    "GET /internal/v1/agent/runs/:invocationId": "agent.status",
-  },
-  internalRouteCapabilities: {
-    "POST /internal/v1/agent/invocations": "agent.submit",
     "GET /internal/v1/agent/runs/:invocationId": "agent.status",
   },
 });

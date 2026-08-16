@@ -1819,11 +1819,6 @@ function buildSpotDetailParams({
     lastUpdatedAt: real
       ? response?.lastUpdatedAt || response?.asOf || null
       : null,
-    connectionStatus: real
-      ? response?.connectionStatus || "connected"
-      : error
-        ? null
-        : timestampFromTime(currentTime),
     connectionStatus: resolvePrivateConnectionStatus({
       hasTrustedData: real,
       requestError: error,

@@ -14,7 +14,7 @@ const aicp = require("./aicp");
 
 module.exports = {
   aicp,
-  createEventEnvelope,
+  ...eventEnvelope,
   issuePrincipalAssertion,
   loadManifests,
   manifestSnapshot,

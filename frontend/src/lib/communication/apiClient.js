@@ -100,14 +100,7 @@ function shouldClearAuthToken(response, data) {
   return isTerminalAuthReason(authReasonFrom({ raw: data }));
 }
 
-function shouldClearAuthToken(response, data, context = {}) {
-  if (!response || ![401, 403].includes(response.status)) return false;
-  if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) return true;
-  if (!isIdentitySessionAuthority(context)) return false;
-  return isTerminalAuthReason(authReasonFrom({ raw: data }));
-}
-
-function clearSensitiveAuthState(response, data, context = {}) {
+function clearSensitiveAuthState(response, data) {
   if (!response || ![401, 403].includes(response.status)) return;
   clearSigningSecretCache();
   if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) {
@@ -424,10 +417,7 @@ async function requestJsonCore(path, options = {}) {
         !clientIdentityReauthRequired &&
         !(sessionRecovery?.recovered || sessionRecovery?.transient)
       ) {
-        clearSensitiveAuthState(response, data, {
-          path,
-          communicationScene,
-        });
+        clearSensitiveAuthState(response, data);
       }
       requestIdentityValidation(response, data, { requestId, path });
       const apiError = normalizeApiError(null, response, {

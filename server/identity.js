@@ -59,6 +59,10 @@ const {
   validateSessionAsOwner,
   verifyRequestSigningAsOwner,
 } = require("./utils/authz/identityOwnerOperations");
+const prisma = require("./utils/prisma");
+const {
+  queueUserDomainWrap,
+} = require("./utils/security/userDomainWrapService");
 const {
   startSecurityAuditMaintenance,
   stopSecurityAuditMaintenance,
@@ -129,6 +133,7 @@ const host = new MicroModuleServiceHost({
     "/internal/v1/user-state/read": "identity.user-state.read",
     "/internal/v1/user-state/upsert": "identity.user-state.upsert",
     "/internal/v1/user-state/delete": "identity.user-state.delete",
+    "/internal/v1/user-domain-wraps/queue": "identity.user-domain-wrap.queue",
   },
   readiness: () => {
     const securityAudit = securityAuditMaintenanceSnapshot();
@@ -215,18 +220,15 @@ const host = new MicroModuleServiceHost({
       });
       return response.status(200).json(result);
     });
-    app.post(
-      "/internal/v1/principal/assert",
-      async (request, response) => {
-        if (request.body?.probe === true)
-          return response.json(capabilityProbe("identity.assert"));
-        const result = await assertPrincipalFromSession({
-          token: request.body?.token,
-          client: request.body?.client,
-        });
-        return response.status(200).json(result);
-      }
-    );
+    app.post("/internal/v1/principal/assert", async (request, response) => {
+      if (request.body?.probe === true)
+        return response.json(capabilityProbe("identity.assert"));
+      const result = await assertPrincipalFromSession({
+        token: request.body?.token,
+        client: request.body?.client,
+      });
+      return response.status(200).json(result);
+    });
     app.post(
       "/internal/v1/client-identity/attach",
       async (request, response) => {
@@ -293,6 +295,30 @@ const host = new MicroModuleServiceHost({
       const result = await deleteUserStateAsOwner(request.body);
       return response.status(200).json({ success: true, ...result });
     });
+    app.post(
+      "/internal/v1/user-domain-wraps/queue",
+      async (request, response) => {
+        const input = request.body || {};
+        const userId = Number(input.userId);
+        const authUserId = Number(input.authUserId);
+        const user = await prisma.users.findFirst({
+          where: { id: userId, authUserId },
+          select: { id: true, authUserId: true },
+        });
+        if (!user)
+          return response.status(403).json({
+            success: false,
+            error: "user_domain_owner_invalid",
+          });
+        const result = await queueUserDomainWrap({
+          ...input,
+          userId: user.id,
+          authUserId: user.authUserId,
+          client: prisma,
+        });
+        return response.status(200).json({ success: true, ...result });
+      }
+    );
   },
 });
 

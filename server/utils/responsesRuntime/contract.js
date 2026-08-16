@@ -246,6 +246,19 @@ function validateCreateRequest(body = {}) {
     error.httpStatus = 409;
     throw error;
   }
+  const persistenceMode = String(body.persistence_mode || "durable").trim();
+  if (!["durable", "foreground_deferred"].includes(persistenceMode)) {
+    const error = new Error("response_persistence_mode_invalid");
+    error.code = "response_persistence_mode_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  if (persistenceMode === "foreground_deferred" && body.background === true) {
+    const error = new Error("response_persistence_mode_conflict");
+    error.code = "response_persistence_mode_conflict";
+    error.httpStatus = 409;
+    throw error;
+  }
   return {
     provider,
     model,
@@ -267,6 +280,7 @@ function validateCreateRequest(body = {}) {
     responseFormat: body.response_format || null,
     store: body.store !== false,
     background: body.background === true,
+    persistenceMode,
     conversation: body.conversation?.id || body.conversation || null,
     previousResponseId: body.previous_response_id || null,
     athena: body.athena && typeof body.athena === "object" ? body.athena : {},

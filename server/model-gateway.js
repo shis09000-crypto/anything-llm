@@ -34,6 +34,7 @@ const {
   installStandaloneShutdown,
   secureDatabaseStart,
 } = require("./utils/microModules");
+const { AicpNdjsonWriter } = require("./utils/modulePlatform/aicp");
 const { startFastLaneServer } = require("./utils/athena3dCenter/fastLane");
 const {
   ThreeDContextCache,
@@ -336,9 +337,13 @@ const host = new MicroModuleServiceHost({
         if (!response.destroyed) writer.end("completed");
       } catch (error) {
         if (!response.destroyed)
-          writer.end("failed", {
-            error: String(error?.code || "model_stream_failed").slice(0, 160),
-          }, { error: "model_stream_failed" });
+          writer.end(
+            "failed",
+            {
+              error: String(error?.code || "model_stream_failed").slice(0, 160),
+            },
+            { error: "model_stream_failed" }
+          );
       }
     });
     app.post(
@@ -365,21 +370,37 @@ const host = new MicroModuleServiceHost({
         response.setHeader("Content-Type", "application/x-ndjson");
         response.setHeader("X-Accel-Buffering", "no");
         response.flushHeaders?.();
-        await withCompletion(input, async () => {
-          const stream = deepSeekResponsesStream(input, {
-            providerFactory: (requestInput) =>
-              getLLMProvider({
-                provider: requestInput.provider,
-                model: requestInput.model,
-              }),
-          });
-          for await (const event of stream) {
-            if (response.destroyed) break;
-            response.write(`${JSON.stringify({ event })}\n`);
-          }
+        const writer = new AicpNdjsonWriter(response, {
+          aicp: response.locals.aicp,
         });
-        if (!response.destroyed)
-          response.end(`${JSON.stringify({ end: true })}\n`);
+        writer.open({ capability: "model.responses.stream" });
+        try {
+          await withCompletion(input, async () => {
+            const stream = deepSeekResponsesStream(input, {
+              providerFactory: (requestInput) =>
+                getLLMProvider({
+                  provider: requestInput.provider,
+                  model: requestInput.model,
+                }),
+            });
+            for await (const event of stream) {
+              if (response.destroyed) break;
+              writer.data({ event }, { cursor: event?.sequence ?? null });
+            }
+          });
+          if (!response.destroyed) writer.end("completed");
+        } catch (error) {
+          if (!response.destroyed)
+            writer.end(
+              "failed",
+              {
+                error: String(
+                  error?.code || "model_responses_stream_failed"
+                ).slice(0, 160),
+              },
+              { error: "model_responses_stream_failed" }
+            );
+        }
       }
     );
     app.post(
@@ -440,12 +461,16 @@ const host = new MicroModuleServiceHost({
         if (!response.destroyed) writer.end("completed");
       } catch (error) {
         if (!response.destroyed)
-          writer.end("failed", {
-            error: String(error?.code || "model_agent_stream_failed").slice(
-              0,
-              160
-            ),
-          }, { error: "model_agent_stream_failed" });
+          writer.end(
+            "failed",
+            {
+              error: String(error?.code || "model_agent_stream_failed").slice(
+                0,
+                160
+              ),
+            },
+            { error: "model_agent_stream_failed" }
+          );
       }
     });
   },

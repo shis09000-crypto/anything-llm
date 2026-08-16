@@ -19,7 +19,8 @@ async function enrichChatExecutionMetadata(
   const pending = history
     .map((record) => ({ record, data: parseResponse(record) }))
     .filter(
-      ({ record, data }) => data && !data.execution && record.clientTurnId
+      ({ record, data }) =>
+        data && !data.execution && !data.metrics?.model && record.clientTurnId
     )
     .slice(0, 100);
   if (pending.length === 0) return history;
