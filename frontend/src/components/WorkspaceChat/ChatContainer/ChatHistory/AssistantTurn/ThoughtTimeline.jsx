@@ -1,5 +1,11 @@
-import { useMemo, useState } from "react";
-import { CaretDown, Check, Hammer, Warning } from "@phosphor-icons/react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CaretDown,
+  Check,
+  CircleNotch,
+  Hammer,
+  Warning,
+} from "@phosphor-icons/react";
 import AgentAnimation from "@/media/animations/agent-animation.webm";
 import AgentStatic from "@/media/animations/agent-static.png";
 import { useTranslation } from "react-i18next";
@@ -10,6 +16,11 @@ import {
   formatToolStatus,
 } from "@/utils/chat/toolTimelineI18n";
 import { useThoughtExpansion } from "../ThoughtContainer";
+import {
+  agentProgressPhaseLabel,
+  formatAgentElapsed,
+  projectAgentProgress,
+} from "@/utils/chat/agentProgressProjection";
 
 function formatPayload(data) {
   if (data === undefined || data === null) return "";
@@ -76,17 +87,28 @@ function toolSummary(event = {}, t) {
   return `${status} ${toolName}${preview ? `: ${preview}` : ""}`;
 }
 
+function isReconnectStatus(event = {}) {
+  return String(event.content || "").startsWith(
+    "Agent connection interrupted. Reconnecting"
+  );
+}
+
 function normalizeDisplayEvent(event = {}, index, t) {
-  const displayType = ["tool_call", "tool_result"].includes(event.type)
-    ? "tool"
-    : "thought";
+  const displayType =
+    event.type === "agent_progress"
+      ? "progress"
+      : ["tool_call", "tool_result"].includes(event.type)
+        ? "tool"
+        : "thought";
   return {
     ...event,
     displayType,
     displayContent:
-      displayType === "tool"
-        ? toolSummary(event, t)
-        : formatTimelineContent(event.content, t),
+      displayType === "progress"
+        ? agentProgressPhaseLabel(event.phase, t)
+        : displayType === "tool"
+          ? toolSummary(event, t)
+          : formatTimelineContent(event.content, t),
     sortTime: event.createdAt || event.requestedAt || event.timestamp || 0,
     originalIndex: index,
   };
@@ -102,14 +124,20 @@ export default function ThoughtTimeline({
   const { expanded: persistedExpanded, setExpanded: setPersistedExpanded } =
     useThoughtExpansion(stateId);
   const [localExpanded, setLocalExpanded] = useState(false);
+  const [clock, setClock] = useState(0);
   const isExpanded = stateId ? persistedExpanded : localExpanded;
   const setIsExpanded = stateId ? setPersistedExpanded : setLocalExpanded;
+  const hasStructuredProgress = events.some(
+    (event) => event?.type === "agent_progress"
+  );
   const visibleEvents = useMemo(
     () =>
       [...events, ...toolEvents]
         .map((event, index) => normalizeDisplayEvent(event, index, t))
         .filter((event) => {
+          if (event.displayType === "progress") return !!event.phase;
           if (event.displayType === "tool") return !!event.displayContent;
+          if (hasStructuredProgress) return isReconnectStatus(event);
           return !!event.content;
         })
         .sort((a, b) => {
@@ -120,12 +148,44 @@ export default function ThoughtTimeline({
           if (!a.sortTime && b.sortTime) return 1;
           return a.originalIndex - b.originalIndex;
         }),
-    [events, toolEvents, t]
+    [events, hasStructuredProgress, toolEvents, t]
   );
+  const progress = useMemo(
+    () => projectAgentProgress(visibleEvents, clock),
+    [clock, visibleEvents]
+  );
+  useEffect(() => {
+    if (!isRunning || !progress) return undefined;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning, progress]);
   if (visibleEvents.length === 0 && !isRunning) return null;
 
   const currentEvent = visibleEvents[visibleEvents.length - 1];
   const canExpand = visibleEvents.length > 1;
+  const summary = progress
+    ? progress.failed
+      ? t("chat_window.toolTimeline.progress.failedSummary", {
+          phase: agentProgressPhaseLabel(progress.failed.phase, t),
+          count: progress.completedCount,
+          elapsed: formatAgentElapsed(progress.elapsedMs),
+        })
+      : isRunning && !progress.terminal
+        ? t("chat_window.toolTimeline.progress.runningSummary", {
+            phase: agentProgressPhaseLabel(progress.current?.phase, t),
+            count: progress.completedCount,
+            elapsed: formatAgentElapsed(progress.elapsedMs),
+            stillWorking:
+              progress.stagnantMs >= 10_000
+                ? t("chat_window.toolTimeline.progress.stillWorking")
+                : "",
+          })
+        : t("chat_window.toolTimeline.progress.completedSummary", {
+            count: progress.completedCount,
+            evidence: progress.evidenceCount,
+            elapsed: formatAgentElapsed(progress.elapsedMs),
+          })
+    : null;
 
   function handleExpandClick() {
     if (!canExpand) return;
@@ -196,15 +256,18 @@ export default function ThoughtTimeline({
             <div className="text-zinc-200 light:text-slate-800 font-mono text-sm leading-[18px]">
               {!isExpanded ? (
                 <span className="block w-full truncate">
-                  {currentEvent?.displayContent ||
-                    (isRunning
-                      ? t("chat_window.toolTimeline.status.working")
-                      : t("chat_window.toolTimeline.status.finished"))}
+                  {isRunning
+                    ? summary ||
+                      currentEvent?.displayContent ||
+                      t("chat_window.toolTimeline.status.working")
+                    : summary || t("chat_window.toolTimeline.agentComplete")}
                 </span>
               ) : (
                 <div className="space-y-2">
                   {visibleEvents.map((event) =>
-                    event.displayType === "tool" ? (
+                    event.displayType === "progress" ? (
+                      <ProgressTimelineRow key={event.id} event={event} />
+                    ) : event.displayType === "tool" ? (
                       <ToolTimelineRow key={event.id} event={event} />
                     ) : (
                       <div key={event.id}>{event.displayContent}</div>
@@ -215,6 +278,58 @@ export default function ThoughtTimeline({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProgressTimelineRow({ event }) {
+  const { t } = useTranslation();
+  const label = agentProgressPhaseLabel(event.phase, t);
+  const timestamp = formatTimestamp(event);
+  const toolName = event.details?.toolName
+    ? displayToolName(event.details.toolName, t)
+    : null;
+  const evidenceCount = Number(event.details?.evidenceCount || 0);
+  const detail =
+    evidenceCount > 0
+      ? t("chat_window.toolTimeline.progress.evidenceDetail", {
+          count: evidenceCount,
+        })
+      : toolName
+        ? t("chat_window.toolTimeline.progress.toolDetail", { tool: toolName })
+        : "";
+  const failed = event.status === "failed";
+  const completed = event.status === "completed";
+
+  return (
+    <div className="flex gap-2 text-xs leading-5 text-zinc-300 light:text-slate-700">
+      <span className="mt-[2px] shrink-0">
+        {failed ? (
+          <Warning size={14} className="text-red-400 light:text-red-600" />
+        ) : completed ? (
+          <Check size={14} className="text-green-400 light:text-green-600" />
+        ) : (
+          <CircleNotch
+            size={14}
+            className="animate-spin text-blue-400 light:text-blue-600"
+          />
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <span className="font-semibold text-zinc-100 light:text-slate-900">
+          {label}
+        </span>
+        {detail && (
+          <span className="ml-2 text-zinc-400 light:text-slate-600">
+            {detail}
+          </span>
+        )}
+        {timestamp && (
+          <span className="ml-2 text-[11px] text-zinc-500 light:text-slate-500">
+            {timestamp}
+          </span>
+        )}
       </div>
     </div>
   );

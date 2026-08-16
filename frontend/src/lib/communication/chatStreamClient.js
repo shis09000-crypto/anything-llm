@@ -3,6 +3,7 @@ import { v4 } from "uuid";
 import { getJson, postJson } from "./apiClient";
 import { getJsonSse, postJsonSse } from "./streamClient";
 import {
+  isVisibleChatTerminalEvent,
   normalizeChatStreamEvent,
   normalizeChatTurnEvent,
 } from "./chatStreamProtocol";
@@ -25,6 +26,12 @@ function chatStreamBody({
   editContext = null,
   regenerateContext = null,
 }) {
+  let timeZone = null;
+  try {
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    timeZone = null;
+  }
   return {
     message,
     displayPrompt,
@@ -32,6 +39,7 @@ function chatStreamBody({
     fileAccess: { mode: fileAccessMode },
     nodeContext,
     clientTurnId,
+    ...(timeZone ? { timeZone } : {}),
     ...(editContext ? { editContext } : {}),
     ...(regenerateContext ? { regenerateContext } : {}),
   };
@@ -100,6 +108,10 @@ async function streamChat({
   let emittedStop = false;
   let emittedError = false;
   let terminalSeen = false;
+  let resolveVisibleTerminal = null;
+  const visibleTerminal = new Promise((resolve) => {
+    resolveVisibleTerminal = resolve;
+  });
   let lastRevision = 0;
   let reconnectAttempt = 0;
   let responseId = null;
@@ -135,6 +147,8 @@ async function streamChat({
       )
     ) {
       terminalSeen = true;
+      resolveVisibleTerminal?.(raw);
+      resolveVisibleTerminal = null;
     }
     if (raw?.action === "rename_thread") dispatchThreadRename(raw.thread);
     onRawEvent?.(raw);
@@ -295,7 +309,7 @@ async function streamChat({
       ),
     };
     try {
-      await postJsonSse({
+      const foregroundTransport = postJsonSse({
         ...streamOptions(path),
         body: requestBody,
       });

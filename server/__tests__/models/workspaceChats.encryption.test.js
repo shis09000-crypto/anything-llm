@@ -5,6 +5,7 @@ let conversationKeys = [];
 let cryptoMetadata = [];
 let auditChats = [];
 let chainChats = [];
+const mockRequestInternalService = jest.fn();
 
 const mockPrisma = {
   $transaction: jest.fn(async (callback) => callback(mockPrisma)),
@@ -32,6 +33,9 @@ function cursorFromSql(sql = "", field = "id") {
 }
 
 jest.mock("../../utils/prisma", () => mockPrisma);
+jest.mock("../../utils/microModules/internalClient", () => ({
+  requestInternalService: (...args) => mockRequestInternalService(...args),
+}));
 jest.mock("../../utils/chats/chatIdentifiers", () => ({
   newPublicChatId: jest.fn(() => "chat_public_test"),
   normalizePublicChatId: jest.fn((value) => value || null),
@@ -127,9 +131,9 @@ describe("WorkspaceChats chat history encryption", () => {
               (row) =>
                 Number(row.workspaceId) === Number(params[2]) &&
                 (row.user_id ?? null) === (params[3] ?? null) &&
-                (row.thread_id ?? null) === (params[4] ?? null) &&
-                (row.api_session_id ?? null) === (params[5] ?? null) &&
-                Number(row.id) < Number(params[6])
+                (row.thread_id ?? null) === (params[5] ?? null) &&
+                (row.api_session_id ?? null) === (params[7] ?? null) &&
+                Number(row.id) < Number(params[9])
             )
             .sort((left, right) => Number(right.id) - Number(left.id))[0];
           return Promise.resolve([
@@ -197,6 +201,28 @@ describe("WorkspaceChats chat history encryption", () => {
       return Promise.resolve([]);
     });
     mockPrisma.workspace_chats.findMany.mockResolvedValue([]);
+    mockRequestInternalService.mockImplementation(async ({ url, body }) => {
+      const { encryptSecret, decryptSecret } = jest.requireActual(
+        "../../utils/security/encryption"
+      );
+      // Execute the mock as the actual Key Custody owner. Leaving the caller
+      // role as chat-runtime would correctly reject local cryptography and
+      // would not model the remote owner boundary this test is exercising.
+      const callerRole = process.env.ATHENA_RUNTIME_ROLE;
+      process.env.ATHENA_RUNTIME_ROLE = "key-custody";
+      try {
+        if (String(url).endsWith("/internal/v1/keys/wrap")) {
+          return { wrapped: encryptSecret(body.plaintext, body.context) };
+        }
+        if (String(url).endsWith("/internal/v1/keys/unwrap")) {
+          return { plaintext: decryptSecret(body.wrapped, body.context) };
+        }
+      } finally {
+        if (callerRole === undefined) delete process.env.ATHENA_RUNTIME_ROLE;
+        else process.env.ATHENA_RUNTIME_ROLE = callerRole;
+      }
+      throw new Error("unexpected_internal_capability");
+    });
   });
 
   afterEach(() => {
@@ -204,6 +230,10 @@ describe("WorkspaceChats chat history encryption", () => {
     else process.env.ENCRYPTION_MASTER_KEY = originalKey;
     delete process.env.CHAT_HISTORY_ENCRYPTION;
     delete process.env.CHAT_HISTORY_ENCRYPTION_DISABLED;
+    delete process.env.ATHENA_KEY_CUSTODY_CUTOVER;
+    delete process.env.ATHENA_KEY_CUSTODY_URL;
+    delete process.env.ATHENA_RUNTIME_TOPOLOGY;
+    delete process.env.ATHENA_RUNTIME_ROLE;
   });
 
   it("stores prompt and response encrypted while returning plaintext", async () => {
@@ -239,6 +269,42 @@ describe("WorkspaceChats chat history encryption", () => {
     expect(JSON.parse(chat.response)).toEqual({
       text: "secret assistant response",
     });
+  });
+
+  it("wraps and unwraps conversation keys through Key Custody in chat-runtime", async () => {
+    process.env.ATHENA_KEY_CUSTODY_CUTOVER = "true";
+    process.env.ATHENA_KEY_CUSTODY_URL = "https://key-custody:3023";
+    process.env.ATHENA_RUNTIME_TOPOLOGY = "micro-modules";
+    process.env.ATHENA_RUNTIME_ROLE = "chat-runtime";
+    mockPrisma.workspace_chats.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: 11, ...data })
+    );
+
+    const { WorkspaceChats } = require("../../models/workspaceChats");
+    const { chat } = await WorkspaceChats.new({
+      workspaceId: 10,
+      prompt: "remote custody prompt",
+      response: { text: "remote custody response" },
+      user: { id: 2 },
+      threadId: 3,
+    });
+
+    expect(chat.prompt).toBe("remote custody prompt");
+    expect(JSON.parse(chat.response)).toEqual({
+      text: "remote custody response",
+    });
+    expect(mockRequestInternalService).toHaveBeenCalledWith(
+      expect.objectContaining({
+        callerModule: "chat-runtime",
+        targetModule: "key-custody",
+        capability: "key-custody.wrap",
+        body: expect.objectContaining({
+          context: expect.objectContaining({
+            purpose: "chat-conversation-key",
+          }),
+        }),
+      })
+    );
   });
 
   it("replays an existing client turn without creating a duplicate chat", async () => {
@@ -485,6 +551,19 @@ describe("WorkspaceChats chat history encryption", () => {
       String(sql).includes(`WITH "tail" AS`)
     );
     expect(tailQueries).toHaveLength(1);
+    expect(tailQueries[0][0]).not.toContain(` IS ?`);
+    expect(tailQueries[0][0]).toContain(`CAST(? AS INTEGER)`);
+    expect(tailQueries[0][0]).toContain(`CAST(? AS TEXT)`);
+    expect(tailQueries[0].slice(2)).toEqual([
+      10,
+      2,
+      2,
+      3,
+      3,
+      "bulk-session",
+      "bulk-session",
+      50,
+    ]);
     expect(mockPrisma.workspace_chats.findMany).not.toHaveBeenCalled();
   });
 
@@ -539,6 +618,22 @@ describe("WorkspaceChats chat history encryption", () => {
     });
 
     expect(result).toMatchObject({ rebuilt: 3, fallback: false });
+    const predecessorQuery = mockPrisma.$queryRawUnsafe.mock.calls.find(
+      ([sql]) => String(sql).includes(`WITH "predecessor_metadata" AS`)
+    );
+    expect(predecessorQuery[0]).not.toContain(` IS ?`);
+    expect(predecessorQuery[0]).toContain(`CAST(? AS INTEGER)`);
+    expect(predecessorQuery[0]).toContain(`CAST(? AS TEXT)`);
+    expect(predecessorQuery.slice(3)).toEqual([
+      10,
+      2,
+      2,
+      3,
+      3,
+      "suffix-session",
+      "suffix-session",
+      1000,
+    ]);
     expect(mockPrisma.workspace_chats.findMany).toHaveBeenCalledWith({
       where: expect.objectContaining({ id: { gte: 1000 } }),
       orderBy: { id: "asc" },

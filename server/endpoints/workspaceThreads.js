@@ -385,9 +385,11 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const sourceActionId = compactActionId(
-          (reqBody(request) || {}).sourceActionId
-        );
+        const body = reqBody(request) || {};
+        const sourceActionId = compactActionId(body.sourceActionId);
+        const requestedChatModel = isSupportedThreadChatModel(body.chatModel)
+          ? body.chatModel
+          : null;
         let thread = sourceActionId
           ? await WorkspaceThread.get({ sourceActionId })
           : null;
@@ -414,6 +416,7 @@ function workspaceThreadEndpoints(app) {
             {
               thread_type: WorkspaceThread.THREAD_TYPES.chat,
               sourceActionId,
+              ...(requestedChatModel ? { chatModel: requestedChatModel } : {}),
             }
           ));
           if (!thread && sourceActionId) {

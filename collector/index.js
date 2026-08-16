@@ -20,7 +20,10 @@ const { ACCEPTED_MIMES } = require("./utils/constants");
 const { reqBody } = require("./utils/http");
 const { processSingleFile } = require("./processSingleFile");
 const { processLink, getLinkText } = require("./processLink");
-const { wipeCollectorStorage } = require("./utils/files");
+const {
+  assertCollectorStorageContract,
+  wipeCollectorStorage,
+} = require("./utils/files");
 const extensions = require("./extensions");
 const { processRawText } = require("./processRawText");
 const { verifyPayloadIntegrity } = require("./middleware/verifyIntegrity");
@@ -345,6 +348,7 @@ app.use((error, _request, response, _next) => {
 async function start() {
   moduleLifecycle.initialize();
   await assertCollectorRuntimeSecurity();
+  assertCollectorStorageContract();
   const identity = collectorServerIdentity();
   serverIdentity = identity;
   await wipeCollectorStorage();

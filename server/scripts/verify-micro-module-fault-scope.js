@@ -26,6 +26,10 @@ async function operations(pathname) {
     .replace(/\/$/, "");
   return requestInternalService({
     callerRole: "api",
+    callerModule: "coordination-plane",
+    targetModule: "operations-plane",
+    capability: "operations.catalog",
+    contractVersion: "1.0",
     url: `${base}${pathname}`,
     method: "GET",
     env: process.env,

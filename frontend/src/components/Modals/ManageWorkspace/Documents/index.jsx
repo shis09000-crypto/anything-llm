@@ -28,12 +28,12 @@ export default function DocumentSettings({ workspace }) {
   const { embeddingProgress, startEmbedding } = useWorkspaceEmbeddingProgress(
     workspace.slug,
     {
-      onProgressCleared: () => fetchKeysRef.current?.(true),
+      onProgressCleared: () => fetchKeysRef.current?.(true, { silent: true }),
     }
   );
 
   async function fetchKeys(refetchWorkspace = false, options = {}) {
-    const { autoSelectNew = false } = options;
+    const { autoSelectNew = false, silent = false } = options;
     const previousIds = new Set();
     if (autoSelectNew && availableDocsRef.current?.items) {
       for (const folder of availableDocsRef.current.items) {
@@ -42,71 +42,73 @@ export default function DocumentSettings({ workspace }) {
         }
       }
     }
-    setLoading(true);
-    const localFiles = await System.localFiles();
-    const currentWorkspace = refetchWorkspace
-      ? await Workspace.bySlug(workspace.slug)
-      : workspace;
+    if (!silent) setLoading(true);
+    try {
+      const localFiles = await System.localFiles();
+      const currentWorkspace = refetchWorkspace
+        ? await Workspace.bySlug(workspace.slug)
+        : workspace;
 
-    const documentsInWorkspace =
-      currentWorkspace.documents.map((doc) => doc.docpath) || [];
+      const documentsInWorkspace =
+        currentWorkspace.documents.map((doc) => doc.docpath) || [];
 
-    // Documents that are not in the workspace
-    const filteredAvailableDocs = {
-      ...localFiles,
-      items: localFiles.items.map((folder) => {
-        if (folder.items && folder.type === "folder") {
-          return {
-            ...folder,
-            items: folder.items.filter(
-              (file) =>
-                file.type === "file" &&
-                !documentsInWorkspace.includes(`${folder.name}/${file.name}`)
-            ),
-          };
-        } else {
-          return folder;
-        }
-      }),
-    };
+      // Documents that are not in the workspace
+      const filteredAvailableDocs = {
+        ...localFiles,
+        items: localFiles.items.map((folder) => {
+          if (folder.items && folder.type === "folder") {
+            return {
+              ...folder,
+              items: folder.items.filter(
+                (file) =>
+                  file.type === "file" &&
+                  !documentsInWorkspace.includes(`${folder.name}/${file.name}`)
+              ),
+            };
+          } else {
+            return folder;
+          }
+        }),
+      };
 
-    // Documents that are already in the workspace
-    const filteredWorkspaceDocs = {
-      ...localFiles,
-      items: localFiles.items.map((folder) => {
-        if (folder.items && folder.type === "folder") {
-          return {
-            ...folder,
-            items: folder.items.filter(
-              (file) =>
-                file.type === "file" &&
-                documentsInWorkspace.includes(`${folder.name}/${file.name}`)
-            ),
-          };
-        } else {
-          return folder;
-        }
-      }),
-    };
+      // Documents that are already in the workspace
+      const filteredWorkspaceDocs = {
+        ...localFiles,
+        items: localFiles.items.map((folder) => {
+          if (folder.items && folder.type === "folder") {
+            return {
+              ...folder,
+              items: folder.items.filter(
+                (file) =>
+                  file.type === "file" &&
+                  documentsInWorkspace.includes(`${folder.name}/${file.name}`)
+              ),
+            };
+          } else {
+            return folder;
+          }
+        }),
+      };
 
-    setAvailableDocs(filteredAvailableDocs);
-    setWorkspaceDocs(filteredWorkspaceDocs);
+      setAvailableDocs(filteredAvailableDocs);
+      setWorkspaceDocs(filteredWorkspaceDocs);
 
-    if (autoSelectNew) {
-      const newSelected = {};
-      for (const folder of filteredAvailableDocs.items ?? []) {
-        for (const file of folder.items ?? []) {
-          if (file?.id && !previousIds.has(file.id)) {
-            newSelected[file.id] = true;
+      if (autoSelectNew) {
+        const newSelected = {};
+        for (const folder of filteredAvailableDocs.items ?? []) {
+          for (const file of folder.items ?? []) {
+            if (file?.id && !previousIds.has(file.id)) {
+              newSelected[file.id] = true;
+            }
           }
         }
+        if (Object.keys(newSelected).length > 0) {
+          setSelectedItems((prev) => ({ ...prev, ...newSelected }));
+        }
       }
-      if (Object.keys(newSelected).length > 0) {
-        setSelectedItems((prev) => ({ ...prev, ...newSelected }));
-      }
+    } finally {
+      if (!silent) setLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -125,7 +127,7 @@ export default function DocumentSettings({ workspace }) {
         Number(detail.workspaceId) !== Number(workspace.id)
       )
         return;
-      void fetchKeysRef.current?.(true);
+      void fetchKeysRef.current?.(true, { silent: true });
     };
     window.addEventListener(
       "athena-sync-v2-workspace-documents-refresh",

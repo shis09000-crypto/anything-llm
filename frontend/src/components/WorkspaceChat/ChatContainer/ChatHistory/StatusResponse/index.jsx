@@ -94,7 +94,9 @@ export default function StatusResponse({
               <div className="text-zinc-200 light:text-slate-800 font-mono text-sm leading-[18px]">
                 {!isExpanded ? (
                   <span className="block w-full truncate">
-                    {formatTimelineContent(currentThought.content, t)}
+                    {isThinking
+                      ? formatTimelineContent(currentThought.content, t)
+                      : t("chat_window.toolTimeline.agentComplete")}
                   </span>
                 ) : (
                   <>

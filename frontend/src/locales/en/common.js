@@ -2116,6 +2116,11 @@ const readable = true;
       "processor-offline-desc":
         "We can't upload your files right now because the document processor is offline. Please try again later.",
       "click-upload": "Click to upload or drag and drop",
+      "cancel-upload": "Cancel upload",
+      "preparing-upload": "{{percent}}% · Preparing upload",
+      "upload-progress": "{{percent}}% · {{speed}}/s",
+      "upload-complete": "100% · Uploaded",
+      "upload-failed": "File upload failed",
       "file-types":
         "supports text files, csv's, spreadsheets, audio files, and more!",
       "or-submit-link": "or submit a link",
@@ -2124,6 +2129,24 @@ const readable = true;
       "fetch-website": "Fetch website",
       "privacy-notice":
         "These files will be uploaded to the document processor running on this Athena instance. These files are not sent or shared with a third party.",
+    },
+    "document-status": {
+      uploading: "Uploading",
+      waiting: "Waiting for processing",
+      processing: "Parsing",
+      embedding: "Embedding",
+      indexing: "Indexing",
+      uploaded: "Uploaded",
+      indexed: "Indexed",
+      outdated: "Index out of date",
+      failed: "Processing failed",
+      cancelled: "Cancelled",
+      cached: "Cached",
+      "last-indexed": "Last indexed: {{value}}",
+      "embedding-count": "Embeddings: {{count}}",
+      "batch-id": "Batch ID: {{value}}",
+      "failure-reason": "Failure reason: {{value}}",
+      "remove-from-queue": "Remove from queue",
     },
     pinning: {
       what_pinning: "What is document pinning?",
@@ -2277,11 +2300,73 @@ const readable = true;
       missing_credentials: "This provider is missing credentials!",
       missing_credentials_description: "Set up now",
     },
+    turnState: {
+      reconnecting: "Reconnecting…",
+      saving: "Saving securely…",
+      saveRetrying:
+        "The response is preserved. Secure saving will retry in the background.",
+      loadingFullResponse: "Loading full response…",
+      retryFullResponse: "Retry loading full response",
+      loadFullResponse: "Load full response",
+      loadingConversation: "Loading conversation",
+      responseFailed: "Could not respond to this message.",
+      reconnectLimitPrompt:
+        "The agent reached its reconnect limit. Continue with the recorded tool results and partial response?",
+      reconnect: "Reconnect",
+      keepInterrupted: "Keep interrupted",
+      errorReason: "Reason:",
+      unknownError: "Unknown error",
+    },
     toolTimeline: {
+      modelThinking: "Model is thinking...",
+      modelComplete: "Model has finished thinking",
       agentThinking: "Agent is thinking...",
       agentComplete: "Agent has finished thinking",
+      progress: {
+        runningSummary:
+          "{{phase}} · {{count}} steps completed · {{elapsed}} {{stillWorking}}",
+        completedSummary:
+          "Agent completed · {{count}} steps · {{evidence}} evidence items · {{elapsed}}",
+        failedSummary:
+          "{{phase}} failed · {{count}} steps completed · {{elapsed}}",
+        stillWorking: "· Still working on this step",
+        toolDetail: "Calling {{tool}}",
+        evidenceDetail: "{{count}} evidence items ready",
+        approvalDetail: "Approval requested for {{tool}}",
+        clarificationDetail: "Additional input collected",
+        phases: {
+          routing: "Determining the agent path",
+          session_start: "Entering agent mode",
+          tool_selection: "Selecting available tools",
+          tool_execution: "Calling a tool",
+          retrieval: "Searching workspace knowledge",
+          evidence_ready: "Retrieval evidence is ready",
+          synthesis: "Organizing an evidence-based answer",
+          finalizing: "Finalizing the answer",
+        },
+      },
       showThoughtChain: "Show thought chain",
       hideThoughtChain: "Hide thought chain",
+      agentSessionStarted:
+        "Agent mode started. Type /exit to end the agent session.",
+      agentTemporarilyUnavailable:
+        "The agent service is temporarily unavailable. Your message was preserved; please retry shortly.",
+      agentFallbackToChat:
+        "The requested agent{{targets}} could not be started. Continuing as a standard chat.",
+      agentTargetLabel: " ({{targets}})",
+      reconnecting:
+        "Agent connection interrupted. Reconnecting ({{attempt}}/{{total}})...",
+      generationStopped: "Generation stopped.",
+      agentSessionUnavailable:
+        "The agent session is no longer accepting input.",
+      agentFollowUpSent: "Follow-up sent to the active agent session.",
+      streamAborted: "The response stream was interrupted.",
+      websocketFailed: "The realtime connection failed.",
+      reconnectFailed: "The agent could not reconnect.",
+      chatStreamFailed:
+        "The chat stream ended before the response was complete.",
+      approvalRequested: "Approval requested for {{skill}}",
+      agentError: "Agent error",
       toolFallback: "tool",
       toolFamilyLabel: "{{family}} ({{toolName}})",
       actionPrefix: "Action: {{action}} · ",

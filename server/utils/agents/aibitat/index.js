@@ -8,6 +8,10 @@ const {
 const { v4 } = require("uuid");
 const { ToolReranker } = require("./utils/toolReranker.js");
 const {
+  agentReasoningEffort,
+  LocalToolVectorIndex,
+} = require("./utils/localToolVectorIndex.js");
+const {
   storeToolRun,
   prepareToolResultForModel,
 } = require("../toolResultStore.js");
@@ -55,6 +59,15 @@ function readyToolInvocationEvent(functionCall, depth, fallbackUuid) {
   };
 }
 
+function toolCategory(toolName = "") {
+  const name = String(toolName || "").toLowerCase();
+  if (name.includes("rag") || name.includes("memory")) return "rag";
+  if (name.includes("web") || name.includes("browser")) return "web";
+  if (name.includes("file") || name.includes("document")) return "document";
+  if (name.includes("shell") || name.includes("computer")) return "computer";
+  return "function";
+}
+
 function continuationProviderConfigForFunction(fn = {}) {
   const taskName = String(fn?.continuationTask || "").trim();
   if (!taskName) return null;
@@ -62,6 +75,16 @@ function continuationProviderConfigForFunction(fn = {}) {
     taskName,
     ...resolveTaskProviderModel(taskName),
   };
+}
+
+function providerUsesManagedResponses(config = {}, env = process.env) {
+  return (
+    env.ATHENA_RESPONSES_RUNTIME_CUTOVER === "true" &&
+    Boolean(String(env.ATHENA_RESPONSES_RUNTIME_URL || "").trim()) &&
+    String(env.ATHENA_RUNTIME_ROLE || "") === "agent-runtime" &&
+    String(config.provider || "") === "deepseek" &&
+    String(config.model || "") === "deepseek-v4-flash"
+  );
 }
 
 /**
@@ -188,9 +211,17 @@ class AIbitat {
     return this;
   }
 
+  completeProgressBeforeFinal() {
+    if (this._finalProgressEmitted) return;
+    this._finalProgressEmitted = true;
+    this.reportProgress?.("synthesis", "completed");
+    this.reportProgress?.("finalizing", "running");
+    this.reportProgress?.("finalizing", "completed");
+  }
+
   /**
    * Register a new chat ID for tracking for a given conversation exchange
-   * @param {number} chatId - The ID of the chat to register.
+   * @param {number|string} chatId - The durable chat ID or hot reservation ID.
    */
   registerChatId(chatId = null, publicChatId = null) {
     if (!chatId) return;
@@ -927,6 +958,7 @@ ${this.getHistory({ to: route.to })
    * @param route.from The node that will reply to the chat.
    */
   async reply(route) {
+    this.reportProgress?.("session_start", "running");
     const fromConfig = this.getAgentConfig(route.from);
     const chatHistory = this.getOrFormatNodeChatHistory(route);
 
@@ -976,10 +1008,70 @@ ${this.getHistory({ to: route.to })
       ?.map((name) => this.functions.get(this.#parseFunctionName(name)))
       .filter((a) => !!a);
 
-    // Rerank tools based on user prompt if enabled
-    if (ToolReranker.isEnabled() && functions?.length) {
+    this.reportProgress?.("session_start", "completed");
+    this.reportProgress?.("tool_selection", "running");
+
+    const userPrompt = this.#extractUserPrompt(messages);
+    // Flash uses a warm, local vector index so its tool schema stays bounded.
+    // The legacy cross-encoder remains available for non-Responses providers.
+    if (
+      providerUsesManagedResponses({
+        ...this.defaultProvider,
+        ...fromConfig,
+      }) &&
+      functions?.length
+    ) {
+      const selection = new LocalToolVectorIndex().select(
+        userPrompt,
+        functions,
+        {
+          messages,
+          hasAttachments: Boolean(
+            this.handlerProps?.displayAttachments?.length ||
+              this.handlerProps?.visionAnalysisContext
+          ),
+        }
+      );
+      functions = selection.tools;
+      this.handlerProps.agentToolSelection = {
+        durationMs: selection.durationMs,
+        selectedCount: selection.selectedCount,
+        degradedReason: selection.degradedReason,
+      };
+      try {
+        emitSemanticEvent({
+          eventId: v4(),
+          eventType: "agent.tools.selected",
+          category: "agent",
+          severity: selection.degradedReason ? "warning" : "info",
+          outcome: selection.degradedReason ? "degraded" : "success",
+          subject: {
+            type: "agent-run",
+            id: this.handlerProps?.invocation?.uuid || "unknown",
+            component: "agent-runtime",
+            operation: "tool-selection",
+          },
+          impact: {
+            scope: "deepseek-v4-flash",
+            status: selection.degradedReason || "selected",
+          },
+          metadata: {
+            durationMs: selection.durationMs,
+            selectedCount: selection.selectedCount,
+            availableCount: fromConfig.functions?.length || functions.length,
+            degradedReason: selection.degradedReason,
+          },
+          sensitivity: "metadata_only",
+        });
+      } catch {
+        // Tool selection never depends on observability delivery.
+      }
+      if (selection.degradedReason)
+        this.handlerProps.log?.(
+          `[ToolSelection] ${selection.degradedReason}; using the complete tool registry.`
+        );
+    } else if (ToolReranker.isEnabled() && functions?.length) {
       const toolReranker = new ToolReranker();
-      const userPrompt = this.#extractUserPrompt(messages);
       if (userPrompt)
         functions = await toolReranker.rerank(userPrompt, functions);
     } else {
@@ -996,13 +1088,30 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       }
     }
 
+    this.reportProgress?.("tool_selection", "completed", {
+      selectedToolCount: functions?.length || 0,
+    });
+
     const provider = this.getProviderForConfig({
       ...this.defaultProvider,
       ...fromConfig,
     });
+    this.handlerProps.agentReasoningEffort = agentReasoningEffort(
+      this.handlerProps?.invocation?.prompt || userPrompt,
+      {
+        selectedTools: functions || [],
+        context: {
+          hasAttachments: Boolean(
+            this.handlerProps?.displayAttachments?.length ||
+              this.handlerProps?.visionAnalysisContext
+          ),
+        },
+      }
+    );
     provider.attachHandlerProps(this.handlerProps);
 
     let content;
+    this.reportProgress?.("synthesis", "running");
     if (provider.supportsAgentStreaming) {
       this.handlerProps.log?.(
         "[DEBUG] Provider supports agent streaming - will use async execution!"
@@ -1024,6 +1133,8 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         route.from
       );
     }
+
+    this.completeProgressBeforeFinal();
 
     // Store the active provider so plugins can access usage metrics
     this.provider = provider;
@@ -1366,6 +1477,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     const eventHandler = (type, data) => {
       if (!shouldForwardProviderStreamEvent(type, data)) return;
       if (type === "reportStreamEvent" && data?.type === "fullTextResponse") {
+        this.completeProgressBeforeFinal();
         emittedFullTextResponse = true;
       }
       this?.socket?.send(type, data);
@@ -1434,6 +1546,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
+      this.reportProgress?.("tool_execution", "running", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+
       const toolCallId =
         completionStream.functionCall?.id ||
         completionStream.functionCall?.call_id ||
@@ -1458,6 +1575,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         arguments: args,
         result: toolRun,
       });
+      this.reportProgress?.("tool_execution", "completed", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+      this.reportProgress?.("synthesis", "running");
 
       /**
        * If the tool call has direct output enabled, return the result directly to the chat
@@ -1677,6 +1799,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
+      this.reportProgress?.("tool_execution", "running", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+
       const toolCallId =
         completion.functionCall?.id ||
         completion.functionCall?.call_id ||
@@ -1701,6 +1828,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         arguments: args,
         result: toolRun,
       });
+      this.reportProgress?.("tool_execution", "completed", {
+        toolName: name,
+        toolCategory: toolCategory(name),
+      });
+      this.reportProgress?.("synthesis", "running");
 
       if (this.skipHandleExecution) {
         this.skipHandleExecution = false;

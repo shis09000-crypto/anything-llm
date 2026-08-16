@@ -30,29 +30,12 @@ function splitThoughtContent(message = "") {
   return { thoughtChain: null, markdown: message };
 }
 
-function hasHeavyMarkdown(content = "") {
-  return /```|\|.+\||<table|!\[/.test(content);
-}
-
 function MarkdownOutput({
   content = "",
   messageId,
   isStreaming = false,
-  deferEnhancement = false,
   onLayoutChange = null,
 }) {
-  const shouldDefer =
-    !isStreaming && deferEnhancement && hasHeavyMarkdown(content);
-  const [enhanced, setEnhanced] = useState(!shouldDefer);
-  useEffect(() => {
-    if (!shouldDefer) {
-      setEnhanced(true);
-      return;
-    }
-    setEnhanced(false);
-    return runIdleTask(() => setEnhanced(true), { timeout: 900 });
-  }, [content, shouldDefer]);
-
   const { thoughtChain, markdown } = useMemo(
     () => splitThoughtContent(content),
     [content]
@@ -71,10 +54,10 @@ function MarkdownOutput({
     if (!content || typeof onLayoutChange !== "function") return;
 
     const frame = requestAnimationFrame(() =>
-      onLayoutChange(enhanced ? "markdown-enhanced" : "markdown-plain")
+      onLayoutChange("markdown-rendered")
     );
     return () => cancelAnimationFrame(frame);
-  }, [content, enhanced, onLayoutChange]);
+  }, [content, onLayoutChange]);
 
   if (!content) return null;
 

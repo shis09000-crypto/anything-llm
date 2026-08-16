@@ -25,7 +25,11 @@
     "principal-assertion"
   ],
   "routes": {
-    "public": ["/api/auth/", "/api/security/", "/api/vault/"],
+    "public": [
+      "/api/auth/",
+      "/api/security/",
+      "/api/vault/"
+    ],
     "internal": [
       "/internal/v1/principal/assert",
       "/internal/v1/session/introspect",
@@ -84,13 +88,20 @@
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/identity",
-    "keyDomains": ["identity", "audit"],
+    "keyDomains": [
+      "identity",
+      "audit"
+    ],
     "allowedCallers": [
       "edge-web",
       "athena-api",
       "crypto-account-access",
       "chat-runtime",
       "agent-runtime",
+      "background-worker",
+      "knowledge-ingest",
+      "model-gateway",
+      "rag",
       "scheduler",
       "sync-v2",
       "coordination-plane"

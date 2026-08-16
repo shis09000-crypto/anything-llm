@@ -130,6 +130,27 @@ describe("databaseProvider", () => {
     expect(new URL(authPostgresqlUrl(env)).username).toBe("auth_observer");
   });
 
+  it.each([
+    ["coordination-plane", "ATHENA_COORDINATION_DATABASE_URL", "coordination"],
+    ["browser-worker", "ATHENA_BROWSER_DATABASE_URL", "browser"],
+    ["browser-egress", "ATHENA_BROWSER_EGRESS_DATABASE_URL", "browser_egress"],
+  ])(
+    "keeps the %s runtime on its dedicated main principal",
+    (role, setting, username) => {
+      const env = {
+        ATHENA_RUNTIME_ROLE: role,
+        ATHENA_MODULE_SCHEMA_CUTOVER: "true",
+        [setting]: `postgresql://${username}@localhost:5432/athena_main?schema=public`,
+        ATHENA_AUTH_OBSERVER_DATABASE_URL:
+          "postgresql://auth_observer@localhost:5432/athena_auth?schema=public",
+      };
+
+      expect(poolRole(env)).toBe(role);
+      expect(new URL(mainPostgresqlUrl(env)).username).toBe(username);
+      expect(new URL(authPostgresqlUrl(env)).username).toBe("auth_observer");
+    }
+  );
+
   it("gives Key Custody its dedicated main and auth principals", () => {
     const env = {
       ATHENA_RUNTIME_ROLE: "key-custody",

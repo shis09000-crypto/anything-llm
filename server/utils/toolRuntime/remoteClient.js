@@ -28,6 +28,9 @@ async function invokeCryptoAccountTool({
   const baseUrl = String(env.ATHENA_TOOL_BROKER_URL).replace(/\/+$/, "");
   const response = await requestInternalService({
     callerRole: String(env.ATHENA_RUNTIME_ROLE),
+    targetModule: "tool-runtime",
+    capability: "tool.invoke",
+    contractVersion: "1.0",
     url: `${baseUrl}/internal/v1/tools/invoke`,
     body: {
       approvalRequestId,
@@ -50,6 +53,9 @@ async function invokeBrowserTool({
   const baseUrl = String(env.ATHENA_TOOL_BROKER_URL).replace(/\/+$/, "");
   const response = await requestInternalService({
     callerRole: String(env.ATHENA_RUNTIME_ROLE),
+    targetModule: "tool-runtime",
+    capability: "tool.invoke",
+    contractVersion: "1.0",
     url: `${baseUrl}/internal/v1/tools/invoke`,
     body: { approvalRequestId, toolName, args },
     idempotencyKey: approvalRequestId,

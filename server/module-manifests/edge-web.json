@@ -3,7 +3,7 @@
   "schemaVersion": "1.1",
   "id": "edge-web",
   "name": "Edge and Web Gateway",
-  "version": "1.1.0",
+  "version": "2.6.14",
   "kind": "gateway",
   "owner": "platform",
   "criticality": "critical",

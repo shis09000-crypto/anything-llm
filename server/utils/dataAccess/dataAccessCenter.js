@@ -398,7 +398,7 @@ function workspaceThreadScopeFromArgs(method, args = []) {
   ) {
     return { threadId: args[0], scope: args[1] };
   }
-  if (method === "updateAutomaticTitle") {
+  if (method === "updateAutomaticTitle" || method === "claimAutomaticTitle") {
     return { threadId: args[0]?.threadId, workspaceId: args[0]?.workspaceId };
   }
   return clauseScope(args[0]);
@@ -1122,6 +1122,7 @@ const workspaceThread = {
       delete: "write",
       markTitleGenerationPending: "write",
       markTitleGenerationFailed: "write",
+      claimAutomaticTitle: "write",
       updateAutomaticTitle: "write",
       titleMetadataSchemaReady: "read",
     },
@@ -1265,6 +1266,7 @@ const agentRun = makeRepositoryFacade(
     eventsAfter: "read",
     updateState: "write",
     renewLease: "write",
+    expiredLeases: "maintenance",
   },
   repositoryBoundaryScopeFromArgs
 );

@@ -580,6 +580,9 @@ class OperationsPlane {
         stale: moduleHeartbeats.filter((heartbeat) => heartbeat.stale).length,
         missing: expectedModuleIds.filter((id) => !freshModuleIds.has(id)),
         staleAfterMs: producerStaleAfterMs,
+        planned: Object.entries(this.plannedModuleStates)
+          .filter(([, state]) => state !== "running")
+          .map(([moduleId, state]) => ({ moduleId, state })),
         heartbeats: moduleHeartbeats,
       },
       aicpShadow: this.aicpObserver?.health() || {

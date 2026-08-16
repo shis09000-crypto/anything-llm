@@ -121,4 +121,60 @@ describe("Semantic Event v1", () => {
     });
     expect(validateRegistered(event)).toEqual({ valid: true, errors: [] });
   });
+
+  test("retains low-cardinality Responses and tool-selection timings", () => {
+    const event = semanticEvent({
+      eventType: "response.state.completed",
+      category: "responses_runtime",
+      metadata: {
+        requestedProtocol: "responses",
+        effectiveProtocol: "responses",
+        cachedTokens: 40_192,
+        cacheMissTokens: 118,
+        preprocessingMs: 412,
+        providerTtftMs: 3_250,
+        firstVisibleDeltaMs: 3_277,
+        providerProjectionMs: 12,
+        persistedEventBatches: 4,
+        keyCustodyWrapCalls: 9,
+        selectedCount: 12,
+        availableCount: 43,
+      },
+    });
+    expect(event.metadata).toMatchObject({
+      requestedProtocol: "responses",
+      effectiveProtocol: "responses",
+      cachedTokens: "40192",
+      preprocessingMs: "412",
+      providerTtftMs: "3250",
+      providerProjectionMs: "12",
+      selectedCount: "12",
+      availableCount: "43",
+    });
+    expect(validateRegistered(event)).toEqual({ valid: true, errors: [] });
+  });
+
+  test("preserves zero counts and numeric cache metrics after log redaction", () => {
+    const log = jest.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const event = emitSemanticEvent({
+        eventType: "agent.tools.selected",
+        category: "agent",
+        metadata: {
+          cachedTokens: 30_208,
+          cacheMissTokens: 0,
+          selectedCount: 0,
+          availableCount: 43,
+        },
+      });
+      expect(event.metadata).toMatchObject({
+        cachedTokens: "30208",
+        cacheMissTokens: "0",
+        selectedCount: "0",
+        availableCount: "43",
+      });
+    } finally {
+      log.mockRestore();
+    }
+  });
 });

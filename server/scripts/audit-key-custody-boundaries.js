@@ -8,6 +8,7 @@ const repoRoot = path.resolve(serverRoot, "..");
 const CRYPTO_IMPLEMENTATION_ALLOWLIST = new Set([
   "server/utils/security/encryption.js",
   "server/utils/security/chatHistorySerialEncryption.js",
+  "server/utils/security/browserEgressEnvelope.js",
   "server/utils/security/keyLifecycle.js",
   "server/utils/security/keyRotation.js",
   "server/utils/security/mixedKeyDatabaseRecovery.js",

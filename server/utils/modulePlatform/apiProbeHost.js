@@ -31,6 +31,7 @@ function createApiProbeHost({
     manifestId: "athena-api",
     role: "api",
     port,
+    jsonLimit: "2mb",
     readiness: () => componentSnapshot("athena-api"),
     registerRoutes: (app) => {
       app.post(

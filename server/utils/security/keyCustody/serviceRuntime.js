@@ -7,6 +7,11 @@ const { health } = require(".");
 
 const RPC_VERSION = "athena-key-custody-rpc:v1";
 const MAX_MATERIAL_BYTES = 64 * 1024;
+// AES-GCM envelopes base64-encode the ciphertext, so a valid wrapped value is
+// necessarily larger than the plaintext accepted by wrapMaterial. Keep a
+// separate bounded limit for envelopes; sharing MAX_MATERIAL_BYTES made the
+// largest successfully wrapped values impossible to unwrap.
+const MAX_WRAPPED_MATERIAL_BYTES = 96 * 1024;
 const CALLER_PURPOSES = Object.freeze({
   "crypto-account": new Set(["crypto-account-dek"]),
   "athena-api": new Set([
@@ -81,9 +86,9 @@ function authorizePurpose(caller, context, env = process.env) {
   return role;
 }
 
-function material(value, label) {
+function material(value, label, maxBytes = MAX_MATERIAL_BYTES) {
   const bytes = Buffer.byteLength(String(value || ""), "utf8");
-  if (bytes < 1 || bytes > MAX_MATERIAL_BYTES) {
+  if (bytes < 1 || bytes > maxBytes) {
     const error = new Error(`${label}_invalid`);
     error.code = `${label}_invalid`;
     error.httpStatus = 400;
@@ -207,7 +212,11 @@ function unwrapMaterial({ wrapped, context } = {}, { caller, env } = {}) {
   try {
     const normalized = normalizedContext(context);
     authorizePurpose(caller, normalized, env);
-    const value = material(wrapped, "key_custody_wrapped_value");
+    const value = material(
+      wrapped,
+      "key_custody_wrapped_value",
+      MAX_WRAPPED_MATERIAL_BYTES
+    );
     if (!isEncryptedSecret(value)) {
       const error = new Error("key_custody_wrapped_value_invalid");
       error.code = "key_custody_wrapped_value_invalid";

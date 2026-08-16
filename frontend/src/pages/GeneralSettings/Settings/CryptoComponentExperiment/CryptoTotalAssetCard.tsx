@@ -592,8 +592,9 @@ export default function CryptoTotalAssetCard({
                 </button>
               )}
             </div>
-            <div
-              className="relative z-10 max-w-full overflow-hidden whitespace-nowrap font-bold leading-none tracking-normal"
+            <AutoFitNumericText
+              containerClassName="relative z-10 w-full"
+              className="font-bold leading-none tracking-normal"
               style={{
                 fontSize: `clamp(30px, 5vw, ${numberSize}px)`,
                 color: "#F8FAFC",
@@ -606,7 +607,7 @@ export default function CryptoTotalAssetCard({
               ) : (
                 <span className="text-[#F8FAFC]">$••••••</span>
               )}
-            </div>
+            </AutoFitNumericText>
           </div>
 
           <div className="grid min-w-0 grid-cols-2 items-end gap-4">
@@ -727,7 +728,7 @@ const RollingAmount = React.memo(function RollingAmount({
   }, [value]);
 
   return (
-    <span className="inline-flex max-w-full items-center overflow-hidden align-bottom leading-none text-[#F8FAFC]">
+    <span className="inline-flex items-center align-bottom leading-none text-[#F8FAFC]">
       {slots.map((slot, index) => (
         <RollingAmountSlot key={slot.key} phase={slot.phase} slot={slot}>
           {slot.type === "digit" ? (
@@ -864,11 +865,12 @@ const AssetStat = React.memo(function AssetStat({
   return (
     <div className="min-w-0">
       <div className="text-xs font-bold text-[#9CA3AF]">{label}</div>
-      <div
-        className={`mt-1 truncate text-xl font-bold leading-none md:text-2xl ${tone}`}
+      <AutoFitNumericText
+        containerClassName="mt-1 w-full"
+        className={`text-xl font-bold leading-none md:text-2xl ${tone}`}
       >
         {value}
-      </div>
+      </AutoFitNumericText>
     </div>
   );
 });

@@ -3,7 +3,7 @@
   "schemaVersion": "1.1",
   "id": "key-custody",
   "name": "Key Custody",
-  "version": "1.2.0",
+  "version": "2.6.14",
   "kind": "security-service",
   "owner": "security",
   "criticality": "critical",
@@ -29,6 +29,63 @@
       "/internal/v1/keys/audit-descriptor",
       "/internal/v1/keys/audit-sign",
       "/internal/v1/keys/status"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/wrap",
+        "capability": "key-custody.wrap"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/unwrap",
+        "capability": "key-custody.unwrap"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/audit-descriptor",
+        "capability": "key-custody.audit-descriptor"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/audit-sign",
+        "capability": "key-custody.audit-sign"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/keys/status",
+        "capability": "key-custody.audit-descriptor"
+      }
     ]
   },
   "rpc": {

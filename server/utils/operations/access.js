@@ -105,7 +105,9 @@ function operationsCoverageSnapshot() {
       .filter((module) => module.status === "healthy" && module.ready)
       .map((module) => module.moduleId)
   );
-  const expected = moduleHealth.modules.map((module) => module.moduleId);
+  const expected = moduleHealth.modules
+    .filter((module) => (module.expectedState || "running") === "running")
+    .map((module) => module.moduleId);
   const covered = expected.filter(
     (moduleId) =>
       freshHeartbeatIds.has(moduleId) || healthyProbeIds.has(moduleId)
@@ -178,6 +180,9 @@ function aicpTraceEntryFromEvent(event = {}) {
 async function remoteShadowCall(path, env = process.env) {
   return requestInternalService({
     callerRole: "operations-plane",
+    targetModule: "operations-shadow-agents",
+    capability: "operations.shadow.evaluate",
+    contractVersion: "1.0",
     url: `${String(env.ATHENA_OPERATIONS_SHADOW_AGENTS_URL).replace(
       /\/+$/,
       ""

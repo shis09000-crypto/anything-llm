@@ -6,6 +6,7 @@ import {
   hasMeaningfulTransientAssistantOutput,
   mergeServerHistoryIntoTurns,
   pruneServerBackedTurnsOutsideHistory,
+  pruneSupersededUnpersistedTurns,
 } from "./turns.js";
 
 function localTurn({
@@ -113,6 +114,21 @@ test("cleanup keeps interrupted turn with useful partial answer", () => {
   assert.equal(hasMeaningfulTransientAssistantOutput(assistant), true);
   assert.equal(result.items.length, 2);
   assert.deepEqual(result.removedTurnIds, []);
+});
+
+test("cleanup removes a restored running turn after the storage grace window even with output", () => {
+  const { items } = localTurn({
+    status: TURN_STATUSES.running,
+    finalContent: "已经显示但没有落库的旧回答",
+  });
+  items[1].updatedAt = 1_000;
+  const result = cleanupTransientDraftItems(items, {
+    now: 700_001,
+    runningMaxAgeMs: 600_000,
+  });
+
+  assert.deepEqual(result.items, []);
+  assert.deepEqual(result.removedTurnIds, ["turn:local"]);
 });
 
 test("cleanup keeps interrupted turn with completed tool result", () => {
@@ -398,6 +414,66 @@ test("server hydration requires a server timestamp before patching by content", 
   assert.equal(localAssistant.chatId || null, null);
   assert.equal(localAssistant.status, TURN_STATUSES.running);
   assert.equal(serverAssistant.turnId, "server:42");
+});
+
+test("server hydration removes an older unpersisted orphan after newer authoritative history", () => {
+  const orphan = localTurn({
+    turnId: "turn:orphan-agent",
+    status: TURN_STATUSES.running,
+    finalContent: "旧 Agent 已显示的回答",
+  });
+  const oldAt = Date.parse("2026-08-04T08:59:00.000Z");
+  orphan.user.createdAt = oldAt;
+  orphan.assistant.createdAt = oldAt + 1;
+  orphan.assistant.updatedAt = Date.parse("2026-08-04T14:00:00.000Z");
+  orphan.assistant.websocketUUID = "completed-agent-websocket";
+
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 2294,
+        role: "user",
+        content: "哈咯",
+        sentAt: Date.parse("2026-08-04T13:18:06.000Z") / 1000,
+      },
+      {
+        chatId: 2294,
+        role: "assistant",
+        content: "最新权威回答",
+        sentAt: Date.parse("2026-08-04T13:18:06.000Z") / 1000,
+      },
+    ],
+    orphan.items,
+    { chatKey: "workspace:thread" }
+  );
+
+  assert.deepEqual(
+    merged.map((item) => item.turnId),
+    ["server:2294", "server:2294"]
+  );
+});
+
+test("superseded orphan cleanup preserves the active Agent turn", () => {
+  const active = localTurn({
+    turnId: "turn:active-agent",
+    status: TURN_STATUSES.running,
+    finalContent: "仍在生成",
+  });
+  active.user.createdAt = 1_000;
+  active.assistant.createdAt = 1_001;
+  active.assistant.updatedAt = 1_001;
+
+  const pruned = pruneSupersededUnpersistedTurns(
+    active.items,
+    [
+      { chatId: 9, role: "user", sentAt: 10_000 },
+      { chatId: 9, role: "assistant", sentAt: 10_000 },
+    ],
+    { preserveRunningTurnIds: ["turn:active-agent"] }
+  );
+
+  assert.equal(pruned.length, 2);
+  assert.equal(pruned[1].turnId, "turn:active-agent");
 });
 
 test("server hydration repairs a repeated prompt turn with a stale chat id", () => {

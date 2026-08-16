@@ -172,6 +172,9 @@ function setSseTransportHeaders(response, extraHeaders = {}) {
   )) {
     response.setHeader(header, value);
   }
+  // Keep low-volume token tails interactive instead of waiting for Nagle's
+  // coalescing window after the provider has already completed.
+  response.socket?.setNoDelay?.(true);
 }
 
 function transportSecurityStatus(env = process.env) {

@@ -1,8 +1,7 @@
 /* eslint-disable react-hooks/refs */
 import { memo, useRef, useEffect } from "react";
 import { Warning } from "@phosphor-icons/react";
-import renderMarkdown from "@/utils/chat/markdown";
-import DOMPurify from "@/utils/chat/purify";
+import StreamingMarkdown from "@/components/Markdown/StreamingMarkdown";
 import Citations from "../Citation";
 import {
   THOUGHT_REGEX_CLOSE,
@@ -10,8 +9,11 @@ import {
   THOUGHT_REGEX_OPEN,
   ThoughtChainComponent,
 } from "../ThoughtContainer";
+import { useTranslation } from "react-i18next";
+import { formatTimelineContent } from "@/utils/chat/toolTimelineI18n";
 
 const PromptReply = ({ uuid, reply, pending, error, sources = [] }) => {
+  const { t } = useTranslation();
   if (!reply && sources.length === 0 && !pending && !error) return null;
 
   if (pending) {
@@ -29,9 +31,14 @@ const PromptReply = ({ uuid, reply, pending, error, sources = [] }) => {
       <div className="flex justify-start w-full">
         <div className="py-4 pl-0 pr-4 flex flex-col md:max-w-[80%]">
           <span className="inline-block p-2 rounded-lg bg-red-50 text-red-500">
-            <Warning className="h-4 w-4 mb-1 inline-block" /> Could not respond
-            to message.
-            <span className="text-xs">Reason: {error || "unknown"}</span>
+            <Warning className="h-4 w-4 mb-1 inline-block" />{" "}
+            {t("chat_window.turnState.responseFailed")}
+            <span className="text-xs">
+              {t("chat_window.turnState.errorReason")}{" "}
+              {error
+                ? formatTimelineContent(error, t)
+                : t("chat_window.turnState.unknownError")}
+            </span>
           </span>
         </div>
       </div>
@@ -95,11 +102,10 @@ function RenderAssistantChatContent({ message, messageId }) {
           messageId={messageId}
         />
       )}
-      <span
-        className="break-words"
-        dangerouslySetInnerHTML={{
-          __html: DOMPurify.sanitize(renderMarkdown(contentRef.current)),
-        }}
+      <StreamingMarkdown
+        content={contentRef.current}
+        isStreaming={false}
+        className="markdown break-words"
       />
     </div>
   );

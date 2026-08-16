@@ -121,6 +121,8 @@ const WorkspaceAgentInvocation = {
     user = null,
     thread = null,
     clientTurnId = null,
+    requestedProvider = null,
+    requestedModel = null,
   }) {
     try {
       const normalizedClientTurnId = String(clientTurnId || "").trim() || null;
@@ -144,6 +146,8 @@ const WorkspaceAgentInvocation = {
         prompt: String(prompt),
         user_id: user?.id,
         thread_id: thread?.id,
+        requestedProvider: String(requestedProvider || "").trim() || null,
+        requestedModel: String(requestedModel || "").trim() || null,
       };
       const invocation = (await agentSyncReady())
         ? await prisma.$transaction(async (tx) => {
@@ -181,8 +185,19 @@ const WorkspaceAgentInvocation = {
           return { invocation: existing, message: null, replayed: true };
         }
       }
-      console.error(error.message);
-      return { invocation: null, message: error.message, replayed: false };
+      const errorCode = String(error?.code || "agent_invocation_store_failed")
+        .slice(0, 120)
+        .replace(/[^A-Za-z0-9_.:-]/g, "_");
+      console.error("[AgentInvocation] persistence failed", {
+        errorCode,
+        fields: ["requestedProvider", "requestedModel"],
+        clientTurnId: String(clientTurnId || "").slice(0, 160) || null,
+      });
+      return {
+        invocation: null,
+        message: "agent_invocation_store_unavailable",
+        replayed: false,
+      };
     }
   },
 

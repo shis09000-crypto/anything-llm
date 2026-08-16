@@ -4,8 +4,9 @@ const {
   decryptChatFieldCompat,
 } = require("../utils/security/chatHistorySerialEncryption");
 const {
-  encryptWorkspaceChatFieldAsync,
-} = require("../utils/security/chatHistoryEncryption");
+  unwrapMaterial,
+  wrapMaterial,
+} = require("../utils/security/keyCustody/remoteClient");
 const {
   throwModelDataAccessError,
 } = require("../utils/dataAccess/modelErrors");
@@ -18,19 +19,53 @@ const TERMINAL_AGENT_STATUSES = new Set([
   "closed",
 ]);
 
-function scope(invocation = {}) {
+const AGENT_RUN_EVENT_PURPOSE = "agent-run-event";
+
+function resolveRunTransition(
+  currentStatus,
+  requestedStatus,
+  terminal = false
+) {
+  const alreadyTerminal = TERMINAL_AGENT_STATUSES.has(currentStatus);
   return {
-    workspaceId: Number(invocation.workspace_id),
-    threadId:
-      invocation.thread_id === null || invocation.thread_id === undefined
-        ? null
-        : Number(invocation.thread_id),
-    userId:
-      invocation.user_id === null || invocation.user_id === undefined
-        ? null
-        : Number(invocation.user_id),
-    apiSessionId: null,
+    alreadyTerminal,
+    terminal: alreadyTerminal || Boolean(terminal),
+    status: alreadyTerminal
+      ? currentStatus
+      : String(requestedStatus || currentStatus || "running").slice(0, 80),
   };
+}
+
+function agentRunEventContext(invocationId, operation) {
+  return {
+    purpose: AGENT_RUN_EVENT_PURPOSE,
+    domain: "agent",
+    resource: `agent-run:${String(invocationId)}`,
+    operation,
+  };
+}
+
+async function encryptAgentRunEvent(value, invocationId) {
+  return wrapMaterial(
+    String(value),
+    agentRunEventContext(invocationId, "event-wrap")
+  );
+}
+
+async function decryptAgentRunEvent(value, invocationId) {
+  if (String(value || "").startsWith("enc:v2:")) {
+    const parts = String(value).split(":");
+    const purpose = parts[3]
+      ? Buffer.from(parts[3], "base64url").toString("utf8")
+      : "";
+    if (purpose === AGENT_RUN_EVENT_PURPOSE) {
+      return unwrapMaterial(
+        value,
+        agentRunEventContext(invocationId, "event-unwrap")
+      );
+    }
+  }
+  return decryptChatFieldCompat(value);
 }
 
 function runData(invocation, ownerId, leaseMs = DEFAULT_AGENT_LEASE_MS) {
@@ -144,9 +179,9 @@ const AgentRun = {
         createdAt: record.createdAt,
         sensitivity: record.sensitivity || "metadata-only",
       });
-      const payloadJson = await encryptWorkspaceChatFieldAsync(
+      const payloadJson = await encryptAgentRunEvent(
         plaintext,
-        scope(invocation)
+        invocation.uuid
       );
       const payloadHash = crypto
         .createHash("sha256")
@@ -179,7 +214,11 @@ const AgentRun = {
         const currentRun = await tx.agent_runs.findUnique({
           where: { id: run.id },
         });
-        const terminal = Boolean(state.terminal);
+        const transition = resolveRunTransition(
+          currentRun?.status,
+          state.status,
+          state.terminal
+        );
         return tx.agent_runs.update({
           where: { id: run.id },
           data: {
@@ -187,9 +226,7 @@ const AgentRun = {
               Number(currentRun?.latestSequence || 0),
               sequence
             ),
-            status: String(
-              state.status || currentRun?.status || run.status
-            ).slice(0, 80),
+            status: transition.status,
             finalChatId:
               state.finalChatId ||
               currentRun?.finalChatId ||
@@ -203,14 +240,14 @@ const AgentRun = {
             errorCode: state.errorCode
               ? String(state.errorCode).slice(0, 160)
               : currentRun?.errorCode || run.errorCode,
-            ownerId: terminal
+            ownerId: transition.terminal
               ? null
               : ownerId || currentRun?.ownerId || run.ownerId,
-            leaseExpiresAt: terminal
+            leaseExpiresAt: transition.terminal
               ? null
               : currentRun?.leaseExpiresAt || run.leaseExpiresAt,
-            completedAt: terminal
-              ? new Date()
+            completedAt: transition.terminal
+              ? currentRun?.completedAt || new Date()
               : currentRun?.completedAt || run.completedAt,
           },
         });
@@ -250,7 +287,10 @@ const AgentRun = {
       });
       const events = [];
       for (const row of rows) {
-        const plaintext = await decryptChatFieldCompat(row.payloadJson);
+        const plaintext = await decryptAgentRunEvent(
+          row.payloadJson,
+          invocationId
+        );
         if (
           crypto.createHash("sha256").update(plaintext).digest("hex") !==
           row.payloadHash
@@ -268,11 +308,15 @@ const AgentRun = {
     try {
       const run = await this.ensure({ invocationId, ownerId });
       if (!run) return null;
-      const terminal = Boolean(state.terminal);
+      const transition = resolveRunTransition(
+        run.status,
+        state.status,
+        state.terminal
+      );
       return await prisma.agent_runs.update({
         where: { id: run.id },
         data: {
-          status: String(state.status || run.status).slice(0, 80),
+          status: transition.status,
           latestSequence: Math.max(
             Number(run.latestSequence || 0),
             Number(state.latestSeq || 0)
@@ -283,9 +327,11 @@ const AgentRun = {
           errorCode: state.errorCode
             ? String(state.errorCode).slice(0, 160)
             : run.errorCode,
-          ownerId: terminal ? null : ownerId || run.ownerId,
-          leaseExpiresAt: terminal ? null : run.leaseExpiresAt,
-          completedAt: terminal ? new Date() : run.completedAt,
+          ownerId: transition.terminal ? null : ownerId || run.ownerId,
+          leaseExpiresAt: transition.terminal ? null : run.leaseExpiresAt,
+          completedAt: transition.terminal
+            ? run.completedAt || new Date()
+            : run.completedAt,
         },
       });
     } catch (error) {
@@ -319,10 +365,32 @@ const AgentRun = {
       throwModelDataAccessError("agentRun.renewLease", error);
     }
   },
+
+  expiredLeases: async function ({ now = new Date(), limit = 25 } = {}) {
+    try {
+      return await prisma.agent_runs.findMany({
+        where: {
+          status: { notIn: [...TERMINAL_AGENT_STATUSES] },
+          leaseExpiresAt: { lte: now },
+        },
+        orderBy: { leaseExpiresAt: "asc" },
+        take: Math.max(1, Math.min(Number(limit) || 25, 100)),
+      });
+    } catch (error) {
+      throwModelDataAccessError("agentRun.expiredLeases", error);
+    }
+  },
 };
 
 module.exports = {
   AgentRun,
+  AGENT_RUN_EVENT_PURPOSE,
   DEFAULT_AGENT_LEASE_MS,
   TERMINAL_AGENT_STATUSES,
+  _internals: {
+    agentRunEventContext,
+    decryptAgentRunEvent,
+    encryptAgentRunEvent,
+    resolveRunTransition,
+  },
 };

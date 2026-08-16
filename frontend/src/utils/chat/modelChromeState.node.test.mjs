@@ -2,6 +2,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveModelChromeState } from "./modelChromeState.js";
 
+test("thread model wins over workspace and system defaults", () => {
+  const state = resolveModelChromeState({
+    thread: { chatModel: "deepseek-v4-flash" },
+    workspace: {
+      chatModel: "deepseek-v4-pro",
+      chatProvider: "deepseek",
+    },
+    settings: {
+      LLMModel: "system-model",
+      LLMProvider: "system-provider",
+    },
+  });
+
+  assert.deepEqual(state, {
+    modelName: "deepseek-v4-flash",
+    provider: "deepseek",
+  });
+});
+
 test("workspace model and provider win over system defaults", () => {
   const state = resolveModelChromeState({
     workspace: {

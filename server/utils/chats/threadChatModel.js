@@ -9,6 +9,10 @@ function isSupportedThreadChatModel(model = null) {
   return typeof model === "string" && SUPPORTED_THREAD_CHAT_MODELS.has(model);
 }
 
+function providerForThreadChatModel(model = null) {
+  return isSupportedThreadChatModel(model) ? "deepseek" : null;
+}
+
 function resolveThreadChatModel(workspace = null, thread = null) {
   if (isSupportedThreadChatModel(thread?.chatModel)) return thread.chatModel;
   if (isSupportedThreadChatModel(workspace?.chatModel))
@@ -26,6 +30,7 @@ function workspaceWithThreadChatModel(workspace = null, thread = null) {
 module.exports = {
   THREAD_CHAT_MODELS,
   isSupportedThreadChatModel,
+  providerForThreadChatModel,
   resolveThreadChatModel,
   workspaceWithThreadChatModel,
 };

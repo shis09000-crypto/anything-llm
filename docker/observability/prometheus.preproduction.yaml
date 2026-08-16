@@ -15,7 +15,8 @@ scrape_configs:
   - job_name: athena-api
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config: &athena_api_tls
       ca_file: /run/secrets/athena-mtls/ca.pem
       cert_file: /run/secrets/athena-mtls/prometheus.pem
@@ -29,7 +30,8 @@ scrape_configs:
   - job_name: athena-edge-web
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-edge-probe
@@ -40,7 +42,8 @@ scrape_configs:
   - job_name: athena-background-worker
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-background-worker
@@ -51,7 +54,8 @@ scrape_configs:
   - job_name: athena-realtime-gateway
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-realtime-gateway
@@ -62,7 +66,8 @@ scrape_configs:
   - job_name: athena-reader-worker
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-reader-worker
@@ -73,7 +78,8 @@ scrape_configs:
   - job_name: athena-scheduler
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-scheduler
@@ -84,7 +90,8 @@ scrape_configs:
   - job_name: athena-operations-plane
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-operations-plane
@@ -106,7 +113,8 @@ scrape_configs:
   - job_name: athena-chat-runtime
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-chat-runtime
@@ -117,7 +125,8 @@ scrape_configs:
   - job_name: athena-agent-runtime
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-agent-runtime
@@ -128,7 +137,8 @@ scrape_configs:
   - job_name: athena-model-gateway
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-model-gateway
@@ -136,10 +146,23 @@ scrape_configs:
       - targets: [anything-llm-model-gateway:3018]
         labels: { module_id: model-gateway }
 
+  - job_name: athena-responses-runtime
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    tls_config:
+      <<: *athena_api_tls
+      server_name: anything-llm-responses-runtime
+    static_configs:
+      - targets: [anything-llm-responses-runtime:3034]
+        labels: { module_id: responses-runtime }
+
   - job_name: athena-tool-runtime
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-tool-broker
@@ -150,7 +173,8 @@ scrape_configs:
   - job_name: athena-crypto-market
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-crypto-market
@@ -161,7 +185,8 @@ scrape_configs:
   - job_name: athena-crypto-account
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-crypto-account
@@ -172,7 +197,8 @@ scrape_configs:
   - job_name: athena-crypto-forecast
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-crypto-forecast
@@ -183,7 +209,8 @@ scrape_configs:
   - job_name: athena-key-custody
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-key-custody
@@ -194,7 +221,8 @@ scrape_configs:
   - job_name: athena-collector
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-collector
@@ -205,7 +233,8 @@ scrape_configs:
   - job_name: athena-identity
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-identity
@@ -216,7 +245,8 @@ scrape_configs:
   - job_name: athena-knowledge-ingest
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-knowledge-ingest
@@ -227,7 +257,8 @@ scrape_configs:
   - job_name: athena-rag
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-rag
@@ -238,7 +269,8 @@ scrape_configs:
   - job_name: athena-operations-shadow-agents
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-operations-shadow-agents
@@ -249,7 +281,8 @@ scrape_configs:
   - job_name: athena-browser-plane
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-browser-plane
@@ -260,7 +293,8 @@ scrape_configs:
   - job_name: athena-browser-worker
     scheme: https
     metrics_path: /metrics
-    authorization: { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
+    authorization:
+      { type: Bearer, credentials_file: /run/secrets/athena_metrics_token }
     tls_config:
       <<: *athena_api_tls
       server_name: anything-llm-browser-worker

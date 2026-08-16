@@ -1,7 +1,4 @@
-const {
-  createEventEnvelope,
-  validateEventEnvelope,
-} = require("./eventEnvelope");
+const eventEnvelope = require("./eventEnvelope");
 const {
   loadManifests,
   manifestSnapshot,
@@ -22,7 +19,6 @@ module.exports = {
   loadManifests,
   manifestSnapshot,
   moduleManifest,
-  validateEventEnvelope,
   validateManifest,
   verifyPrincipalAssertion,
   ...toolInvocationContract,

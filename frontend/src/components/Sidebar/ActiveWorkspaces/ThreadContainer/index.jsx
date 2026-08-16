@@ -47,7 +47,7 @@ export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const THREAD_DUPLICATE_REUSE_MS = 1_500;
 const titleEventStreamsByWorkspace = new Map();
 
-function createOptimisticThread(workspaceSlug, label) {
+function createOptimisticThread(workspaceSlug, label, chatModel = null) {
   const now = new Date().toISOString();
   const random =
     globalThis.crypto?.randomUUID?.() ||
@@ -58,6 +58,11 @@ function createOptimisticThread(workspaceSlug, label) {
     slug,
     name: label,
     title: "",
+    chatModel,
+    isUntitled: true,
+    titleSource: null,
+    titleGenerationStatus: "idle",
+    titleVersion: 0,
     thread_type: "chat",
     createdAt: now,
     lastChatAt: now,
@@ -1137,7 +1142,8 @@ function NewThreadButton({
     if (loading || !workspace?.slug) return;
     const optimisticThread = createOptimisticThread(
       workspace.slug,
-      t("common.newThread")
+      t("common.newThread"),
+      workspace.chatModel || null
     );
 
     setLoading(true);
@@ -1166,6 +1172,7 @@ function NewThreadButton({
       },
       serverCall: async ({ signal }) => {
         const result = await Workspace.threads.new(workspace.slug, {
+          chatModel: optimisticThread.chatModel,
           signal,
           communicationScene: "workspace-navigation",
           task: false,

@@ -92,6 +92,25 @@ async function queueUserDomainWrap({
   migrationJobId = null,
   client = prisma,
 } = {}) {
+  const {
+    queueUserDomainWrapViaIdentity,
+    remoteIdentityOperationsEnabled,
+  } = require("../authz/identityOperationsClient");
+  if (remoteIdentityOperationsEnabled()) {
+    return queueUserDomainWrapViaIdentity({
+      userId,
+      authUserId,
+      resourceType,
+      resourceId,
+      domain,
+      platformWrappedValue,
+      platformWrapVersion,
+      platformKeyId,
+      domainKeyVersion,
+      createdByClientId,
+      migrationJobId,
+    });
+  }
   const root = await activeUserRoot(authUserId);
   if (!root) return { queued: false, reason: "user_root_not_initialized" };
   const metadata = normalizedUserDomainMetadata({

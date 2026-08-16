@@ -74,7 +74,7 @@ function AssistantTurn({
   const thoughtEvents = useMemo(
     () =>
       (turn.timeline || []).filter((event) =>
-        ["thought", "markdown_delta"].includes(event.type)
+        ["thought", "markdown_delta", "agent_progress"].includes(event.type)
       ),
     [turn.timeline]
   );
@@ -246,7 +246,17 @@ function AssistantTurn({
             ) : null}
             {isRunning && turn.streamConnectionState === "reconnecting" && (
               <p className="mt-2 text-xs text-theme-text-secondary">
-                正在重连…
+                {t("chat_window.turnState.reconnecting")}
+              </p>
+            )}
+            {!isRunning && turn.persistenceStatus === "pending" && (
+              <p className="mt-2 text-xs text-theme-text-secondary">
+                {t("chat_window.turnState.saving")}
+              </p>
+            )}
+            {!isRunning && turn.persistenceStatus === "failed" && (
+              <p className="mt-2 text-xs text-amber-600">
+                {t("chat_window.turnState.saveRetrying")}
               </p>
             )}
             {turn.truncated && fullContent === null && (
@@ -257,16 +267,16 @@ function AssistantTurn({
                 className="mt-3 px-3 py-1.5 rounded-md border border-theme-sidebar-border bg-theme-bg-secondary text-theme-text-primary text-xs disabled:opacity-60"
               >
                 {contentLoadState === "loading"
-                  ? "Loading full response…"
+                  ? t("chat_window.turnState.loadingFullResponse")
                   : contentLoadState === "failed"
-                    ? "Retry full response"
-                    : "Load full response"}
+                    ? t("chat_window.turnState.retryFullResponse")
+                    : t("chat_window.turnState.loadFullResponse")}
               </button>
             )}
             {turn.hydrationStatus === "light" && (
               <div
                 className="mt-3 space-y-2 min-h-[44px]"
-                aria-label="正在加载对话内容"
+                aria-label={t("chat_window.turnState.loadingConversation")}
               >
                 <div className="motion-skeleton h-3 w-1/2 rounded" />
                 <div className="motion-skeleton h-3 w-1/3 rounded" />
@@ -301,11 +311,12 @@ function AssistantTurn({
         {isFailed && (
           <div className="mt-2 p-2 rounded-lg bg-red-50 text-red-500 w-fit">
             <span className="inline-flex items-center gap-1">
-              <Warning className="h-4 w-4" /> Could not respond to message.
+              <Warning className="h-4 w-4" />
+              {t("chat_window.turnState.responseFailed")}
             </span>
             {turn.error && (
               <p className="text-xs font-mono mt-2 border-l-2 border-red-300 pl-2 bg-red-200 p-2 rounded-sm">
-                {turn.error}
+                {formatTimelineContent(turn.error, t)}
               </p>
             )}
           </div>
@@ -313,8 +324,7 @@ function AssistantTurn({
         {isReconnectOffer && !readOnly && (
           <div className="mt-3 p-3 rounded-lg bg-theme-bg-secondary border border-theme-sidebar-border w-fit max-w-full">
             <p className="text-sm text-theme-text-primary m-0">
-              Agent connection reached the reconnect limit. Continue using the
-              recorded tool results and partial answer?
+              {t("chat_window.turnState.reconnectLimitPrompt")}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -324,7 +334,7 @@ function AssistantTurn({
                 }
                 className="px-3 py-1.5 rounded-md bg-primary-button text-white text-xs font-medium"
               >
-                Reconnect
+                {t("chat_window.turnState.reconnect")}
               </button>
               <button
                 type="button"
@@ -333,7 +343,7 @@ function AssistantTurn({
                 }
                 className="px-3 py-1.5 rounded-md bg-theme-bg-primary text-theme-text-primary border border-theme-sidebar-border text-xs font-medium"
               >
-                Keep interrupted
+                {t("chat_window.turnState.keepInterrupted")}
               </button>
             </div>
           </div>

@@ -6,6 +6,11 @@ const mockThreadGet = jest.fn();
 const mockMarkPending = jest.fn();
 const mockMarkFailed = jest.fn();
 const mockUpdateAutomaticTitle = jest.fn();
+const mockRequestInternalService = jest.fn();
+
+jest.mock("../../../utils/microModules", () => ({
+  requestInternalService: (...args) => mockRequestInternalService(...args),
+}));
 
 jest.mock("../../../utils/prisma", () => ({
   _runtimeDataModel: {
@@ -47,11 +52,13 @@ describe("threadTitleGeneration", () => {
   let mod;
   let warnSpy;
   let originalTitleRefreshInterval;
+  let originalRuntimeRole;
 
   beforeEach(() => {
     jest.clearAllMocks();
     jest.resetModules();
     originalTitleRefreshInterval = process.env.THREAD_TITLE_REFRESH_INTERVAL;
+    originalRuntimeRole = process.env.ATHENA_RUNTIME_ROLE;
     process.env.THREAD_TITLE_REFRESH_INTERVAL = "14d";
     warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
     mod = require("../../../utils/chats/threadTitleGeneration");
@@ -73,8 +80,32 @@ describe("threadTitleGeneration", () => {
     mod._internals.pendingJobKeys.clear();
     if (originalTitleRefreshInterval === undefined)
       delete process.env.THREAD_TITLE_REFRESH_INTERVAL;
-    else process.env.THREAD_TITLE_REFRESH_INTERVAL = originalTitleRefreshInterval;
+    else
+      process.env.THREAD_TITLE_REFRESH_INTERVAL = originalTitleRefreshInterval;
+    if (originalRuntimeRole === undefined)
+      delete process.env.ATHENA_RUNTIME_ROLE;
+    else process.env.ATHENA_RUNTIME_ROLE = originalRuntimeRole;
     warnSpy.mockRestore();
+  });
+
+  it("treats a rejected remote title lease as an idempotent no-op", async () => {
+    process.env.ATHENA_RUNTIME_ROLE = "chat-runtime";
+    mockFindMany.mockResolvedValue([{ prompt: "已经生成过标题的对话" }]);
+    mockRequestInternalService.mockRejectedValue(
+      Object.assign(new Error("thread_title_claim_rejected"), {
+        code: "thread_title_claim_rejected",
+      })
+    );
+
+    await expect(
+      mod._internals.runTitleGenerationJob({
+        workspaceId: 1,
+        threadId: 10,
+        userId: 2,
+        scope: mod.TITLE_SCOPES.latestFiveUserMessages,
+      })
+    ).resolves.toBeNull();
+    expect(mockGetLLMProvider).not.toHaveBeenCalled();
   });
 
   function mockRefreshQueries({ scanChats = [], prompts = [] } = {}) {

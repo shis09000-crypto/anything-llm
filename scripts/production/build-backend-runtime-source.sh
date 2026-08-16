@@ -42,4 +42,14 @@ docker build \
   --tag "$target_image" \
   .
 
-echo "backend_runtime_source_image=$target_image dependency_inputs=verified"
+source_entrypoint_hash="$(sha256sum docker/docker-entrypoint.sh | awk '{print $1}')"
+image_entrypoint_hash="$(
+  docker run --rm --entrypoint sha256sum "$target_image" \
+    /usr/local/bin/docker-entrypoint.sh | awk '{print $1}'
+)"
+if [[ "$source_entrypoint_hash" != "$image_entrypoint_hash" ]]; then
+  echo "runtime_source_entrypoint_mismatch:$target_image" >&2
+  exit 1
+fi
+
+echo "backend_runtime_source_image=$target_image dependency_inputs=verified entrypoint=verified"

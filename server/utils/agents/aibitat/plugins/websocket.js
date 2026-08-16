@@ -10,6 +10,7 @@ const { safeJsonParse } = require("../../../http");
 const { skillIsAutoApproved } = require("../../../helpers/agents");
 const { resolveEffectivePolicy } = require("../../../fileAccessPolicy");
 const { shellAgent } = require("./shell/index.js");
+const { sanitizeAgentProgress } = require("../../agentProgress.js");
 const {
   compactAgentEventKey,
   sanitizeAgentEvent,
@@ -44,6 +45,14 @@ const WEBSOCKET_BAIL_COMMANDS = [
   "/reset", // Will not reset but will bail. Powerusers always do this and the LLM responds.
 ];
 
+function closeStoppedAgentSocket(socket) {
+  // A bail command can arrive while askForFeedback owns the message handler.
+  // Mark the durable bridge before closing so the endpoint persists `stopped`
+  // instead of treating the intentional pause as a retryable disconnect.
+  socket.__clientStopped = true;
+  socket.close();
+}
+
 function recordAgentEvent(aibitat, event = {}) {
   if (!event.type) return;
   if (!Array.isArray(aibitat._agentEvents)) aibitat._agentEvents = [];
@@ -77,6 +86,7 @@ function recordAgentEvent(aibitat, event = {}) {
 }
 
 function sanitizeReportStreamContent(content = {}) {
+  if (content?.type === "agentProgress") return sanitizeAgentProgress(content);
   if (content?.type === "toolCallInvocation") {
     return {
       type: "toolCallInvocation",
@@ -184,6 +194,16 @@ function eventFromSocketPayload(type, content = {}) {
       totalSize: content.totalSize,
     };
   }
+  if (content.type === "agentProgress") {
+    return {
+      type: "agent_progress",
+      uuid: content.uuid,
+      phase: content.phase,
+      status: content.status,
+      sequence: content.sequence,
+      details: content.details || {},
+    };
+  }
   if (content.type === "chatId") {
     return {
       type: "final_message",
@@ -275,6 +295,9 @@ const websocket = {
           let errorMessage =
             error?.message || "An error occurred while running the agent.";
           console.error(chalk.red(`   error: ${errorMessage}`), error);
+          aibitat.reportProgress?.("synthesis", "failed", {
+            errorCode: error?.code || "agent_execution_failed",
+          });
           aibitat.introspect(
             `Error encountered while running: ${errorMessage}`
           );
@@ -301,6 +324,19 @@ const websocket = {
               animate: true,
             })
           );
+        };
+
+        aibitat.reportProgress = (phase, status = "running", details = {}) => {
+          const progress = sanitizeAgentProgress({
+            phase,
+            status,
+            details,
+            sequence: (aibitat._agentProgressSequence || 0) + 1,
+          });
+          if (!progress) return null;
+          aibitat._agentProgressSequence = progress.sequence;
+          aibitat.socket.send("reportStreamEvent", progress);
+          return progress;
         };
 
         // expose function for sockets across aibitat
@@ -655,12 +691,16 @@ const websocket = {
         });
 
         aibitat.onInterrupt(async (node) => {
+          // A persisted assistant response completes one Athena invocation.
+          // The chat-history plugin will terminate the socket after its upsert;
+          // do not enter the legacy five-minute feedback wait in between.
+          if (aibitat._terminalTurnPending) return;
           const { feedback, attachments } = await socket.askForFeedback(
             socket,
             node
           );
           if (WEBSOCKET_BAIL_COMMANDS.includes(feedback)) {
-            socket.close();
+            closeStoppedAgentSocket(socket);
             return;
           }
 
@@ -726,4 +766,5 @@ const websocket = {
 module.exports = {
   websocket,
   WEBSOCKET_BAIL_COMMANDS,
+  closeStoppedAgentSocket,
 };

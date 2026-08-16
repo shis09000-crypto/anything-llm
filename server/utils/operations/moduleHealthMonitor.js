@@ -3,6 +3,40 @@ const { requestInternalService } = require("../microModules/internalClient");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 
 const DEFAULT_INTERVAL_MS = 15_000;
+const EXPECTED_MODULE_STATES = new Set([
+  "running",
+  "maintenance",
+  "stopped",
+  "disabled",
+]);
+
+function parseExpectedModuleStates(env = process.env) {
+  const configured = String(env.ATHENA_EXPECTED_MODULE_STATES || "").trim();
+  if (!configured) return {};
+  let parsed = null;
+  try {
+    parsed = JSON.parse(configured);
+  } catch {
+    parsed = Object.fromEntries(
+      configured
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((entry) => entry.split("=", 2).map((value) => value.trim()))
+        .filter(([moduleId, state]) => moduleId && state)
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  return Object.fromEntries(
+    Object.entries(parsed)
+      .map(([moduleId, state]) => [moduleId, String(state).toLowerCase()])
+      .filter(([, state]) => EXPECTED_MODULE_STATES.has(state))
+  );
+}
+
+function expectedModuleState(moduleId, env = process.env) {
+  return parseExpectedModuleStates(env)[moduleId] || "running";
+}
 
 function boundedInterval(value) {
   return Math.max(
@@ -118,7 +152,12 @@ function endpointConfigError(env = process.env) {
   }
 }
 
-function normalizedRemoteState(manifest, response, durationMs) {
+function normalizedRemoteState(
+  manifest,
+  response,
+  durationMs,
+  { allowContractDrift = false } = {}
+) {
   if (response?.moduleId && response.moduleId !== manifest.id)
     return {
       status: "degraded",
@@ -127,7 +166,11 @@ function normalizedRemoteState(manifest, response, durationMs) {
       observedModuleId: response.moduleId,
       durationMs,
     };
-  if (response?.version && response.version !== manifest.version)
+  if (
+    !allowContractDrift &&
+    response?.version &&
+    response.version !== manifest.version
+  )
     return {
       status: "degraded",
       ready: false,
@@ -136,6 +179,7 @@ function normalizedRemoteState(manifest, response, durationMs) {
       durationMs,
     };
   if (
+    !allowContractDrift &&
     response?.manifestFingerprint &&
     response.manifestFingerprint !== manifest.fingerprint
   )
@@ -163,8 +207,24 @@ function normalizedRemoteState(manifest, response, durationMs) {
     reasonCode: response.ready === false ? "module_reported_not_ready" : null,
     observedVersion: response.version,
     observedManifestFingerprint: response.manifestFingerprint,
+    ...(allowContractDrift &&
+    (response.version !== manifest.version ||
+      response.manifestFingerprint !== manifest.fingerprint)
+      ? {
+          compatibilityStatus: "contract_drift_observed",
+          expectedVersion: manifest.version,
+          expectedManifestFingerprint: manifest.fingerprint,
+        }
+      : {}),
     durationMs,
   };
+}
+
+function readinessContractEnforced(env = process.env) {
+  return (
+    String(env.ATHENA_AICP_READINESS_ENFORCEMENT || "true").toLowerCase() !==
+    "false"
+  );
 }
 
 class ModuleHealthMonitor {
@@ -184,6 +244,7 @@ class ModuleHealthMonitor {
     this.lastCheckedAt = null;
     this.states = new Map();
     this.localProviders = new Map();
+    this.expectedStates = parseExpectedModuleStates(env);
   }
 
   endpoints() {
@@ -270,7 +331,9 @@ class ModuleHealthMonitor {
         ),
       });
       return {
-        ...normalizedRemoteState(manifest, response, Date.now() - startedAt),
+        ...normalizedRemoteState(manifest, response, Date.now() - startedAt, {
+          allowContractDrift: !readinessContractEnforced(this.env),
+        }),
         source: "probe",
       };
     } catch (error) {
@@ -373,15 +436,25 @@ class ModuleHealthMonitor {
       const checkedAt = new Date().toISOString();
       const results = await Promise.all(
         this.manifests().map(async (manifest) => {
+          const expectedState = this.expectedStates[manifest.id] || "running";
           const current = {
             moduleId: manifest.id,
+            expectedState,
             expectedVersion: manifest.version,
             expectedManifestFingerprint: manifest.fingerprint,
             endpointConfigured:
               this.localProviders.has(manifest.id) ||
               Boolean(endpoints[manifest.id]),
             checkedAt,
-            ...(await this.probe(manifest, endpoints[manifest.id])),
+            ...(expectedState === "running"
+              ? await this.probe(manifest, endpoints[manifest.id])
+              : {
+                  status: "inactive",
+                  ready: false,
+                  reasonCode: `module_expected_${expectedState}`,
+                  durationMs: 0,
+                  source: "expected-state",
+                }),
           };
           this.recordTransition(
             manifest,
@@ -406,6 +479,7 @@ class ModuleHealthMonitor {
       return (
         this.states.get(manifest.id) || {
           moduleId: manifest.id,
+          expectedState: this.expectedStates[manifest.id] || "running",
           expectedVersion: manifest.version,
           expectedManifestFingerprint: manifest.fingerprint,
           endpointConfigured: false,
@@ -427,14 +501,23 @@ class ModuleHealthMonitor {
     const unmonitored = modules.filter(
       (module) => module.status === "unmonitored"
     ).length;
-    const monitored = modules.length - unmonitored;
+    const inactive = modules.filter(
+      (module) => module.status === "inactive"
+    ).length;
+    const active = modules.filter(
+      (module) => module.expectedState === "running"
+    );
+    const activeUnmonitored = active.filter(
+      (module) => module.status === "unmonitored"
+    ).length;
+    const monitored = active.length - activeUnmonitored;
     return {
       enabled: this.started,
       status: !this.started
         ? "disabled"
         : degraded
           ? "degraded"
-          : unmonitored
+          : activeUnmonitored
             ? "coverage-incomplete"
             : "running",
       configError: endpointConfigError(this.env),
@@ -445,9 +528,15 @@ class ModuleHealthMonitor {
         healthy,
         degraded,
         unmonitored,
+        inactive,
+        active: active.length,
         monitored,
-        coverageRatio: modules.length ? monitored / modules.length : 0,
-        complete: modules.length > 0 && healthy === modules.length,
+        coverageRatio: active.length ? monitored / active.length : 1,
+        complete:
+          active.length > 0 &&
+          healthy === active.length &&
+          degraded === 0 &&
+          activeUnmonitored === 0,
       },
     };
   }
@@ -458,9 +547,12 @@ const moduleHealthMonitor = new ModuleHealthMonitor();
 module.exports = {
   ModuleHealthMonitor,
   endpointConfigError,
+  expectedModuleState,
   moduleHealthMonitor,
   normalizedRemoteState,
   endpointUrl,
   normalizedEndpoint,
   parseEndpointMap,
+  parseExpectedModuleStates,
+  readinessContractEnforced,
 };

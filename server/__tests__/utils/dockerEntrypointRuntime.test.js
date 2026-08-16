@@ -1,13 +1,20 @@
 const fs = require("fs");
 const path = require("path");
 
+const entrypoint = fs.readFileSync(
+  path.resolve(__dirname, "../../../docker/docker-entrypoint.sh"),
+  "utf8"
+);
+const runtimeReleaseDockerfile = fs.readFileSync(
+  path.resolve(
+    __dirname,
+    "../../../.athena-release-staging/runtime-link-recovery-v2.5.51/Dockerfile"
+  ),
+  "utf8"
+);
+
 describe("Docker entrypoint runtime safety", () => {
   it("explicitly authorizes both production Prisma migrations", () => {
-    const entrypoint = fs.readFileSync(
-      path.resolve(__dirname, "../../../docker/docker-entrypoint.sh"),
-      "utf8"
-    );
-
     expect(entrypoint).toContain(
       "node scripts/prisma-runtime.js --execute migrate deploy"
     );

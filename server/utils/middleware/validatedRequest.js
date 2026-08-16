@@ -255,7 +255,9 @@ function isAuthenticationStateUnavailable(error) {
     name.startsWith("PrismaClient") ||
     /^P\d{4}$/.test(code) ||
     code === "database_operation_failed" ||
-    code === "AUTH_DB_FOREIGN_KEY_VIOLATION"
+    code === "AUTH_DB_FOREIGN_KEY_VIOLATION" ||
+    code === "identity_capability_unavailable" ||
+    code === "identity_principal_user_missing"
   );
 }
 

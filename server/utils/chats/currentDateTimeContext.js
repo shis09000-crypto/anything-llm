@@ -3,20 +3,40 @@ const CURRENT_DATETIME_BLOCK_REGEX = new RegExp(
   `\\n*\\s*<${CURRENT_DATETIME_TAG}>[\\s\\S]*?<\\/${CURRENT_DATETIME_TAG}>\\s*$`
 );
 
-function configuredPromptTimeZone() {
-  const timeZone =
-    process.env.PROMPT_CONTEXT_TIMEZONE ||
-    process.env.SYSTEM_PROMPT_TIMEZONE ||
-    process.env.TZ ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    "Asia/Shanghai";
+const DEFAULT_PROMPT_TIME_ZONE = "Asia/Shanghai";
+
+function validTimeZone(value) {
+  const timeZone = String(value || "").trim();
+  if (!timeZone || timeZone.length > 80) return null;
 
   try {
     Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
     return timeZone;
   } catch {
-    return "Asia/Shanghai";
+    return null;
   }
+}
+
+function configuredPromptTimeZone(requestTimeZone = null) {
+  return (
+    validTimeZone(requestTimeZone) ||
+    validTimeZone(process.env.PROMPT_CONTEXT_TIMEZONE) ||
+    validTimeZone(process.env.SYSTEM_PROMPT_TIMEZONE) ||
+    DEFAULT_PROMPT_TIME_ZONE
+  );
+}
+
+function timeZoneOffset(
+  date = new Date(),
+  timeZone = configuredPromptTimeZone()
+) {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(date)
+    .find(({ type }) => type === "timeZoneName")?.value;
+  return String(part || "UTC").replace(/^GMT/, "UTC");
 }
 
 function dateTimeParts(
@@ -47,8 +67,9 @@ function dateTimeParts(
 
 function currentDateTimePromptBlock({
   now = new Date(),
-  timeZone = configuredPromptTimeZone(),
+  timeZone: requestedTimeZone = null,
 } = {}) {
+  const timeZone = configuredPromptTimeZone(requestedTimeZone);
   const { date, time } = dateTimeParts(now, timeZone);
   return [
     `<${CURRENT_DATETIME_TAG}>`,
@@ -56,7 +77,7 @@ function currentDateTimePromptBlock({
     `Current date: ${date}`,
     `Current time: ${time}`,
     `Time zone: ${timeZone}`,
-    `ISO timestamp: ${now.toISOString()}`,
+    `UTC offset: ${timeZoneOffset(now, timeZone)}`,
     `</${CURRENT_DATETIME_TAG}>`,
   ].join("\n");
 }
@@ -93,9 +114,12 @@ function appendCurrentDateTimeToLastUserMessage(messages = [], options = {}) {
 
 module.exports = {
   CURRENT_DATETIME_TAG,
+  DEFAULT_PROMPT_TIME_ZONE,
   appendCurrentDateTimeToLastUserMessage,
   appendCurrentDateTimeToPrompt,
   configuredPromptTimeZone,
   currentDateTimePromptBlock,
   stripCurrentDateTimePromptBlock,
+  timeZoneOffset,
+  validTimeZone,
 };

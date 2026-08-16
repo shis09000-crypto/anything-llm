@@ -127,12 +127,12 @@ describe("agentSessionLedger", () => {
     expect(result.payload.content.content).toBe(
       "[account-private output redacted]"
     );
-    expect(JSON.stringify(ledger.readAgentSessionEvents("private"))).not.toContain(
-      "private balance 12345"
-    );
-    expect(ledger.getAgentSessionState("private").partialTextPreview).not.toContain(
-      "private balance 12345"
-    );
+    expect(
+      JSON.stringify(ledger.readAgentSessionEvents("private"))
+    ).not.toContain("private balance 12345");
+    expect(
+      ledger.getAgentSessionState("private").partialTextPreview
+    ).not.toContain("private balance 12345");
   });
 
   it("marks finalized chat output terminal without closing the reusable invocation", () => {
@@ -195,14 +195,44 @@ describe("agentSessionLedger", () => {
       state: "success",
     });
 
-    expect(
-      ledger.getAgentSessionState("terminal-late-envelope")
-    ).toMatchObject({
-      status: "completed",
-      terminal: true,
-      retryable: false,
-      finalChatId: 88,
-      partialTextPreview: "final answer",
+    expect(ledger.getAgentSessionState("terminal-late-envelope")).toMatchObject(
+      {
+        status: "completed",
+        terminal: true,
+        retryable: false,
+        finalChatId: 88,
+        partialTextPreview: "final answer",
+      }
+    );
+  });
+
+  it("coalesces high-frequency text deltas into a durable checkpoint", () => {
+    const makeRecord = (seq, content) => ({
+      seq,
+      eventType: "textResponseChunk",
+      createdAt: seq,
+      payload: {
+        type: "reportStreamEvent",
+        seq,
+        content: {
+          type: "textResponseChunk",
+          uuid: "msg-1",
+          seq,
+          content,
+          textResponse: content,
+        },
+      },
     });
+
+    const merged = ledger._internals.mergeDurableTextRecords(
+      makeRecord(41, "hello "),
+      makeRecord(42, "world")
+    );
+
+    expect(merged.seq).toBe(42);
+    expect(merged.payload.seq).toBe(42);
+    expect(merged.payload.content.seq).toBe(42);
+    expect(merged.payload.content.content).toBe("hello world");
+    expect(merged.payload.content.textResponse).toBe("hello world");
   });
 });

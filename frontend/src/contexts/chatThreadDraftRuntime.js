@@ -423,6 +423,27 @@ function compactPayload(payload = {}) {
   }, {});
 }
 
+function compactAgentProgressDetails(details = {}) {
+  if (!details || typeof details !== "object") return {};
+  return [
+    "toolCategory",
+    "toolName",
+    "evidenceCount",
+    "selectedToolCount",
+    "approvalRequired",
+    "reconnectAttempt",
+    "errorCode",
+    "routeKind",
+  ].reduce((safe, key) => {
+    if (details[key] === undefined || details[key] === null) return safe;
+    safe[key] =
+      typeof details[key] === "string"
+        ? truncateText(details[key], 96)
+        : details[key];
+    return safe;
+  }, {});
+}
+
 function sanitizeTimelineEventForStorage(event = {}) {
   if (!event || typeof event !== "object") return null;
   const base = {
@@ -434,6 +455,15 @@ function sanitizeTimelineEventForStorage(event = {}) {
     status: event.status,
     content: truncateText(event.summary || event.content || ""),
   };
+
+  if (event.type === "agent_progress") {
+    return {
+      ...base,
+      phase: event.phase,
+      sequence: event.sequence,
+      details: compactAgentProgressDetails(event.details),
+    };
+  }
 
   if (event.type === "tool_call") {
     return {
@@ -549,6 +579,8 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
       status: item.status,
       chatId: item.chatId,
       publicChatId: item.publicChatId || null,
+      persistenceStatus: item.persistenceStatus || null,
+      persistenceErrorCode: item.persistenceErrorCode || null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       error: truncateText(item.error || ""),
@@ -634,7 +666,8 @@ export function draftNeedsServerHistoryRefresh(draft = {}) {
       (item) =>
         isAssistantTurn(item) &&
         item.status === TURN_STATUSES.completed &&
-        !item.chatId
+        !item.chatId &&
+        !item.persistenceStatus
     )
   );
 }

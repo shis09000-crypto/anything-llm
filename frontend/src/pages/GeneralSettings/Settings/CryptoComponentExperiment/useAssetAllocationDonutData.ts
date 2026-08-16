@@ -96,13 +96,10 @@ export function useAssetAllocationDonutData({
     } catch (error) {
       if (signal?.aborted) return false;
       gateReconnectAttemptRef.current += 1;
-      setGateStatus((current) =>
-        hasGateItemsRef.current ||
-        current === "connected" ||
-        current === "degraded"
-          ? "degraded"
-          : "error"
-      );
+      // Retain the last trusted allocation for continuity, while reporting the
+      // live connection as offline. "degraded" is reserved for a successful
+      // upstream response that explicitly contains partial failures.
+      setGateStatus("error");
       setGateStatusText(
         error instanceof Error
           ? `连接中断，正在重连：${error.message}`

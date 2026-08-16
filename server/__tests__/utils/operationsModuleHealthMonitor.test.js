@@ -4,6 +4,7 @@ const {
   ModuleHealthMonitor,
   normalizedRemoteState,
   parseEndpointMap,
+  parseExpectedModuleStates,
 } = require("../../utils/operations/moduleHealthMonitor");
 
 const manifest = {
@@ -64,6 +65,54 @@ describe("Operations module health monitor", () => {
     });
   });
 
+  test("excludes explicitly maintained modules from readiness without reporting a crash", async () => {
+    expect(
+      parseExpectedModuleStates({
+        ATHENA_EXPECTED_MODULE_STATES:
+          "crypto-forecast=maintenance,reader-worker=running",
+      })
+    ).toEqual({
+      "crypto-forecast": "maintenance",
+      "reader-worker": "running",
+    });
+    const maintained = {
+      ...manifest,
+      id: "crypto-forecast",
+    };
+    const monitor = new ModuleHealthMonitor({
+      env: {
+        ATHENA_EXPECTED_MODULE_STATES: JSON.stringify({
+          "crypto-forecast": "maintenance",
+        }),
+      },
+      request: jest.fn(),
+      emit: jest.fn(),
+      manifests: () => [maintained],
+    });
+    monitor.started = true;
+    await monitor.refresh();
+    expect(monitor.request).not.toHaveBeenCalled();
+    expect(monitor.snapshot()).toMatchObject({
+      status: "running",
+      modules: [
+        {
+          moduleId: "crypto-forecast",
+          expectedState: "maintenance",
+          status: "inactive",
+          reasonCode: "module_expected_maintenance",
+        },
+      ],
+      summary: {
+        total: 1,
+        active: 0,
+        inactive: 1,
+        degraded: 0,
+        complete: false,
+      },
+    });
+    await monitor.stop();
+  });
+
   test("rejects version, manifest, and identity drift", () => {
     expect(
       normalizedRemoteState(
@@ -110,6 +159,43 @@ describe("Operations module health monitor", () => {
       status: "degraded",
       reasonCode: "module_manifest_mismatch",
     });
+  });
+
+  test("observes compatible contract drift during a staged rollout", async () => {
+    const request = jest.fn().mockResolvedValue({
+      moduleId: manifest.id,
+      version: "1.0.0",
+      manifestFingerprint: "previous-release-fingerprint",
+      ready: true,
+    });
+    const monitor = new ModuleHealthMonitor({
+      env: {
+        ATHENA_AICP_READINESS_ENFORCEMENT: "false",
+        ATHENA_MODULE_RUNTIME_ENDPOINTS: JSON.stringify({
+          [manifest.id]: "https://chat:3016",
+        }),
+      },
+      request,
+      emit: jest.fn(),
+      manifests: () => [manifest],
+    });
+
+    monitor.started = true;
+    await monitor.refresh();
+    expect(monitor.snapshot()).toMatchObject({
+      status: "running",
+      modules: [
+        {
+          moduleId: manifest.id,
+          status: "healthy",
+          ready: true,
+          compatibilityStatus: "contract_drift_observed",
+          observedVersion: "1.0.0",
+        },
+      ],
+      summary: { complete: true, healthy: 1, degraded: 0 },
+    });
+    await monitor.stop();
   });
 
   test("probes configured modules and emits metadata-only transitions", async () => {

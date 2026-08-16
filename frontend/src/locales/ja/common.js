@@ -1625,6 +1625,11 @@ const TRANSLATIONS = {
         "ドキュメント処理機能がオフラインのため、ファイルをアップロードできません。後でもう一度お試しください。",
       "click-upload":
         "クリックしてアップロード、またはドラッグ＆ドロップしてください",
+      "cancel-upload": "アップロードを停止",
+      "preparing-upload": "{{percent}}% · アップロードを準備中",
+      "upload-progress": "{{percent}}% · {{speed}}/秒",
+      "upload-complete": "100% · アップロード完了",
+      "upload-failed": "ファイルのアップロードに失敗しました",
       "file-types":
         "テキストファイル、CSV、スプレッドシート、音声ファイルなどに対応しています！",
       "or-submit-link": "またはリンクを入力",
@@ -1633,6 +1638,24 @@ const TRANSLATIONS = {
       "fetch-website": "ウェブサイトを取得",
       "privacy-notice":
         "これらのファイルは、このAthenaインスタンス上のドキュメント処理機能にアップロードされます。第三者に送信・共有されることはありません。",
+    },
+    "document-status": {
+      uploading: "アップロード中",
+      waiting: "処理待ち",
+      processing: "解析中",
+      embedding: "埋め込み中",
+      indexing: "インデックス作成中",
+      uploaded: "アップロード済み",
+      indexed: "インデックス済み",
+      outdated: "インデックス期限切れ",
+      failed: "処理に失敗",
+      cancelled: "キャンセル済み",
+      cached: "キャッシュ済み",
+      "last-indexed": "最終インデックス：{{value}}",
+      "embedding-count": "埋め込み数：{{count}}",
+      "batch-id": "バッチ ID：{{value}}",
+      "failure-reason": "失敗理由：{{value}}",
+      "remove-from-queue": "キューから削除",
     },
     pinning: {
       what_pinning: "ドキュメントのピン留めとは？",
@@ -1793,11 +1816,73 @@ const TRANSLATIONS = {
     start_agent_session: "エージェントセッションを開始",
     use_agent_session_to_use_tools:
       "チャットでツールを使用するには、プロンプトの冒頭に'@agent'を使用してエージェントセッションを開始してください。",
+    turnState: {
+      reconnecting: "再接続しています…",
+      saving: "安全に保存しています…",
+      saveRetrying:
+        "返信は保持されています。安全な保存をバックグラウンドで再試行します。",
+      loadingFullResponse: "返信全体を読み込んでいます…",
+      retryFullResponse: "返信全体の読み込みを再試行",
+      loadFullResponse: "返信全体を読み込む",
+      loadingConversation: "会話を読み込んでいます",
+      responseFailed: "このメッセージに応答できませんでした。",
+      reconnectLimitPrompt:
+        "エージェントの再接続上限に達しました。記録済みのツール結果と途中までの返信を使って続行しますか？",
+      reconnect: "再接続",
+      keepInterrupted: "中断したままにする",
+      errorReason: "理由：",
+      unknownError: "不明なエラー",
+    },
     toolTimeline: {
+      modelThinking: "モデルが思考中…",
+      modelComplete: "モデルの思考が完了しました",
       agentThinking: "エージェントが思考中...",
       agentComplete: "エージェントの思考が完了しました",
+      progress: {
+        runningSummary:
+          "{{phase}} · {{count}} ステップ完了 · {{elapsed}} {{stillWorking}}",
+        completedSummary:
+          "エージェント完了 · {{count}} ステップ · 証拠 {{evidence}} 件 · {{elapsed}}",
+        failedSummary: "{{phase}}に失敗 · {{count}} ステップ完了 · {{elapsed}}",
+        stillWorking: "· このステップを引き続き実行中",
+        toolDetail: "{{tool}} を呼び出しています",
+        evidenceDetail: "証拠 {{count}} 件を取得しました",
+        approvalDetail: "{{tool}} の承認を要求しました",
+        clarificationDetail: "追加情報を取得しました",
+        phases: {
+          routing: "エージェント経路を判定しています",
+          session_start: "エージェントモードに入っています",
+          tool_selection: "利用可能なツールを選択しています",
+          tool_execution: "ツールを呼び出しています",
+          retrieval: "ワークスペース資料を検索しています",
+          evidence_ready: "検索証拠を取得しました",
+          synthesis: "証拠に基づいて回答を整理しています",
+          finalizing: "回答を仕上げています",
+        },
+      },
       showThoughtChain: "思考チェーンを表示",
       hideThoughtChain: "思考チェーンを非表示",
+      agentSessionStarted:
+        "エージェントモードを開始しました。/exit を入力するとセッションを終了できます。",
+      agentTemporarilyUnavailable:
+        "エージェントサービスは一時的に利用できません。メッセージは保持されています。しばらくしてから再試行してください。",
+      agentFallbackToChat:
+        "指定されたエージェント{{targets}}を開始できませんでした。通常のチャットとして続行します。",
+      agentTargetLabel: "（{{targets}}）",
+      reconnecting:
+        "エージェントの接続が中断されました。再接続しています（{{attempt}}/{{total}}）…",
+      generationStopped: "生成を停止しました。",
+      agentSessionUnavailable:
+        "このエージェントセッションは新しい入力を受け付けていません。",
+      agentFollowUpSent:
+        "実行中のエージェントセッションに追加の入力を送信しました。",
+      streamAborted: "返信ストリームが中断されました。",
+      websocketFailed: "リアルタイム接続に失敗しました。",
+      reconnectFailed: "エージェントを再接続できませんでした。",
+      chatStreamFailed:
+        "返信が完了する前にチャットストリームが中断されました。",
+      approvalRequested: "{{skill}} の承認が必要です",
+      agentError: "エージェントエラー",
       toolFallback: "ツール",
       toolFamilyLabel: "{{family}}（{{toolName}}）",
       actionPrefix: "操作: {{action}} · ",

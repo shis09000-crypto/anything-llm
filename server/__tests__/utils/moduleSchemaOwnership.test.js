@@ -35,14 +35,44 @@ describe("module schema ownership", () => {
       "crypto_account"
     );
     expect(ownerForTable("browser_sessions", "main")).toBe("browser_plane");
+    expect(ownerForTable("browser_egress_grants", "main")).toBe(
+      "browser_egress"
+    );
+    expect(ownerForTable("auth_device_recovery_challenges", "main")).toBe(
+      "identity"
+    );
+    expect(ownerForTable("coordination_runs", "main")).toBe("coordination");
+    expect(ownerForTable("responses", "main")).toBe("responses_runtime");
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
+    expect(ownerForTable("embedding_batch_jobs", "main")).toBe(
+      "knowledge_ingest"
+    );
+    expect(ownerForTable("embedding_batch_job_events", "main")).toBe(
+      "knowledge_ingest"
+    );
     expect(ownerForTable("security_key_registry", "main")).toBe("key_custody");
     expect(ownerForTable("auth_device_recovery_challenges", "main")).toBe(
       "identity"
     );
     expect(ownerForTable("user_root_key_envelopes", "auth")).toBe("identity");
     expect(ownerForTable("auth_sessions", "auth")).toBe("identity");
+  });
+
+  test("versioned Prisma schema includes every declared module-owned table", () => {
+    const tables = new Set(modelTables(schemaFile));
+    for (const table of [
+      "module_instances",
+      "coordination_runs",
+      "auth_device_recovery_challenges",
+      "browser_egress_grants",
+      "responses_conversations",
+      "responses",
+      "embedding_batch_jobs",
+      "embedding_batch_job_events",
+    ]) {
+      expect(tables.has(table)).toBe(true);
+    }
   });
 
   test("unextracted main tables remain in the workspace control boundary", () => {
@@ -57,6 +87,15 @@ describe("module schema ownership", () => {
     expect(runtimeSchemaForRole("identity", "auth")).toBe("identity");
     expect(runtimeSchemaForRole("key-custody", "main")).toBe("key_custody");
     expect(runtimeSchemaForRole("key-custody", "auth")).toBe("key_custody");
+    expect(runtimeSchemaForRole("browser-egress", "main")).toBe(
+      "browser_egress"
+    );
+    expect(runtimeSchemaForRole("coordination-plane", "main")).toBe(
+      "coordination"
+    );
+    expect(runtimeSchemaForRole("responses-runtime", "main")).toBe(
+      "responses_runtime"
+    );
   });
 
   test("Identity receives only the declared append-only audit capability", () => {

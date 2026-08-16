@@ -133,6 +133,10 @@ const memory = {
             }
           },
           search: async function (query = "") {
+            this.super.reportProgress?.("retrieval", "running", {
+              toolName: "rag-memory",
+              toolCategory: "rag",
+            });
             try {
               const workspace = this.super.handlerProps.invocation.workspace;
               const LLMConnector = getLLMProvider({
@@ -150,6 +154,11 @@ const memory = {
                 });
 
               if (contextTexts.length === 0) {
+                this.super.reportProgress?.("retrieval", "completed", {
+                  toolName: "rag-memory",
+                  toolCategory: "rag",
+                  evidenceCount: 0,
+                });
                 this.super.introspect(
                   `${this.caller}: I didn't find anything locally that would help answer this question.`
                 );
@@ -160,8 +169,24 @@ const memory = {
                 `${this.caller}: Found ${contextTexts.length} additional piece of context to help answer this question.`
               );
 
+              this.super.reportProgress?.("retrieval", "completed", {
+                toolName: "rag-memory",
+                toolCategory: "rag",
+                evidenceCount: contextTexts.length,
+              });
+              this.super.reportProgress?.("evidence_ready", "completed", {
+                toolName: "rag-memory",
+                toolCategory: "rag",
+                evidenceCount: contextTexts.length,
+              });
+
               return untrustedEvidenceEnvelope(contextTexts);
             } catch (error) {
+              this.super.reportProgress?.("retrieval", "failed", {
+                toolName: "rag-memory",
+                toolCategory: "rag",
+                errorCode: "rag_retrieval_failed",
+              });
               this.super.handlerProps.log(
                 `memory.search raised an error. ${error.message}`
               );

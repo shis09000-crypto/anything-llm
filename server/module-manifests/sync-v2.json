@@ -3,7 +3,7 @@
   "schemaVersion": "1.1",
   "id": "sync-v2",
   "name": "Unified Stream and Sync Gateway",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "gateway",
   "owner": "platform",
   "criticality": "critical",
@@ -14,7 +14,13 @@
     "server/utils/broadcast/",
     "server/utils/syncV2/"
   ],
-  "capabilities": ["sse", "websocket", "replay", "cursor", "outbox"],
+  "capabilities": [
+    "sse",
+    "websocket",
+    "replay",
+    "cursor",
+    "outbox"
+  ],
   "routes": {
     "public": ["/api/sync/", "/api/realtime/"],
     "internal": [

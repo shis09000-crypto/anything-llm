@@ -28,6 +28,10 @@ const {
   observeCertificateRemaining,
   observeTlsNegotiation,
 } = require("../../security/cryptoObservability");
+const {
+  AICP_EVENT_SCHEMA,
+  validateAicpEvent,
+} = require("../../modulePlatform/eventEnvelope");
 
 const STREAM = "ATHENA_BROADCAST";
 const DEFAULT_MAX_AGE_NS = 30 * 24 * 60 * 60 * 1_000_000_000;
@@ -316,6 +320,7 @@ class NatsJetStreamTransport {
     this.received = 0;
     this.redelivered = 0;
     this.pending = 0;
+    this.quarantined = 0;
   }
 
   async ensureStream() {
@@ -417,14 +422,40 @@ class NatsJetStreamTransport {
           if (Number(message.info?.redeliveryCount || 1) > 1)
             this.redelivered += 1;
           try {
-            const event = codec.decode(message.data);
+            let event = codec.decode(message.data);
+            if (event?.schema === AICP_EVENT_SCHEMA) {
+              const validation = validateAicpEvent(event);
+              if (!validation.valid) {
+                this.quarantined += 1;
+                this.lastError = `aicp_event_quarantined:${validation.findings[0]}`;
+                metrics.natsEvents.inc({
+                  action: "consume",
+                  outcome: "contract_quarantined",
+                });
+                metrics.aicpEventDelivery.inc({
+                  stage: "consume",
+                  outcome: "contract_quarantined",
+                });
+                message.ack();
+                continue;
+              }
+              event = event.payload;
+            }
             await this.handler?.(event);
             this.received += 1;
             metrics.natsEvents.inc({ action: "consume", outcome: "acked" });
+            metrics.aicpEventDelivery.inc({
+              stage: "consume",
+              outcome: "acked",
+            });
             message.ack();
           } catch (error) {
             this.lastError = error?.code || error?.message || String(error);
             metrics.natsEvents.inc({ action: "consume", outcome: "nacked" });
+            metrics.aicpEventDelivery.inc({
+              stage: "consume",
+              outcome: "redelivery_scheduled",
+            });
             message.nak(1_000);
           }
         }
@@ -486,6 +517,7 @@ class NatsJetStreamTransport {
       published: this.published,
       received: this.received,
       redelivered: this.redelivered,
+      quarantined: this.quarantined,
       lastError: this.lastError,
     };
   }

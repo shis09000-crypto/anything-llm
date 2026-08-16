@@ -8,6 +8,7 @@ import type {
   OpenFuturesPositionsCardProps,
 } from "./openFuturesPositionsTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import { liquidationRiskPresentation } from "./openFuturesRiskPresentation";
 
 type PositionFilter = "all" | "long" | "short" | "risk";
 

@@ -78,7 +78,7 @@ const MAIN_OWNERSHIP_RULES = Object.freeze([
   ["knowledge_reader", /^reader_/i],
   [
     "knowledge_ingest",
-    /^(workspace_documents|document_vectors|DocumentIndexStatus|KnowledgeNode|KnowledgeEdge|EdgeEvidence|ConceptChunkMap|GraphExtractionJob|GraphLabelTranslationCache|KnowledgeGraphRepair|KnowledgeGraphEvidenceUsage|KnowledgeNodeMetrics)/,
+    /^(workspace_documents|document_vectors|embedding_batch_jobs|embedding_batch_job_events|DocumentIndexStatus|KnowledgeNode|KnowledgeEdge|EdgeEvidence|ConceptChunkMap|GraphExtractionJob|GraphLabelTranslationCache|KnowledgeGraphRepair|KnowledgeGraphEvidenceUsage|KnowledgeNodeMetrics)/,
   ],
   ["knowledge_query", /^(GraphRetrievalCache)$/],
   ["model_runtime", /^ai_(price_catalog|budget_|usage_|eval_)/i],

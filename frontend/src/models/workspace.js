@@ -565,6 +565,7 @@ const Workspace = {
           options.communicationScene || "workspace-upload-visible",
         task: options.task,
         signal: options.signal,
+        onUploadProgress: options.onUploadProgress,
       }
     );
 

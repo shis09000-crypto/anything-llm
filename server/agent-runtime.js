@@ -43,6 +43,7 @@ const port = Number(process.env.AGENT_RUNTIME_PORT || 3017);
 const drainTimeoutMs = Number(
   process.env.ATHENA_RUNTIME_DRAIN_TIMEOUT_MS || 120_000
 );
+let stopAgentRunRecovery = null;
 
 const host = new MicroModuleServiceHost({
   manifestId: "agent-runtime",
@@ -51,8 +52,15 @@ const host = new MicroModuleServiceHost({
   enableWebSockets: true,
   parseJson: false,
   readiness: agentRuntimeSnapshot,
-  onStart: () => secureDatabaseStart(role),
-  onDrain: () => drainAgentRuntime({ timeoutMs: drainTimeoutMs }),
+  onStart: async () => {
+    await secureDatabaseStart(role);
+    await refreshAgentPersistenceContract();
+  },
+  onDrain: async () => {
+    stopAgentRunRecovery?.();
+    stopAgentRunRecovery = null;
+    return drainAgentRuntime({ timeoutMs: drainTimeoutMs });
+  },
   registerRoutes: (app) => {
     registerCompatibleApi(app, agentWebsocket);
     app.post("/internal/v1/agent/invocations", async (request, response) => {
@@ -172,14 +180,19 @@ const host = new MicroModuleServiceHost({
       "agent.turn.cancel",
     "GET /internal/v1/agent/runs/:invocationId": "agent.status",
   },
+  internalRouteCapabilities: {
+    "POST /internal/v1/agent/invocations": "agent.submit",
+    "GET /internal/v1/agent/runs/:invocationId": "agent.status",
+  },
 });
 
 installStandaloneShutdown(host, { name: "AgentRuntime" });
 host
   .start()
-  .then((snapshot) =>
-    console.log(`[AgentRuntime] listening on ${host.port}`, snapshot)
-  )
+  .then((snapshot) => {
+    stopAgentRunRecovery = startAgentRunRecovery();
+    console.log(`[AgentRuntime] listening on ${host.port}`, snapshot);
+  })
   .catch((error) => {
     console.error("[AgentRuntime] failed to start", error);
     process.exitCode = 1;

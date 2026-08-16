@@ -199,7 +199,7 @@ const WorkspaceThread = {
     try {
       const { data: payload } = await postJson(
         `/workspace/${workspaceSlug}/thread/new`,
-        {},
+        options.chatModel ? { chatModel: options.chatModel } : {},
         {
           signal: options.signal,
           communicationScene:

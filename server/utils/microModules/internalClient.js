@@ -185,7 +185,36 @@ function rpcShadowObservation({ callerRole, url, method, env }) {
   };
 }
 
-function requestInternalService({
+function aicpEmitVersion(env = process.env) {
+  return String(env.ATHENA_AICP_EMIT_VERSION || "1.0") === "1.1"
+    ? "1.1"
+    : "1.0";
+}
+
+function inheritedCoordinationContext(explicitContext = null) {
+  if (explicitContext) return explicitContext;
+  const context = currentOperationContext() || {};
+  if (
+    !context.coordinationRunId ||
+    !context.stepId ||
+    !context.correlationId ||
+    !context.coordinationCenter ||
+    !context.taskPriority ||
+    !context.coordinationDeadlineAt
+  )
+    return null;
+  return {
+    coordinationRunId: context.coordinationRunId,
+    stepId: context.stepId,
+    correlationId: context.correlationId,
+    center: context.coordinationCenter,
+    priority: context.taskPriority,
+    deadlineAt: context.coordinationDeadlineAt,
+    causationId: context.coordinationCausationId || context.operationId || null,
+  };
+}
+
+function aicpRequestHeaders({
   callerRole,
   callerModule = callerRole,
   url,
@@ -200,6 +229,9 @@ function requestInternalService({
   approvalId = null,
   env = process.env,
   timeoutMs = 10_000,
+  attempt = 1,
+  signal = null,
+  _operationContext = null,
 } = {}) {
   const observe = rpcShadowObservation({ callerRole, url, method, env });
   const target = new URL(url);
@@ -310,7 +342,82 @@ function requestInternalService({
   });
 }
 
-function requestInternalStream({
+function retryableUnaryError(error) {
+  if ([502, 503, 504].includes(Number(error?.httpStatus))) return true;
+  return [
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "EPIPE",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "ETIMEDOUT",
+  ].includes(String(error?.code || ""));
+}
+
+async function requestInternalService(options = {}) {
+  const operationContext = currentOperationContext() || null;
+  let callType = null;
+  let timeoutMs = Math.max(1_000, Number(options.timeoutMs) || 10_000);
+  if (options.capability && options.targetModule) {
+    const negotiation = new AicpContractRegistry().negotiate({
+      callerModule: options.callerModule || options.callerRole,
+      targetModule: options.targetModule,
+      capability: options.capability,
+      version: options.contractVersion,
+      protocolVersion: aicpEmitVersion(options.env || process.env),
+    });
+    callType = negotiation.callType;
+    timeoutMs = Math.min(timeoutMs, negotiation.timeoutMs);
+  }
+  const maxRetries = ["Query", "Call"].includes(callType)
+    ? 2
+    : ["Task", "Command"].includes(callType) &&
+        options.durableIdempotency === true &&
+        options.idempotencyKey
+      ? 2
+      : 0;
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
+    try {
+      const result = await requestInternalServiceOnce({
+        ...options,
+        timeoutMs,
+        attempt,
+        _operationContext: operationContext,
+      });
+      metrics.aicpCalls.inc({
+        protocol: aicpEmitVersion(options.env || process.env),
+        call_type: callType || "undeclared",
+        outcome: "completed",
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt > maxRetries ||
+        !retryableUnaryError(error) ||
+        options.signal?.aborted
+      ) {
+        metrics.aicpCalls.inc({
+          protocol: aicpEmitVersion(options.env || process.env),
+          call_type: callType || "undeclared",
+          outcome:
+            error.code === "INTERNAL_SERVICE_ABORTED"
+              ? "cancelled"
+              : "failed",
+        });
+        throw error;
+      }
+      metrics.aicpRetries.inc({
+        call_type: callType || "undeclared",
+        outcome: "scheduled",
+      });
+    }
+  }
+  throw lastError;
+}
+
+function requestInternalStreamOnce({
   callerRole,
   callerModule = callerRole,
   url,
@@ -325,6 +432,9 @@ function requestInternalStream({
   approvalId = null,
   env = process.env,
   timeoutMs = 120_000,
+  attempt = 1,
+  signal = null,
+  _operationContext = null,
 } = {}) {
   const observe = rpcShadowObservation({ callerRole, url, method, env });
   const target = new URL(url);
@@ -428,6 +538,29 @@ function requestInternalStream({
     if (payload) request.write(payload);
     request.end();
   });
+}
+
+async function requestInternalStream(options = {}) {
+  const operationContext = currentOperationContext() || null;
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await requestInternalStreamOnce({
+        ...options,
+        attempt,
+        _operationContext: operationContext,
+      });
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt === 2 ||
+        !retryableUnaryError(error) ||
+        options.signal?.aborted
+      )
+        throw error;
+    }
+  }
+  throw lastError;
 }
 
 module.exports = {

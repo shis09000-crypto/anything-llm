@@ -86,7 +86,7 @@ server {
     proxy_send_timeout 3600s;
   }
 
-  location ~ ^/api/workspace/[^/]+/(upload|upload-link|update-embeddings|embed-progress|embed-queue|remove-and-unembed|reset-vector-db)$ {
+  location ~ ^/api/workspace/[^/]+/(upload|upload-link|upload-and-embed|update-embeddings|embed-progress|embed-queue|remove-and-unembed|reset-vector-db)$ {
     proxy_ssl_name anything-llm-knowledge-ingest;
     proxy_pass $athena_knowledge_ingest_upstream$request_uri;
     proxy_http_version 1.1;
@@ -219,6 +219,21 @@ server {
     proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
+  }
+
+  # `/login` is both an application route and the name of the directory that
+  # contains login artwork. Without these exact matches nginx treats the SPA
+  # route as a directory, redirects it to `/login/`, and can leak the internal
+  # listener port into Location. Login assets below `/login/<file>` continue to
+  # be served by the normal static-file location.
+  location = /login {
+    try_files /index.html =404;
+    add_header Cache-Control "public, max-age=0, must-revalidate";
+  }
+
+  location = /login/ {
+    try_files /index.html =404;
+    add_header Cache-Control "public, max-age=0, must-revalidate";
   }
 
   location / {

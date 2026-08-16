@@ -1239,8 +1239,8 @@ export default function ChatContainer({
       workspaceSlug: workspace.slug,
       thread: {
         ...thread,
-        name: thread.name || thread.title || "新线程",
-        title: thread.title || thread.name || "",
+        name: thread.isUntitled ? "" : thread.name || thread.title || "",
+        title: thread.isUntitled ? "" : thread.title || thread.name || "",
         thread_type: thread.thread_type || "chat",
       },
       animate: options.animate !== false,

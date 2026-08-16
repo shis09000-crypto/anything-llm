@@ -81,7 +81,7 @@ export default function App() {
     <ErrorBoundary
       FallbackComponent={ErrorBoundaryFallback}
       onError={console.error}
-      resetKeys={[location.pathname]}
+      resetKeys={[location.key, location.pathname, location.search]}
     >
       <ThemeProvider>
         <PWAModeProvider>

@@ -56,6 +56,29 @@ def module_image_variable(service_name: str) -> str:
 # call its mTLS policy endpoint and cannot silently fall back to local unwrap.
 LOCAL_KEY_SERVICES = {"anything-llm-key-custody"}
 
+# Keep the production storage root read-only and grant each document pipeline
+# runtime only the mutable subdirectories it actually owns. These nested bind
+# mounts deliberately override the read-only parent mount at their exact
+# targets without exposing unrelated credentials, caches, or runtime state.
+PRODUCTION_STORAGE_WRITE_DOMAINS = {
+    "anything-llm-knowledge-ingest": (
+        "documents",
+        "direct-uploads",
+        "embedding-batches",
+        "vector-cache",
+        "lancedb",
+    ),
+    "anything-llm-collector": (
+        "documents",
+        "direct-uploads",
+        "tmp",
+    ),
+}
+
+PRODUCTION_HOTDIR_WRITERS = {
+    "anything-llm-knowledge-ingest",
+}
+
 EXTERNAL_SERVICES = {"nats", "clickhouse", "otel-collector"}
 EXCLUDED_SERVICES = {
     "nats",
@@ -78,6 +101,7 @@ DEFAULT_SERVICE_PORTS = {
     "anything-llm-chat-runtime": 3016,
     "anything-llm-agent-runtime": 3017,
     "anything-llm-model-gateway": 3018,
+    "anything-llm-responses-runtime": 3034,
     "anything-llm-tool-broker": 3019,
     "anything-llm-crypto-market": 3020,
     "anything-llm-crypto-account": 3021,
@@ -170,6 +194,7 @@ def service_port(service_name: str, environment: dict) -> int | None:
         "CHAT_RUNTIME_PORT",
         "AGENT_RUNTIME_PORT",
         "MODEL_GATEWAY_PORT",
+        "RESPONSES_RUNTIME_PORT",
         "TOOL_BROKER_PORT",
         "CRYPTO_MARKET_PORT",
         "CRYPTO_ACCOUNT_PORT",
@@ -182,11 +207,67 @@ def service_port(service_name: str, environment: dict) -> int | None:
         "OPERATIONS_SHADOW_AGENTS_PORT",
         "BROWSER_PLANE_PORT",
         "BROWSER_WORKER_PORT",
+        "COORDINATION_PLANE_PORT",
+        "BROWSER_EGRESS_PORT",
     )
     for port_name in port_names:
         if port_name in environment:
             return int(environment[port_name])
     return DEFAULT_SERVICE_PORTS.get(service_name)
+
+
+def apply_document_pipeline_storage_contract(
+    service_name: str, volumes: list[str]
+) -> list[str]:
+    normalized = []
+    for volume in volumes:
+        if (
+            service_name in PRODUCTION_HOTDIR_WRITERS
+            and volume
+            == "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:/app/collector/hotdir:ro"
+        ):
+            normalized.append(
+                "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:/app/collector/hotdir"
+            )
+            continue
+        normalized.append(volume)
+
+    for domain in PRODUCTION_STORAGE_WRITE_DOMAINS.get(service_name, ()):
+        normalized.append(
+            "${ATHENA_PROD_STORAGE_DIR:?required}/production/"
+            f"{domain}:/app/server/storage/production/{domain}"
+        )
+    return list(dict.fromkeys(normalized))
+
+
+def assert_document_pipeline_storage_contract(services: dict) -> None:
+    root_mount = (
+        "${ATHENA_PROD_STORAGE_DIR:?required}:/app/server/storage:ro"
+    )
+    for service_name, domains in PRODUCTION_STORAGE_WRITE_DOMAINS.items():
+        volumes = services[service_name].get("volumes", [])
+        if root_mount not in volumes:
+            raise ValueError(
+                f"{service_name} must retain the read-only storage root"
+            )
+        for domain in domains:
+            expected = (
+                "${ATHENA_PROD_STORAGE_DIR:?required}/production/"
+                f"{domain}:/app/server/storage/production/{domain}"
+            )
+            if expected not in volumes:
+                raise ValueError(
+                    f"{service_name} missing writable {domain} domain"
+                )
+
+    for service_name in PRODUCTION_HOTDIR_WRITERS:
+        volumes = services[service_name].get("volumes", [])
+        expected = (
+            "${ATHENA_PROD_COLLECTOR_HOTDIR:?required}:"
+            "/app/collector/hotdir"
+        )
+        if expected not in volumes:
+            raise ValueError(f"{service_name} missing writable upload hotdir")
 
 
 def render(source: Path) -> dict:
@@ -243,10 +324,22 @@ def render(source: Path) -> dict:
                 environment["COLLECTOR_ENDPOINT"] = (
                     "https://anything-llm-collector:8888"
                 )
+            service["volumes"] = apply_document_pipeline_storage_contract(
+                name, service.get("volumes", [])
+            )
         if name not in {"anything-llm-web", "anything-llm-api-tls", "postgresql", "minio", "minio-init"}:
             environment["APP_ENV"] = "production"
             environment["NODE_ENV"] = "production"
             environment["ATHENA_RUNTIME_TOPOLOGY"] = "micro-modules"
+            environment["ATHENA_AICP_EMIT_VERSION"] = (
+                "${ATHENA_PROD_AICP_EMIT_VERSION:-1.0}"
+            )
+            environment["ATHENA_AICP_ENFORCEMENT_MODE"] = (
+                "${ATHENA_PROD_AICP_ENFORCEMENT_MODE:-observe}"
+            )
+            environment["ATHENA_AICP_READINESS_ENFORCEMENT"] = (
+                "${ATHENA_PROD_AICP_READINESS_ENFORCEMENT:-true}"
+            )
             environment["ATHENA_NATS_TLS_SERVER_NAME"] = "athena-production-nats"
             environment["ATHENA_KEY_CUSTODY_DIRECT_FIELD_CUTOVER"] = "true"
             environment["ATHENA_KEY_CUSTODY_CUTOVER"] = (
@@ -287,12 +380,17 @@ def render(source: Path) -> dict:
             )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
 
-        if name in {"anything-llm-api", "anything-llm-background-worker"}:
-            # Preserve the existing hybrid audit/agent signing boundary while
-            # moving the runtime from the monolith to independent roles. Only
-            # the roles that already held these keys receive private material.
+        if name in {
+            "anything-llm-api",
+            "anything-llm-background-worker",
+            "anything-llm-identity",
+        }:
+            # Identity verifies and appends the security audit ledger during
+            # startup, so it must receive the same audit-signing material as
+            # the other audit-owning runtimes. Without these mounts every
+            # hybrid checkpoint is reported as unreadable and Identity fails
+            # closed on restart.
             environment["ATHENA_AUDIT_HYBRID_SIGNATURES"] = "required"
-            environment["ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED"] = "true"
             environment["ATHENA_AUDIT_MLDSA65_KEY_ID"] = (
                 "${ATHENA_PROD_AUDIT_MLDSA65_KEY_ID:?required}"
             )
@@ -305,27 +403,40 @@ def render(source: Path) -> dict:
             environment["ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION"] = (
                 "${ATHENA_PROD_AUDIT_MLDSA65_HARDWARE_PROTECTION:?required}"
             )
-            environment["ATHENA_AGENT_MLDSA65_KEY_ID"] = (
-                "${ATHENA_PROD_AGENT_MLDSA65_KEY_ID:?required}"
-            )
-            environment["ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE"] = (
-                "/run/secrets/agent-mldsa65-private.pem"
-            )
-            environment["ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE"] = (
-                "/run/secrets/agent-mldsa65-public.pem"
-            )
             service.setdefault("volumes", []).extend(
                 [
                     "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-private.pem:/run/secrets/audit-mldsa65-private.pem:ro",
                     "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/audit-mldsa65-public.pem:/run/secrets/audit-mldsa65-public.pem:ro",
-                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-private.pem:/run/secrets/agent-mldsa65-private.pem:ro",
-                    "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-public.pem:/run/secrets/agent-mldsa65-public.pem:ro",
                 ]
             )
+            if name in {"anything-llm-api", "anything-llm-background-worker"}:
+                # Only Agent-executing roles receive the separate Agent
+                # signing key. Identity does not need or receive it.
+                environment["ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED"] = "true"
+                environment["ATHENA_AGENT_MLDSA65_KEY_ID"] = (
+                    "${ATHENA_PROD_AGENT_MLDSA65_KEY_ID:?required}"
+                )
+                environment["ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE"] = (
+                    "/run/secrets/agent-mldsa65-private.pem"
+                )
+                environment["ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE"] = (
+                    "/run/secrets/agent-mldsa65-public.pem"
+                )
+                service["volumes"].extend(
+                    [
+                        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-private.pem:/run/secrets/agent-mldsa65-private.pem:ro",
+                        "${ATHENA_PROD_SECRETS_DIR:?required}/runtime-secrets/agent-mldsa65-public.pem:/run/secrets/agent-mldsa65-public.pem:ro",
+                    ]
+                )
             service["volumes"] = list(dict.fromkeys(service["volumes"]))
 
         if name == "anything-llm-api":
             environment["ATHENA_IOS_HIGH_RISK_PQ_REQUIRED"] = "true"
+
+        if name == "anything-llm-operations-plane":
+            environment["ATHENA_EXPECTED_MODULE_STATES"] = (
+                "${ATHENA_PROD_EXPECTED_MODULE_STATES:-crypto-forecast=maintenance}"
+            )
 
         if name in {"anything-llm-chat-runtime", "anything-llm-agent-runtime"}:
             service["volumes"] = [
@@ -537,6 +648,8 @@ def render(source: Path) -> dict:
         "mem_limit": "256m",
         "networks": ["production"],
     }
+
+    assert_document_pipeline_storage_contract(services)
 
     return {
         "name": "athena-production-micro",

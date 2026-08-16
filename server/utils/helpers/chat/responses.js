@@ -366,6 +366,11 @@ function writeResponseChunk(response, data) {
     );
   }
   response.write(`data: ${safeJSONStringify(data)}\n\n`);
+  // SSE frames are part of the visible response hot path. Explicitly flush
+  // compression/proxy buffers when supported so a small tail of tokens cannot
+  // remain buffered until persistence or socket close. Detached runtime sinks
+  // intentionally do not implement `flush`, so this is a no-op for them.
+  response.flush?.();
   return;
 }
 

@@ -1,0 +1,15 @@
+ARG BASE_IMAGE=anythingllm-v2-anythingllm:v2.5.66-operations-lifecycle-contract
+FROM ${BASE_IMAGE}
+
+USER root
+
+COPY --chown=1000:1000 server/modules/crypto/httpHubHandlers.js /app/server/modules/crypto/httpHubHandlers.js
+
+RUN node -c /app/server/modules/crypto/httpHubHandlers.js
+
+LABEL athena.release.id="v2.6.2" \
+      athena.release.scope="crypto-private-account-scope" \
+      athena.release.commit="6b21cf851" \
+      athena.release.contract="athena-aicp-manifest-v1.1"
+
+USER 1000:1000

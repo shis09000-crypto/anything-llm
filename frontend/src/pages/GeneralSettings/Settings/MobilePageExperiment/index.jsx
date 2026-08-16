@@ -52,14 +52,18 @@ import {
   messageWithinSubmittedWindow,
 } from "@/utils/chat/mobilePendingIdentity";
 import { createTurnId } from "@/utils/chat/turns";
+import {
+  agentProgressPhaseLabel,
+  formatAgentElapsed,
+  projectAgentProgress,
+} from "@/utils/chat/agentProgressProjection";
 import { mergeMobileMessagesWithDraft } from "@/utils/chat/mobileMessageMerge";
 import { sortThreadsForDisplay } from "@/utils/workspaceThreads";
 import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
 import { useWorkspaceSyncEvents } from "@/hooks/useWorkspaceSyncEvents";
 import usePfp from "@/hooks/usePfp";
 import useTimeoutProgress from "@/hooks/useTimeoutProgress";
-import DOMPurify from "@/utils/chat/purify";
-import renderMarkdown from "@/utils/chat/markdown";
+import StreamingMarkdown from "@/components/Markdown/StreamingMarkdown";
 import { displayPrompt } from "@/utils/chat/displayPrompt";
 import {
   MOBILE_PWA_HISTORY_HYDRATE_MARKER,
@@ -6557,8 +6561,20 @@ function MobileSurveyIconButton({
 function MobileAgentTimelineSummary({
   timeline = [],
   clarifyingQuestions = [],
+  isRunning = false,
   className = "mb-3",
 }) {
+  const { t } = useTranslation();
+  const [clock, setClock] = useState(0);
+  const progress = useMemo(
+    () => projectAgentProgress(mobileTimelineEvents(timeline), clock),
+    [clock, timeline]
+  );
+  useEffect(() => {
+    if (!isRunning || !progress) return undefined;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning, progress]);
   const rows = useMemo(() => {
     const events = mobileTimelineEvents(timeline);
     const toolNames = [
@@ -6581,25 +6597,52 @@ function MobileAgentTimelineSummary({
       events.some((event) => event?.type === "clarification_request") ||
       arrayPayload(clarifyingQuestions).length > 0;
 
+    const progressRow = progress
+      ? {
+          key: "agent-progress",
+          label:
+            isRunning && !progress.terminal
+              ? t("chat_window.toolTimeline.progress.runningSummary", {
+                  phase: agentProgressPhaseLabel(progress.current?.phase, t),
+                  count: progress.completedCount,
+                  elapsed: formatAgentElapsed(progress.elapsedMs),
+                  stillWorking:
+                    progress.stagnantMs >= 10_000
+                      ? t("chat_window.toolTimeline.progress.stillWorking")
+                      : "",
+                })
+              : t("chat_window.toolTimeline.progress.completedSummary", {
+                  count: progress.completedCount,
+                  evidence: progress.evidenceCount,
+                  elapsed: formatAgentElapsed(progress.elapsedMs),
+                }),
+        }
+      : null;
+
     return [
+      ...(progressRow ? [progressRow] : []),
       ...toolNames.map((name) => ({
         key: `tool:${name}`,
-        label: `已调用 ${name}`,
+        label: t("chat_window.toolTimeline.progress.toolDetail", {
+          tool: name,
+        }),
       })),
       ...approvalNames.map((name) => ({
         key: `approval:${name}`,
-        label: `曾请求批准 ${name}`,
+        label: t("chat_window.toolTimeline.progress.approvalDetail", {
+          tool: name,
+        }),
       })),
       ...(hasClarification
         ? [
             {
               key: "clarification",
-              label: "已收集补充选择",
+              label: t("chat_window.toolTimeline.progress.clarificationDetail"),
             },
           ]
         : []),
     ].slice(0, 4);
-  }, [timeline, clarifyingQuestions]);
+  }, [clarifyingQuestions, isRunning, progress, t, timeline]);
 
   if (!rows.length) return null;
 
@@ -6709,13 +6752,6 @@ function MessageBubble({
   const hasText = !!message.text?.trim();
   const isStreamingAssistant =
     !isUser && (message.status === "running" || !!runtimeActivity);
-  const renderedAssistant = useMemo(
-    () =>
-      isUser || isStreamingAssistant
-        ? null
-        : DOMPurify.sanitize(renderMarkdown(message.text || "")),
-    [isStreamingAssistant, isUser, message.text]
-  );
   const userMessageChars = useMemo(
     () => Array.from(message.text || ""),
     [message.text]
@@ -6749,20 +6785,17 @@ function MessageBubble({
             <MobileAgentTimelineSummary
               timeline={message.timeline}
               clarifyingQuestions={message.clarifyingQuestions}
+              isRunning={isStreamingAssistant}
               className={hasAssistantText ? "mb-3" : "mb-1"}
             />
           )}
-          {hasAssistantText &&
-            (isStreamingAssistant ? (
-              <div className="whitespace-pre-wrap break-words text-[17px] font-normal leading-[1.72] text-slate-900">
-                {message.text}
-              </div>
-            ) : (
-              <div
-                className="mobile-experiment-markdown markdown text-[17px] font-normal leading-[1.72] text-slate-900 [&_*]:!text-slate-900 [&_a]:!text-sky-700 [&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:!text-slate-800 [&_h1]:!text-[22px] [&_h2]:!text-[20px] [&_h3]:!text-[18px] [&_li::marker]:!text-slate-500 [&_strong]:!font-black [&_table]:!text-sm"
-                dangerouslySetInnerHTML={{ __html: renderedAssistant }}
-              />
-            ))}
+          {hasAssistantText && (
+            <StreamingMarkdown
+              content={message.text}
+              isStreaming={isStreamingAssistant}
+              className="mobile-experiment-markdown markdown break-words text-[17px] font-normal leading-[1.72] text-slate-900 [&_*]:!text-slate-900 [&_a]:!text-sky-700 [&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:!text-slate-800 [&_h1]:!text-[22px] [&_h2]:!text-[20px] [&_h3]:!text-[18px] [&_li::marker]:!text-slate-500 [&_strong]:!font-black [&_table]:!text-sm"
+            />
+          )}
           {hasRuntimeActivity && (
             <MobileAgentActivityText
               key={runtimeActivity.key}

@@ -9,6 +9,8 @@ const mockNonceDeleteMany = jest.fn();
 const mockUpsert = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockLogEvent = jest.fn();
+const mockRemoteIdentityOperationsEnabled = jest.fn(() => false);
+const mockVerifyRequestSigningViaIdentity = jest.fn();
 const routeCases = require("../../scripts/request-signing-route-cases.json");
 
 jest.mock("../../utils/prisma", () => ({
@@ -41,6 +43,13 @@ jest.mock("../../models/eventLogs", () => ({
   },
 }));
 
+jest.mock("../../utils/authz/identityOperationsClient", () => ({
+  remoteIdentityOperationsEnabled: (...args) =>
+    mockRemoteIdentityOperationsEnabled(...args),
+  verifyRequestSigningViaIdentity: (...args) =>
+    mockVerifyRequestSigningViaIdentity(...args),
+}));
+
 const {
   CLIENT_IDENTITY_REAUTH_RECOVERY,
   CLIENT_REVOKED_ERROR,
@@ -56,6 +65,7 @@ const {
   rotateAllSigningSecrets,
   rotateSigningSecret,
   sha256Base64Url,
+  verifyDeviceSignature,
   verifySignedRequest,
   verifySignedWebSocketMessage,
   _hybridInternals,
@@ -185,14 +195,17 @@ function deviceSignedHeaders({
 }
 
 describe("request signing", () => {
+  test("exports the device signature verifier for identity recovery", () => {
+    expect(typeof verifyDeviceSignature).toBe("function");
+  });
+
   const originalNodeEnv = process.env.NODE_ENV;
   const originalWarnOnly = process.env.ATHENA_SIGNING_WARN_ONLY;
   const originalRequireSigned = process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
   const originalDeviceRequired = process.env.REQUEST_SIGNING_DEVICE_REQUIRED;
   const originalHmacCompat = process.env.REQUEST_SIGNING_HMAC_COMPAT;
   const originalAttestationMode = process.env.ATHENA_DEVICE_ATTESTATION_MODE;
-  const originalIOSPQRequired =
-    process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
+  const originalIOSPQRequired = process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -210,6 +223,11 @@ describe("request signing", () => {
     mockNonceCreate.mockResolvedValue({ id: 1 });
     mockNonceDeleteMany.mockResolvedValue({ count: 0 });
     mockLogEvent.mockResolvedValue({ eventLog: { id: 1 }, message: null });
+    mockRemoteIdentityOperationsEnabled.mockReturnValue(false);
+    mockVerifyRequestSigningViaIdentity.mockResolvedValue({
+      success: true,
+      result: { ok: true, requestId: "req_1" },
+    });
     process.env.NODE_ENV = "test";
     delete process.env.ATHENA_SIGNING_WARN_ONLY;
     delete process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
@@ -238,9 +256,7 @@ describe("request signing", () => {
     else process.env.ATHENA_DEVICE_ATTESTATION_MODE = originalAttestationMode;
     if (originalIOSPQRequired === undefined)
       delete process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
-    else
-      process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED =
-        originalIOSPQRequired;
+    else process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED = originalIOSPQRequired;
   });
 
   test("requires device attestation only for iOS high-risk routes after bootstrap", () => {
@@ -342,6 +358,37 @@ describe("request signing", () => {
       signatureVersion: SIGNATURE_VERSION,
     });
     expect(mockNonceCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("delegates high-risk verification to Identity without claiming a local nonce", async () => {
+    mockRemoteIdentityOperationsEnabled.mockReturnValue(true);
+    const body = JSON.stringify({ requestId: "approval-1", approved: true });
+    const request = requestDouble({
+      body,
+      headers: signedHeaders({ body }),
+    });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+    const next = jest.fn();
+
+    await requireSignedHighRiskRequest(request, response, next);
+
+    expect(mockVerifyRequestSigningViaIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request,
+        descriptor: expect.objectContaining({
+          method: "POST",
+          canonicalPath: "/api/workspace/demo/tool-approval",
+          bodySha256: sha256Base64Url(body),
+          signed: expect.objectContaining({ clientId: "client_abc" }),
+        }),
+      })
+    );
+    expect(mockNonceCreate).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalled();
   });
 
   it("accepts a device public-key signed request and binds the public key once", async () => {
@@ -858,6 +905,59 @@ describe("request signing", () => {
     });
   });
 
+  it("delegates websocket verification to Identity without claiming a local nonce", async () => {
+    mockRemoteIdentityOperationsEnabled.mockReturnValue(true);
+    const payload = { type: "awaitingFeedback", feedback: "/exit" };
+    const body = JSON.stringify(payload);
+    const path = "/api/agent-invocation/uuid";
+    const headers = signedHeaders({
+      method: "WS",
+      path,
+      body,
+      nonce: "ws_remote_identity",
+    });
+    const request = requestDouble({ method: "GET", path, body: "", headers });
+    request.realtimePrincipal = {
+      claims: { id: 10, sid: "session-1", clientId: "client_abc" },
+    };
+
+    await expect(
+      verifySignedWebSocketMessage(
+        request,
+        JSON.stringify({
+          type: "athenaSignedMessage",
+          signatureVersion: SIGNATURE_VERSION,
+          signed: {
+            clientId: headers["X-Athena-Client-Id"],
+            requestId: headers["X-Athena-Request-Id"],
+            timestamp: headers["X-Athena-Timestamp"],
+            nonce: headers["X-Athena-Nonce"],
+            bodySha256: headers["X-Athena-Body-SHA256"],
+            signature: headers["X-Athena-Signature"],
+          },
+          payload,
+        })
+      )
+    ).resolves.toMatchObject({ ok: true, payload, rawMessage: body });
+
+    expect(mockVerifyRequestSigningViaIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request,
+        claims: request.realtimePrincipal.claims,
+        descriptor: expect.objectContaining({
+          method: "WS",
+          canonicalPath: path,
+          bodySha256: sha256Base64Url(body),
+          signed: expect.objectContaining({
+            clientId: "client_abc",
+            nonce: "ws_remote_identity",
+          }),
+        }),
+      })
+    );
+    expect(mockNonceCreate).not.toHaveBeenCalled();
+  });
+
   it("verifies websocket envelopes against stable path when connection has query params", async () => {
     const payload = {
       type: "clarificationResponse",
@@ -971,8 +1071,7 @@ describe("request signing", () => {
           method: "GET",
           originalPath:
             "/gateway/internal/realtime/broadcast/.websocket?opaque=1",
-          routerPath:
-            "/realtime/broadcast/.websocket?realtimeTicket=ignored",
+          routerPath: "/realtime/broadcast/.websocket?realtimeTicket=ignored",
           headers,
         }),
         message

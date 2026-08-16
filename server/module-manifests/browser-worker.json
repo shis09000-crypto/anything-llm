@@ -3,7 +3,7 @@
   "schemaVersion": "1.1",
   "id": "browser-worker",
   "name": "Browser Worker Service",
-  "version": "1.0.0",
+  "version": "2.6.14",
   "kind": "worker",
   "owner": "browser-platform",
   "criticality": "medium",
@@ -27,6 +27,103 @@
     "internal": [
       "/internal/v1/browser/sessions",
       "/internal/v1/browser/profiles"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/describe",
+        "capability": "module.describe"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/self-test",
+        "capability": "module.self-test"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/lifecycle",
+        "capability": "module.lifecycle.query"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/drain",
+        "capability": "module.drain"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/quiesce",
+        "capability": "module.quiesce"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/resume",
+        "capability": "module.resume"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/stream-ticket",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/actions",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/tabs",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/browser/sessions/:sessionId/tabs/:tabId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId/cookies",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/risk-inspection",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/browser/sessions/:sessionId/downloads/:downloadId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/browser/sessions/:sessionId/downloads/:downloadId",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/cookies/clear",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/browser/sessions/:sessionId/close",
+        "capability": "browser.worker"
+      },
+      {
+        "method": "DELETE",
+        "path": "/internal/v1/browser/profiles/:profileId",
+        "capability": "browser.worker"
+      }
     ]
   },
   "rpc": {

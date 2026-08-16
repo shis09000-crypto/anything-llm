@@ -15,6 +15,7 @@ import type {
   TradingPairMarketType,
 } from "./tradingPairDetailTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import AutoFitNumericText from "./AutoFitNumericText";
 
 const statusMeta: Record<
   TradingPairConnectionStatus,
@@ -184,14 +185,15 @@ function DetailRow({
           </div>
         ) : null}
       </div>
-      <div
+      <AutoFitNumericText
+        containerClassName="w-full text-right"
         className={[
-          "min-w-0 truncate text-right font-mono font-black text-[#F8FAFC]",
+          "font-mono font-black text-[#F8FAFC]",
           compact ? "text-xl" : "text-3xl",
         ].join(" ")}
       >
         {value}
-      </div>
+      </AutoFitNumericText>
     </div>
   );
 }
@@ -466,9 +468,10 @@ export default function TradingPairDetailCard({
                 <Info size={20} className="text-[#71717A]" />
               ) : null}
             </div>
-            <div
+            <AutoFitNumericText
+              containerClassName="mt-4 w-full"
               className={[
-                "mt-4 truncate font-mono font-black leading-none",
+                "font-mono font-black leading-none",
                 isCompact ? "text-4xl" : "text-7xl",
               ].join(" ")}
               style={{
@@ -482,7 +485,7 @@ export default function TradingPairDetailCard({
               {formatQuoteMoney(holdingValueQuote, quoteAsset, {
                 decimals: valueDecimals,
               })}
-            </div>
+            </AutoFitNumericText>
             <div
               className={[
                 "mt-2 font-semibold text-[#A1A1AA]",

@@ -5,7 +5,7 @@ import test from "node:test";
 
 const storeUrl = new URL("./syncV2StateStore.js", import.meta.url);
 
-async function loadStore() {
+async function loadStore({ workspaces = [], events = [] } = {}) {
   const values = new Map();
   const writes = [];
   globalThis.window = {
@@ -28,14 +28,22 @@ async function loadStore() {
       },
     },
     addEventListener() {},
-    dispatchEvent() {},
+    dispatchEvent(event) {
+      events.push(event);
+    },
   };
-  globalThis.CustomEvent = class CustomEvent {};
+  globalThis.CustomEvent = class CustomEvent {
+    constructor(type, init = {}) {
+      this.type = type;
+      this.detail = init.detail;
+    }
+  };
   globalThis.__syncV2StoreDeps = {
     navigationStore: {
       getWorkspaces() {
-        return [];
+        return workspaces;
       },
+      markWorkspaceDetailStale() {},
     },
     navigationCache: {},
     threadHistoryCache: {},
@@ -92,4 +100,42 @@ test("batch node application persists the descriptor map once", async () => {
   assert.equal(writes.filter((key) => key.endsWith(":descriptors")).length, 1);
   assert.equal(Object.keys(store.descriptors()).length, 200);
   assert.equal(store.diagnostics().sync_descriptor_commits, 1);
+});
+
+test("document sync marks workspace detail stale without hard invalidation", async () => {
+  const events = [];
+  let stale = null;
+  let invalidations = 0;
+  const workspaces = [{ id: 9, slug: "alpha", threads: [] }];
+  const { store } = await loadStore({ workspaces, events });
+  globalThis.__syncV2StoreDeps.navigationStore.markWorkspaceDetailStale = (
+    slug,
+    reason
+  ) => {
+    stale = { slug, reason };
+  };
+  globalThis.__syncV2StoreDeps.navigationStore.invalidateWorkspaceDetail =
+    () => {
+      invalidations += 1;
+    };
+
+  await store.applyNode({
+    descriptor: {
+      nodeKey: "workspaces/9/documents",
+      stateVersion: 2,
+      hash: "documents-v2",
+    },
+    payload: { changed: true },
+  });
+
+  assert.deepEqual(stale, {
+    slug: "alpha",
+    reason: "sync-v2-workspace-documents",
+  });
+  assert.equal(invalidations, 0);
+  assert.equal(
+    events.at(-1)?.type,
+    "athena-sync-v2-workspace-documents-refresh"
+  );
+  assert.equal(events.at(-1)?.detail?.workspaceSlug, "alpha");
 });

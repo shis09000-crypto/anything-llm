@@ -37,6 +37,7 @@ import type {
 } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/tradingPairDetailTypes";
 import { markCryptoCenterPerf } from "./perf";
 import { cryptoSectionScrollEnabled } from "./sectionScrollRuntime";
+import { resolvePrivateConnectionStatus } from "./cryptoPrivateConnectionStatus";
 
 const AssetAllocationDonutCard = React.lazy(
   () =>
@@ -1821,8 +1822,13 @@ function buildSpotDetailParams({
     connectionStatus: real
       ? response?.connectionStatus || "connected"
       : error
-        ? "degraded"
-        : "degraded",
+        ? null
+        : timestampFromTime(currentTime),
+    connectionStatus: resolvePrivateConnectionStatus({
+      hasTrustedData: real,
+      requestError: error,
+      upstreamStatus: response?.connectionStatus,
+    }),
     ...visual,
   };
 }

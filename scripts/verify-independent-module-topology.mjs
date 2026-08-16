@@ -164,6 +164,22 @@ function writableNamedVolumeMounts(service = {}) {
     );
 }
 
+function approvedDocumentPipelineHandoff({ mount, consumers }) {
+  const approvedConsumers = [
+    "anything-llm-collector",
+    "anything-llm-knowledge-ingest",
+  ];
+  if (
+    consumers.length !== approvedConsumers.length ||
+    consumers.some((consumer, index) => consumer !== approvedConsumers[index])
+  )
+    return false;
+  return [
+    "/app/server/storage/production/documents",
+    "/app/server/storage/production/direct-uploads",
+  ].some((target) => mount.endsWith(`:${target}`));
+}
+
 function main() {
   const manifests = loadManifests();
   const manifestIds = new Set(manifests.map(({ id }) => id));
@@ -185,7 +201,13 @@ function main() {
   const backendRuntimeSourceBuild = read(
     "scripts/production/build-backend-runtime-source.sh"
   );
+  const backendRuntimeSourceDockerfile = read(
+    "docker/Dockerfile.backend-runtime-source"
+  );
   const moduleRollout = read("scripts/production/roll-micro-module.sh");
+  const hostProvisioner = read(
+    "scripts/production/provision-micro-module-host.sh"
+  );
   const databaseRoleInitializer = read("docker/postgresql/init-athena.sh");
   const databaseRoleProvisioner = read(
     "scripts/production/provision-module-database-roles.sh"
@@ -304,6 +326,12 @@ function main() {
       findings.push(`service_identity_mismatch:${manifest.id}`);
     if (!mtlsConfigured(manifest.id, env))
       findings.push(`service_mtls_missing:${manifest.id}`);
+    if (
+      !new RegExp(`\\s${manifest.runtimeRole}(?:\\s|$)`).test(hostProvisioner)
+    )
+      findings.push(`host_provision_role_missing:${manifest.id}`);
+    if (!hostProvisioner.includes(`${manifest.runtimeRole}) printf`))
+      findings.push(`host_provision_dns_missing:${manifest.id}`);
     if (!prometheusIds.has(manifest.id))
       findings.push(`prometheus_target_missing:${manifest.id}`);
     if (
@@ -394,6 +422,13 @@ function main() {
       );
   if (!backendRuntimeSourceBuild.includes("full_rebuild_required"))
     findings.push("runtime_source_dependency_change_not_fail_closed");
+  if (
+    !backendRuntimeSourceDockerfile.includes(
+      "./docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh"
+    ) ||
+    !backendRuntimeSourceBuild.includes("runtime_source_entrypoint_mismatch")
+  )
+    findings.push("runtime_source_entrypoint_not_refreshed");
   for (const role of [
     "athena_main_observer",
     "athena_auth_observer",
@@ -550,8 +585,21 @@ function main() {
   ]
     .filter(([, consumers]) => consumers.length > 1)
     .map(([mount, consumers]) => ({ mount, consumers: consumers.sort() }));
-  if (productionSharedWritableStorageConsumers.length)
+  const unapprovedProductionSharedWritableStorageConsumers =
+    productionSharedWritableStorageConsumers.filter(
+      (entry) => !approvedDocumentPipelineHandoff(entry)
+    );
+  if (unapprovedProductionSharedWritableStorageConsumers.length)
     findings.push("production_shared_writable_storage_detected");
+
+  if (
+    !read("docker/nginx-web.conf.template").includes(
+      "upload|upload-link|upload-and-embed|update-embeddings"
+    )
+  )
+    findings.push("knowledge_ingest_upload_and_embed_route_missing");
+  if (!read("server/knowledge-ingest.js").includes("upload-and-embed"))
+    findings.push("knowledge_ingest_upload_and_embed_scope_missing");
 
   const summary = {
     version: "athena.independent-module-topology:v1",
@@ -596,6 +644,7 @@ function main() {
     dataIsolation: {
       sharedWritableStorageConsumers,
       productionSharedWritableStorageConsumers,
+      unapprovedProductionSharedWritableStorageConsumers,
       independentRuntimeStorage:
         sharedWritableStorageConsumers.length === 0 && sharedStorageCutover,
       optionalStartupCouplings,

@@ -3595,7 +3595,7 @@ function systemEndpoints(app) {
           payload: {
             namespace,
             scope: scope || "global",
-            deletedCount: deleted.count,
+            deletedCount,
           },
           audience: requiresAppleNativeAudience(namespace)
             ? ["ios", "ipad"]
@@ -3604,9 +3604,7 @@ function systemEndpoints(app) {
             scope || "global"
           }`,
         });
-        response
-          .status(200)
-          .json({ success: true, deletedCount: deleted.count });
+        response.status(200).json({ success: true, deletedCount });
       } catch (e) {
         console.error(e);
         if (e?.code === "state_version_conflict") {

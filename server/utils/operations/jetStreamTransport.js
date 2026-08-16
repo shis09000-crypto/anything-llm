@@ -17,6 +17,10 @@ const {
 const { metrics } = require("../observability/metrics");
 const { operationsConfig } = require("./config");
 const { validateRegistered } = require("./schemaRegistry");
+const {
+  AICP_EVENT_SCHEMA,
+  validateAicpEvent,
+} = require("../modulePlatform/eventEnvelope");
 
 const codec = JSONCodec();
 const MAX_TIMELINE_SCAN = 2_000;
@@ -212,6 +216,10 @@ class OperationsBatchProcessor {
     };
     await this.publishDlq(record);
     message.ack();
+    metrics.aicpEventDelivery.inc({
+      stage: "consume",
+      outcome: "dlq",
+    });
     metrics.operationsDlqEvents.inc({ reason: record.reason });
     metrics.operationsEvents.inc({
       stage: "jetstream_consume",
@@ -229,6 +237,16 @@ class OperationsBatchProcessor {
         reason: "json_decode_failed",
         detail: error?.message || String(error),
       };
+    }
+    if (event?.schema === AICP_EVENT_SCHEMA) {
+      const aicpValidation = validateAicpEvent(event);
+      if (!aicpValidation.valid)
+        return {
+          valid: false,
+          reason: "aicp_contract_validation_failed",
+          detail: aicpValidation.findings.join(","),
+        };
+      event = event.payload;
     }
     const validation = validateRegistered(event);
     if (!validation.valid) {
@@ -268,6 +286,10 @@ class OperationsBatchProcessor {
       if (valid.length) {
         await this.persist(valid.map((entry) => entry.event));
         for (const { message } of valid) message.ack();
+        metrics.aicpEventDelivery.inc(
+          { stage: "consume", outcome: "acked" },
+          valid.length
+        );
         metrics.operationsEvents.inc(
           { stage: "jetstream_consume", outcome: "acked" },
           valid.length

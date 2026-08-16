@@ -6,6 +6,12 @@ import {
 
 export const CHAT_PROTOCOL_VERSION = 1;
 
+export function isVisibleChatTerminalEvent(raw = {}) {
+  if (["abort", "stopGeneration"].includes(raw?.type)) return true;
+  if (raw?.type === "finalizeResponseStream") return true;
+  return raw?.close === true;
+}
+
 function streamEvent(type, raw = {}, payload = {}) {
   return {
     type,
@@ -75,6 +81,19 @@ export function normalizeChatStreamEvent(raw = {}) {
     });
   }
 
+  if (rawType === "agentProgress") {
+    return streamEvent("status", raw, {
+      event: {
+        type: "agent_progress",
+        uuid: raw.uuid,
+        phase: raw.phase,
+        status: raw.status,
+        sequence: raw.sequence,
+        details: raw.details || {},
+      },
+    });
+  }
+
   if (rawType === "streamReconnectState") {
     return streamEvent("connection_status", raw, {
       state: raw.state === "connected" ? "connected" : "reconnecting",
@@ -133,6 +152,16 @@ export function normalizeChatStreamEvent(raw = {}) {
       chatId: raw.chatId ?? null,
       publicChatId: raw.publicChatId ?? null,
       metrics: raw.metrics || {},
+      persistenceStatus: raw.persistenceStatus || null,
+    });
+  }
+
+  if (rawType === "chatPersistence") {
+    return streamEvent("persistence", raw, {
+      status: raw.status || "pending",
+      chatId: raw.chatId ?? null,
+      publicChatId: raw.publicChatId ?? null,
+      errorCode: raw.errorCode || null,
     });
   }
 
@@ -369,6 +398,19 @@ export function normalizeChatTurnEvent(raw = {}) {
       },
       protocolEvent: normalizedStreamEvent,
     };
+  } else if (type === "agentProgress") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "agent_progress",
+        uuid,
+        phase: raw.phase,
+        status: raw.status,
+        sequence: raw.sequence,
+        details: raw.details || {},
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
   } else if (type === "streamReconnectState") {
     normalized = {
       type: "connection_status",
@@ -482,6 +524,19 @@ export function normalizeChatTurnEvent(raw = {}) {
       chatId,
       publicChatId,
       metrics,
+      persistenceStatus: raw.persistenceStatus || null,
+      closed: !!close,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "chatPersistence") {
+    normalized = {
+      type: "assistant_patch",
+      patch: {
+        persistenceStatus: raw.status || "pending",
+        chatId: raw.chatId ?? null,
+        publicChatId: raw.publicChatId ?? null,
+        persistenceErrorCode: raw.errorCode || null,
+      },
       closed: !!close,
       protocolEvent: normalizedStreamEvent,
     };

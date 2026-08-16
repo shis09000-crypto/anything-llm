@@ -8,6 +8,8 @@ const { storageRoot: environmentStorageRoot } = require("../environment");
 const MAX_PARTIAL_TEXT_PREVIEW_CHARS = 1_000;
 const MAX_EVENT_CONTENT_CHARS = 1_000;
 const MAX_LEDGER_EVENTS = 500;
+const DURABLE_TEXT_CHECKPOINT_MS = 250;
+const DURABLE_TEXT_CHECKPOINT_CHARS = 2_048;
 const ACCOUNT_PRIVATE_SENSITIVITY = "account-private";
 const ACCOUNT_PRIVATE_REDACTION = "[account-private output redacted]";
 const DURABLE_OWNER_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
@@ -15,6 +17,8 @@ const memoryStates = new Map();
 const memoryEvents = new Map();
 const durableChains = new Map();
 const heartbeatTimers = new Map();
+const durableTextBatches = new Map();
+const priorityWrites = new Set();
 
 function distributedLedger() {
   return (
@@ -329,6 +333,88 @@ function enqueueDurable(uuid, operation) {
   durableChains.set(key, next);
 }
 
+function persistDurableRecord(uuid, record, state) {
+  const { DataAccessCenter } = require("../dataAccess");
+  return DataAccessCenter.agentRun.append({
+    invocationId: String(uuid),
+    record,
+    state,
+    ownerId: DURABLE_OWNER_ID,
+  });
+}
+
+function trackPriorityWrite(uuid, operation) {
+  if (!distributedLedger()) return;
+  const key = String(uuid);
+  const write = Promise.resolve()
+    .then(operation)
+    .catch((error) =>
+      console.warn("[agent-session] priority journal deferred", {
+        invocationId: key,
+        code: error?.code || error?.message || "agent_journal_failed",
+      })
+    )
+    .finally(() => priorityWrites.delete(write));
+  priorityWrites.add(write);
+}
+
+function durableText(record) {
+  if (record?.eventType !== "textResponseChunk") return null;
+  const content = record.payload?.content;
+  if (!content || typeof content !== "object") return null;
+  return String(content.content || content.textResponse || "");
+}
+
+function mergeDurableTextRecords(previous, next) {
+  if (!previous) return next;
+  const text = `${durableText(previous) || ""}${durableText(next) || ""}`;
+  return {
+    ...next,
+    payload: {
+      ...next.payload,
+      seq: next.seq,
+      content: {
+        ...(previous.payload?.content || {}),
+        ...(next.payload?.content || {}),
+        seq: next.seq,
+        content: text,
+        textResponse: text,
+      },
+    },
+  };
+}
+
+function flushDurableTextBatch(uuid) {
+  const key = String(uuid);
+  const batch = durableTextBatches.get(key);
+  if (!batch) return;
+  if (batch.timer) clearTimeout(batch.timer);
+  durableTextBatches.delete(key);
+  enqueueDurable(key, () =>
+    persistDurableRecord(key, batch.record, batch.state)
+  );
+}
+
+function bufferDurableTextRecord(uuid, record, state) {
+  const key = String(uuid);
+  const current = durableTextBatches.get(key);
+  const next = {
+    record: mergeDurableTextRecords(current?.record, record),
+    state,
+    timer: current?.timer || null,
+  };
+  if (!next.timer) {
+    next.timer = setTimeout(
+      () => flushDurableTextBatch(key),
+      DURABLE_TEXT_CHECKPOINT_MS
+    );
+    next.timer.unref?.();
+  }
+  durableTextBatches.set(key, next);
+  if ((durableText(next.record) || "").length >= DURABLE_TEXT_CHECKPOINT_CHARS)
+    flushDurableTextBatch(key);
+}
+
 function recordAgentSessionEvent(uuid, rawPayload = {}) {
   if (!uuid || !rawPayload || typeof rawPayload !== "object") return null;
   ensureSessionDir(uuid);
@@ -374,15 +460,23 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
     fs.appendFileSync(eventsPath(uuid), `${JSON.stringify(record)}\n`, "utf8");
   }
   const nextState = updateStateFromEvent(uuid, record);
-  enqueueDurable(uuid, async () => {
-    const { DataAccessCenter } = require("../dataAccess");
-    await DataAccessCenter.agentRun.append({
-      invocationId: String(uuid),
-      record,
-      state: nextState,
-      ownerId: DURABLE_OWNER_ID,
-    });
-  });
+  if (distributedLedger()) {
+    if (record.eventType === "textResponseChunk") {
+      bufferDurableTextRecord(uuid, record, nextState);
+    } else {
+      flushDurableTextBatch(uuid);
+      if (nextState.terminal) {
+        stopAgentRunHeartbeat(uuid);
+        trackPriorityWrite(uuid, () =>
+          persistDurableRecord(uuid, record, nextState)
+        );
+      } else {
+        enqueueDurable(uuid, () =>
+          persistDurableRecord(uuid, record, nextState)
+        );
+      }
+    }
+  }
 
   if (!distributedLedger() && seq > MAX_LEDGER_EVENTS && seq % 100 === 0) {
     const events = readEvents(uuid);
@@ -485,14 +579,23 @@ function markAgentSessionState(uuid, patch = {}) {
     updatedAt: Date.now(),
   };
   writeSessionState(uuid, next);
-  enqueueDurable(uuid, async () => {
-    const { DataAccessCenter } = require("../dataAccess");
-    await DataAccessCenter.agentRun.updateState(
-      String(uuid),
-      next,
-      DURABLE_OWNER_ID
-    );
-  });
+  if (distributedLedger()) {
+    flushDurableTextBatch(uuid);
+    const persist = async () => {
+      const { DataAccessCenter } = require("../dataAccess");
+      await DataAccessCenter.agentRun.updateState(
+        String(uuid),
+        next,
+        DURABLE_OWNER_ID
+      );
+    };
+    if (next.terminal) {
+      stopAgentRunHeartbeat(uuid);
+      trackPriorityWrite(uuid, persist);
+    } else {
+      enqueueDurable(uuid, persist);
+    }
+  }
   return next;
 }
 
@@ -633,9 +736,14 @@ function stopAgentRunHeartbeat(uuid) {
 async function drainAgentSessionJournal() {
   for (const timer of heartbeatTimers.values()) clearInterval(timer);
   heartbeatTimers.clear();
-  await Promise.allSettled([...durableChains.values()]);
+  for (const uuid of [...durableTextBatches.keys()])
+    flushDurableTextBatch(uuid);
+  await Promise.allSettled([
+    ...durableChains.values(),
+    ...priorityWrites.values(),
+  ]);
   return {
-    pendingWrites: durableChains.size,
+    pendingWrites: durableChains.size + priorityWrites.size,
     activeHeartbeats: heartbeatTimers.size,
   };
 }
@@ -652,4 +760,8 @@ module.exports = {
   seedAgentSessionState,
   startAgentRunHeartbeat,
   stopAgentRunHeartbeat,
+  _internals: {
+    durableText,
+    mergeDurableTextRecords,
+  },
 };

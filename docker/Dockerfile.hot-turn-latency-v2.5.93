@@ -1,0 +1,21 @@
+ARG BASE_IMAGE=anythingllm-v2-anythingllm:v2.5.92-login-device-key-repair
+FROM ${BASE_IMAGE}
+
+USER root
+
+# The candidate intentionally overlays the complete server source so every
+# runtime observes the same AICP manifests and contract implementation.
+COPY --chown=1000:1000 server/ /app/server/
+
+RUN node -c /app/server/chat-runtime.js \
+  && node -c /app/server/utils/chats/stream.js \
+  && node -c /app/server/utils/chats/hotTurnBuffer.js \
+  && node -c /app/server/utils/responsesRuntime/runtime.js \
+  && node -c /app/server/utils/responsesRuntime/agentAdapter.js
+
+LABEL athena.release.id="hot-turn-latency-v2.5.93" \
+      athena.release.scope="foreground-hot-turn-and-time-authority" \
+      athena.release.commit="cdc65dfaa" \
+      athena.release.contract="athena-aicp-manifest-v1.1"
+
+USER 1000:1000

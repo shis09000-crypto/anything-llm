@@ -23,6 +23,7 @@ import { broadcastSubscriptionManager } from "./broadcastSubscriptionManager";
 import { syncV2Runtime } from "@/utils/syncV2/syncV2Runtime";
 import { syncV2Client } from "../syncV2Client";
 import { issueRealtimeTicket } from "../realtimeTicketClient";
+import { recordClientUiObservation } from "../clientUiObservability";
 
 const RECONNECT_BASE_MS = 800;
 const RECONNECT_MAX_MS = 8_000;
@@ -204,8 +205,18 @@ async function handleMessage(socket, raw, onEvent) {
     return;
   }
   if (message.type === "broadcast.replayEnd") {
-    state.counters.replayed += Number(message.count || 0);
-    rememberRecent({ type: "replay-end", count: message.count || 0 });
+    const replayCount = Number(message.count || 0);
+    state.counters.replayed += replayCount;
+    rememberRecent({ type: "replay-end", count: replayCount });
+    if (replayCount > 0) {
+      recordClientUiObservation({
+        event: "broadcast_incremental_replay",
+        surface: "realtime_sync",
+        outcome: "recovered",
+        reason: "cursor_replay",
+        retryCount: replayCount,
+      });
+    }
     return;
   }
   if (message.type === "broadcast.ready") {

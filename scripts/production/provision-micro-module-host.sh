@@ -49,6 +49,19 @@ install -d -m 0700 "${state_dir}" "${secrets_dir}" "${runtime_secret_dir}" \
   "${state_dir}/postgresql" "${state_dir}/minio" "${state_dir}/web" \
   "${browser_egress_state_dir}" "${browser_egress_secret_dir}"
 
+# The parent storage mount remains read-only in split runtimes. Prepare the
+# narrowly scoped document-pipeline bind sources before Compose evaluates the
+# nested writable mounts.
+runtime_uid="${ATHENA_PROD_RUNTIME_UID:-1000}"
+runtime_gid="${ATHENA_PROD_RUNTIME_GID:-1000}"
+for storage_domain in \
+  documents direct-uploads embedding-batches vector-cache lancedb tmp; do
+  install -d -m 0755 -o "${runtime_uid}" -g "${runtime_gid}" \
+    "/data/anythingllm/storage/production/${storage_domain}"
+done
+install -d -m 0755 -o "${runtime_uid}" -g "${runtime_gid}" \
+  /data/anythingllm/collector/hotdir /data/anythingllm/collector/outputs
+
 read_env() {
   local name="$1"
   awk -v key="${name}" '
@@ -301,6 +314,7 @@ module_image_variables=(
   ATHENA_PROD_CHAT_RUNTIME_IMAGE
   ATHENA_PROD_AGENT_RUNTIME_IMAGE
   ATHENA_PROD_MODEL_GATEWAY_IMAGE
+  ATHENA_PROD_RESPONSES_RUNTIME_IMAGE
   ATHENA_PROD_TOOL_BROKER_IMAGE
   ATHENA_PROD_CRYPTO_MARKET_IMAGE
   ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE

@@ -4,6 +4,7 @@ const {
   requestInternalStream,
 } = require("../microModules");
 const { gatewayEnabled } = require("./remoteProvider");
+const { readAicpNdjson } = require("../modulePlatform/aicp");
 
 function sanitizedFunctions(functions = []) {
   return functions.slice(0, 256).map((fn) => ({
@@ -28,12 +29,10 @@ function agentGatewayEnabled(env = process.env) {
 }
 
 async function consumeAgentStream(response, eventHandler = null) {
-  let buffered = "";
   let result = null;
   let usage = null;
-  const processLine = (line) => {
-    if (!line) return;
-    const parsed = JSON.parse(line);
+  const processValue = (parsed) => {
+    if (!parsed) return;
     if (parsed.event)
       eventHandler?.(parsed.event.type, parsed.event.data || {});
     if (Object.prototype.hasOwnProperty.call(parsed, "result"))
@@ -45,16 +44,8 @@ async function consumeAgentStream(response, eventHandler = null) {
       throw error;
     }
   };
-  for await (const raw of response) {
-    buffered += raw.toString("utf8");
-    let newline = buffered.indexOf("\n");
-    while (newline >= 0) {
-      processLine(buffered.slice(0, newline).trim());
-      buffered = buffered.slice(newline + 1);
-      newline = buffered.indexOf("\n");
-    }
-  }
-  processLine(buffered.trim());
+  for await (const { payload } of readAicpNdjson(response))
+    processValue(payload);
   if (result === null) {
     const error = new Error("model_gateway_agent_result_missing");
     error.code = "model_gateway_agent_result_missing";
@@ -91,6 +82,9 @@ function createRemoteAgentProvider({
       const body = requestBody(provider, model, messages, functions, options);
       const response = await requestInternalService({
         callerRole: "agent-runtime",
+        targetModule: "model-gateway",
+        capability: "model.agent.complete",
+        contractVersion: "1.0",
         url: `${baseUrl}/internal/v1/models/agent/complete`,
         body,
         idempotencyKey: crypto
@@ -106,6 +100,9 @@ function createRemoteAgentProvider({
     async stream(messages, functions = [], eventHandler = null) {
       const response = await requestInternalStream({
         callerRole: "agent-runtime",
+        targetModule: "model-gateway",
+        capability: "model.agent.stream",
+        contractVersion: "1.0",
         url: `${baseUrl}/internal/v1/models/agent/stream`,
         body: requestBody(provider, model, messages, functions),
         idempotencyKey: crypto.randomUUID(),

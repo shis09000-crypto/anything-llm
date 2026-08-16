@@ -454,13 +454,18 @@ class MicroModuleServiceHost {
     const component = this.readiness?.() || {};
     const componentReady =
       component.ready === undefined ? true : Boolean(component.ready);
+    const enforceContractReadiness =
+      String(this.env.ATHENA_AICP_READINESS_ENFORCEMENT || "false").toLowerCase() ===
+      "true";
+    const contractReady =
+      !enforceContractReadiness || this.contractClosure.valid === true;
     return {
       moduleId: this.manifest.id,
       role: this.role,
       version: this.manifest.version,
       manifestFingerprint: this.manifest.fingerprint,
       status: this.status,
-      ready: this.status === "running" && componentReady,
+      ready: this.status === "running" && componentReady && contractReady,
       inflight: this.inflight,
       startedAt: this.startedAt,
       lastError: this.lastError,
@@ -622,6 +627,7 @@ class MicroModuleServiceHost {
       next();
     });
     this.registerRoutes(this.app, this);
+    this.contractClosure = this.auditContractClosure();
     this.app.use((error, _request, response, _next) => {
       this.lastError = safeError(error);
       response.status(Number(error?.httpStatus) || 500).json({
@@ -629,6 +635,70 @@ class MicroModuleServiceHost {
         error: this.lastError,
       });
     });
+  }
+
+  auditContractClosure() {
+    const findings = [];
+    const provided = new Set(
+      (this.manifest.contracts?.provides || []).map((contract) => contract.id)
+    );
+    const registered = [];
+    for (const layer of this.app._router?.stack || []) {
+      if (!layer.route?.path) continue;
+      const routePath = String(layer.route.path);
+      if (!routePath.startsWith("/internal/")) continue;
+      for (const method of Object.keys(layer.route.methods || {}))
+        if (layer.route.methods[method])
+          registered.push(`${method.toUpperCase()} ${routePath}`);
+    }
+    for (const identity of registered) {
+      const separator = identity.indexOf(" ");
+      const method = identity.slice(0, separator);
+      const routePath = identity.slice(separator + 1);
+      const capability = internalRouteCapability(
+        this.internalRouteCapabilities,
+        method,
+        routePath
+      );
+      if (!capability) findings.push(`route_unbound:${identity}`);
+      else if (!provided.has(capability))
+        findings.push(`route_capability_not_provided:${identity}:${capability}`);
+    }
+    const registeredSet = new Set(registered);
+    for (const binding of this.manifest.routes?.bindings || []) {
+      const identity = `${String(binding.method).toUpperCase()} ${binding.path}`;
+      if (!registeredSet.has(identity))
+        findings.push(`manifest_route_not_registered:${identity}`);
+    }
+    for (const contract of this.manifest.contracts?.consumes || []) {
+      if (!contract.requiredForReadiness) continue;
+      try {
+        new AicpContractRegistry().negotiate({
+          callerModule: this.manifest.id,
+          targetModule: contract.targetModule,
+          capability: contract.id,
+          version: contract.version,
+          callType: contract.callType,
+          protocolVersion: "1.1",
+        });
+      } catch (error) {
+        findings.push(
+          `dependency_contract_incompatible:${contract.id}:${
+            error.code || error.message
+          }`
+        );
+      }
+    }
+    return {
+      valid: findings.length === 0,
+      findings,
+      registeredRoutes: registered.length,
+      manifestRouteBindings: (this.manifest.routes?.bindings || []).length,
+      boundRoutes: registered.length - findings.filter((value) =>
+        value.startsWith("route_")
+      ).length,
+      checkedAt: new Date().toISOString(),
+    };
   }
 
   createServer() {

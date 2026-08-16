@@ -263,10 +263,7 @@ async function queueConversationKeyUserWrap(
   if (!row?.key_id || !row?.wrapped_key || !normalizedScope?.userId) {
     return { queued: false, reason: "user_scope_unavailable" };
   }
-  if (
-    typeof client.users?.findUnique !== "function" ||
-    typeof client.user_domain_key_wraps?.upsert !== "function"
-  ) {
+  if (typeof client.users?.findUnique !== "function") {
     return { queued: false, reason: "user_domain_storage_unavailable" };
   }
   const user = await client.users.findUnique({
@@ -637,9 +634,9 @@ async function rebuildChatCryptoChainFromChatId(
               SELECT "id"
                 FROM "workspace_chats"
                WHERE "workspaceId" = ?
-                 AND "user_id" IS ?
-                 AND "thread_id" IS ?
-                 AND "api_session_id" IS ?
+                 AND ("user_id" = CAST(? AS INTEGER) OR ("user_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("thread_id" = CAST(? AS INTEGER) OR ("thread_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("api_session_id" = CAST(? AS TEXT) OR ("api_session_id" IS NULL AND CAST(? AS TEXT) IS NULL))
                  AND "id" < ?
                ORDER BY "id" DESC
                LIMIT 1
@@ -650,7 +647,10 @@ async function rebuildChatCryptoChainFromChatId(
     normalizedStartChatId,
     scoped.normalized.workspaceId,
     scoped.normalized.userId,
+    scoped.normalized.userId,
     scoped.normalized.threadId,
+    scoped.normalized.threadId,
+    scoped.normalized.apiSessionId,
     scoped.normalized.apiSessionId,
     normalizedStartChatId
   );
@@ -782,9 +782,9 @@ async function appendChatCryptoMetadataForRows(
               SELECT "id"
                 FROM "workspace_chats"
                WHERE "workspaceId" = ?
-                 AND "user_id" IS ?
-                 AND "thread_id" IS ?
-                 AND "api_session_id" IS ?
+                 AND ("user_id" = CAST(? AS INTEGER) OR ("user_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("thread_id" = CAST(? AS INTEGER) OR ("thread_id" IS NULL AND CAST(? AS INTEGER) IS NULL))
+                 AND ("api_session_id" = CAST(? AS TEXT) OR ("api_session_id" IS NULL AND CAST(? AS TEXT) IS NULL))
                  AND "id" < ?
                ORDER BY "id" DESC
                LIMIT 1
@@ -794,7 +794,10 @@ async function appendChatCryptoMetadataForRows(
     expectedScopeHash,
     scoped.normalized.workspaceId,
     scoped.normalized.userId,
+    scoped.normalized.userId,
     scoped.normalized.threadId,
+    scoped.normalized.threadId,
+    scoped.normalized.apiSessionId,
     scoped.normalized.apiSessionId,
     firstId
   );

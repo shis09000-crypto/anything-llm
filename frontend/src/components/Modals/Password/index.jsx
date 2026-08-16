@@ -141,6 +141,28 @@ export function usePasswordModal(notry = false) {
           bootstrap: null,
           reconnecting: false,
         });
+        if (validation.state === SESSION_VALIDATION_STATE.TRANSIENT) {
+          retryTimer = window.setTimeout(() => {
+            System.clearAuthBootstrapCache();
+            void checkAuthReq();
+          }, bootstrap.retryAfterMs || 3_000);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error("[Auth] bootstrap failed", error);
+        const hasLocalSession = Boolean(getAuthToken());
+        setAuth({
+          loading: false,
+          requiresAuth: hasLocalSession ? false : null,
+          mode: "multi",
+          error: hasLocalSession ? null : "登录服务正在恢复，系统会自动重试。",
+          bootstrap: null,
+          reconnecting: true,
+        });
+        retryTimer = window.setTimeout(() => {
+          System.clearAuthBootstrapCache();
+          void checkAuthReq();
+        }, 3_000);
       }
     }
     void checkAuthReq();

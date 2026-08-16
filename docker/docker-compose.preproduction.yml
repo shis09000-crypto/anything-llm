@@ -632,6 +632,7 @@ services:
     environment:
       <<: *authoritative-runtime
       ATHENA_RUNTIME_ROLE: chat-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_SERVICE_ID: spiffe://athena/preproduction/chat-runtime
       ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/chat-runtime.pem
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/chat-runtime.key
@@ -655,6 +656,7 @@ services:
       postgresql: { condition: service_healthy }
       nats: { condition: service_healthy }
       anything-llm-key-custody: { condition: service_healthy }
+      anything-llm-chat-runtime: { condition: service_healthy }
     volumes:
       - ./preproduction.empty.env:/app/server/.env:ro
       - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
@@ -667,6 +669,7 @@ services:
     environment:
       <<: *authoritative-runtime
       ATHENA_RUNTIME_ROLE: agent-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_SERVICE_ID: spiffe://athena/preproduction/agent-runtime
       ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/agent-runtime.pem
       ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/agent-runtime.key
@@ -781,6 +784,43 @@ services:
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/character-performance-runtime.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-character-performance-runtime
       CHARACTER_PERFORMANCE_RUNTIME_PORT: "3042"
+    networks: [anything-llm]
+
+  anything-llm-responses-runtime:
+    profiles: ["core-runtimes"]
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      anything-llm-key-custody: { condition: service_healthy }
+      anything-llm-model-gateway: { condition: service_healthy }
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: responses-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - preprod-storage:/app/server/storage:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: responses-runtime
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/responses-runtime
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/responses-runtime.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/responses-runtime.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/responses-runtime.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-responses-runtime
+      ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      RESPONSES_RUNTIME_PORT: "3034"
     networks: [anything-llm]
 
   anything-llm-tool-broker:
@@ -1093,6 +1133,32 @@ services:
       BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES: "268435456"
       BROWSER_WORKER_PROFILE_ROOT: /tmp/athena-browser-worker
       STORAGE_DIR: /tmp/athena-browser-worker
+    networks: [anything-llm]
+
+  anything-llm-browser-egress:
+    profiles: ["browser-runtimes"]
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    tmpfs:
+      - /tmp/athena-browser-egress:rw,nosuid,nodev,noexec,size=64m,mode=0700,uid=1000,gid=1000
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: browser-egress
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/browser-egress
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/browser-egress.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/browser-egress.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/browser-egress.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-browser-egress
+      BROWSER_EGRESS_PORT: "3033"
+      STORAGE_DIR: /tmp/athena-browser-egress
     networks: [anything-llm]
 
   anything-llm-collector:

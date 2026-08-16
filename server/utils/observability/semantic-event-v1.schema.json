@@ -122,7 +122,23 @@
         "provider": { "type": "string" },
         "model": { "type": "string" },
         "backend": { "type": "string" },
-        "platform": { "type": "string" }
+        "platform": { "type": "string" },
+        "requestedProtocol": { "type": "string" },
+        "effectiveProtocol": { "type": "string" },
+        "degradedReason": { "type": "string" },
+        "cachedTokens": { "type": "string" },
+        "cacheMissTokens": { "type": "string" },
+        "inputTokens": { "type": "string" },
+        "outputTokens": { "type": "string" },
+        "preprocessingMs": { "type": "string" },
+        "providerTtftMs": { "type": "string" },
+        "firstVisibleDeltaMs": { "type": "string" },
+        "providerProjectionMs": { "type": "string" },
+        "persistedEventBatches": { "type": "string" },
+        "keyCustodyWrapCalls": { "type": "string" },
+        "selectedCount": { "type": "string" },
+        "availableCount": { "type": "string" },
+        "responseStatus": { "type": "string" }
       }
     },
     "evidence": {

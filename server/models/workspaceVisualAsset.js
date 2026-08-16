@@ -18,6 +18,22 @@ const { storagePath } = require("../utils/environment");
 const VALID_SCOPES = new Set(["workspace", "node"]);
 const VALID_ROLES = new Set(["hero_background"]);
 const DEFAULT_ROLE = "hero_background";
+const VISUAL_ASSET_ALIAS = "visual_asset";
+const VISUAL_ASSET_ROW_SELECT = `
+  ${VISUAL_ASSET_ALIAS}."id",
+  ${VISUAL_ASSET_ALIAS}."workspaceId",
+  ${VISUAL_ASSET_ALIAS}."scopeType",
+  ${VISUAL_ASSET_ALIAS}."nodeKey",
+  ${VISUAL_ASSET_ALIAS}."nodeLabel",
+  ${VISUAL_ASSET_ALIAS}."nodeType",
+  ${VISUAL_ASSET_ALIAS}."role",
+  ${VISUAL_ASSET_ALIAS}."filename",
+  ${VISUAL_ASSET_ALIAS}."mime",
+  ${VISUAL_ASSET_ALIAS}."size",
+  ${VISUAL_ASSET_ALIAS}."metadataJson",
+  ${VISUAL_ASSET_ALIAS}."deletedAt",
+  CAST(${VISUAL_ASSET_ALIAS}."createdAt" AS TEXT) AS "createdAt",
+  CAST(${VISUAL_ASSET_ALIAS}."updatedAt" AS TEXT) AS "updatedAt"`;
 let tableReady = false;
 
 function assetsRoot() {
@@ -209,13 +225,15 @@ async function currentAsset({
 }) {
   const normalizedScope = normalizeScopeType(scopeType);
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT *, CAST("createdAt" AS TEXT) AS "createdAt",
-      CAST("updatedAt" AS TEXT) AS "updatedAt"
-    FROM "WorkspaceVisualAsset"
-    WHERE "workspaceId" = ? AND "scopeType" = ? AND "role" = ?
-      AND "deletedAt" IS NULL
-      AND COALESCE("nodeKey", '__workspace__') = COALESCE(?, '__workspace__')
-    ORDER BY "updatedAt" DESC, "id" DESC
+    `SELECT ${VISUAL_ASSET_ROW_SELECT}
+    FROM "WorkspaceVisualAsset" AS ${VISUAL_ASSET_ALIAS}
+    WHERE ${VISUAL_ASSET_ALIAS}."workspaceId" = ?
+      AND ${VISUAL_ASSET_ALIAS}."scopeType" = ?
+      AND ${VISUAL_ASSET_ALIAS}."role" = ?
+      AND ${VISUAL_ASSET_ALIAS}."deletedAt" IS NULL
+      AND COALESCE(${VISUAL_ASSET_ALIAS}."nodeKey", '__workspace__') = COALESCE(?, '__workspace__')
+    ORDER BY ${VISUAL_ASSET_ALIAS}."updatedAt" DESC,
+      ${VISUAL_ASSET_ALIAS}."id" DESC
     LIMIT 1`,
     Number(workspaceId),
     normalizedScope,
@@ -241,26 +259,29 @@ const WorkspaceVisualAsset = {
   }) {
     await ensureTable();
     if (!workspaceId) return [];
-    const clauses = [`"workspaceId" = ?`, `"deletedAt" IS NULL`];
+    const clauses = [
+      `${VISUAL_ASSET_ALIAS}."workspaceId" = ?`,
+      `${VISUAL_ASSET_ALIAS}."deletedAt" IS NULL`,
+    ];
     const params = [Number(workspaceId)];
     if (scopeType) {
-      clauses.push(`"scopeType" = ?`);
+      clauses.push(`${VISUAL_ASSET_ALIAS}."scopeType" = ?`);
       params.push(normalizeScopeType(scopeType));
     }
     if (nodeKey) {
-      clauses.push(`"nodeKey" = ?`);
+      clauses.push(`${VISUAL_ASSET_ALIAS}."nodeKey" = ?`);
       params.push(String(nodeKey));
     }
     if (role) {
-      clauses.push(`"role" = ?`);
+      clauses.push(`${VISUAL_ASSET_ALIAS}."role" = ?`);
       params.push(String(role));
     }
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT *, CAST("createdAt" AS TEXT) AS "createdAt",
-        CAST("updatedAt" AS TEXT) AS "updatedAt"
-      FROM "WorkspaceVisualAsset"
+      `SELECT ${VISUAL_ASSET_ROW_SELECT}
+      FROM "WorkspaceVisualAsset" AS ${VISUAL_ASSET_ALIAS}
       WHERE ${clauses.join(" AND ")}
-      ORDER BY "updatedAt" DESC, "id" DESC`,
+      ORDER BY ${VISUAL_ASSET_ALIAS}."updatedAt" DESC,
+        ${VISUAL_ASSET_ALIAS}."id" DESC`,
       ...params
     );
     const freshRows = await Promise.all(
@@ -374,10 +395,11 @@ const WorkspaceVisualAsset = {
     await ensureTable();
     const row = (
       await prisma.$queryRawUnsafe(
-        `SELECT *, CAST("createdAt" AS TEXT) AS "createdAt",
-          CAST("updatedAt" AS TEXT) AS "updatedAt"
-        FROM "WorkspaceVisualAsset"
-        WHERE "workspaceId" = ? AND "id" = ? AND "deletedAt" IS NULL
+        `SELECT ${VISUAL_ASSET_ROW_SELECT}
+        FROM "WorkspaceVisualAsset" AS ${VISUAL_ASSET_ALIAS}
+        WHERE ${VISUAL_ASSET_ALIAS}."workspaceId" = ?
+          AND ${VISUAL_ASSET_ALIAS}."id" = ?
+          AND ${VISUAL_ASSET_ALIAS}."deletedAt" IS NULL
         LIMIT 1`,
         Number(workspaceId),
         Number(id)

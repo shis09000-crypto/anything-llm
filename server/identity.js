@@ -192,6 +192,9 @@ const host = new MicroModuleServiceHost({
       deviceBindingRecoveryEndpoints(api);
     });
     app.post("/internal/v1/session/introspect", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
       const token = String(request.body?.token || "").trim();
       if (!token)
         return response.status(400).json({
@@ -201,6 +204,16 @@ const host = new MicroModuleServiceHost({
         });
       const result = await introspectSessionToken(token);
       return response.status(result.active ? 200 : 401).json(result);
+    });
+    app.post("/internal/v1/principal/assert", async (request, response) => {
+      if (request.body?.probe === true) {
+        return response.status(200).json({ success: true, available: true });
+      }
+      const result = await assertPrincipalFromSession({
+        token: request.body?.token,
+        client: request.body?.client,
+      });
+      return response.status(200).json(result);
     });
     app.post(
       "/internal/v1/principal/assert",

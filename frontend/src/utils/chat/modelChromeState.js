@@ -4,10 +4,12 @@ function normalizeModelChromeValue(value) {
 }
 
 export function resolveModelChromeState({
+  thread = {},
   workspace = {},
   settings = {},
 } = {}) {
   const modelName =
+    normalizeModelChromeValue(thread?.chatModel) ||
     normalizeModelChromeValue(workspace?.chatModel) ||
     normalizeModelChromeValue(settings?.LLMModel);
   const provider =

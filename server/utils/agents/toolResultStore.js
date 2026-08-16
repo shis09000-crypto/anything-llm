@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 const { storageRoot: environmentStorageRoot } = require("../environment");
+const { safeAgentProgressDetails } = require("./agentProgress");
 
 const MAX_MODEL_TOOL_RESULT_CHARS = 12_000;
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
@@ -319,6 +320,12 @@ function sanitizeAgentEvent(event = {}) {
     uuid: event.uuid,
     createdAt: event.createdAt,
     type: event.type,
+    phase: event.phase,
+    sequence: event.sequence,
+    details:
+      event.type === "agent_progress" && event.details
+        ? safeAgentProgressDetails(event.details)
+        : undefined,
     toolName: event.toolName,
     skillName: event.skillName,
     requestId: event.requestId,
@@ -353,7 +360,7 @@ function sanitizeAgentEvent(event = {}) {
     event.summary || event.content || event.outputPreview || "",
     MAX_AGENT_EVENT_CHARS
   ).text;
-  if (content) sanitized.content = content;
+  if (content && event.type !== "agent_progress") sanitized.content = content;
 
   if (event.payload && event.type === "approval_request") {
     sanitized.payload = sanitizePayload(event.payload);
@@ -368,6 +375,8 @@ function sanitizeAgentEvent(event = {}) {
 }
 
 function compactAgentEventKey(event = {}) {
+  if (event.type === "agent_progress" && event.phase && event.sequence)
+    return `agent-progress:${event.phase}:${event.sequence}`;
   if (!event.uuid) return null;
   if (["assistant_delta", "final_message"].includes(event.type))
     return `assistant:${event.uuid}`;

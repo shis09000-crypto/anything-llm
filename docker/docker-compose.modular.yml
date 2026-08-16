@@ -280,6 +280,7 @@ services:
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: chat-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
       ATHENA_API_INTERNAL_URL: https://anything-llm-api:3024
@@ -307,6 +308,9 @@ services:
         ARG_GID: ${GID:-1000}
     profiles:
       - core-runtimes
+    depends_on:
+      anything-llm-chat-runtime:
+        condition: service_healthy
     volumes:
       - *runtime-env-volume-ro
       - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
@@ -317,7 +321,9 @@ services:
     environment:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: agent-runtime
+      PROMPT_CONTEXT_TIMEZONE: ${PROMPT_CONTEXT_TIMEZONE:-Asia/Shanghai}
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
       ATHENA_BROWSER_AGENT_ENABLED: "false"
       AGENT_RUNTIME_PORT: 3017
       ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
@@ -420,6 +426,40 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: character-performance-runtime
       CHARACTER_PERFORMANCE_RUNTIME_PORT: 3042
+    networks:
+      - anything-llm
+
+  anything-llm-responses-runtime:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: responses-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    depends_on:
+      anything-llm-model-gateway:
+        condition: service_healthy
+      anything-llm-key-custody:
+        condition: service_healthy
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: responses-runtime
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      RESPONSES_RUNTIME_PORT: 3034
     networks:
       - anything-llm
 
@@ -777,6 +817,34 @@ services:
       BROWSER_WORKER_MIN_CGROUP_HEADROOM_BYTES: 268435456
       BROWSER_WORKER_PROFILE_ROOT: /tmp/athena-browser-worker
       STORAGE_DIR: /tmp/athena-browser-worker
+    networks:
+      - anything-llm
+
+  anything-llm-browser-egress:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: browser-egress-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - browser-runtimes
+    tmpfs:
+      - /tmp/athena-browser-egress:rw,nosuid,nodev,noexec,size=64m,mode=0700,uid=1000,gid=1000
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: browser-egress
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      BROWSER_EGRESS_PORT: 3033
+      STORAGE_DIR: /tmp/athena-browser-egress
     networks:
       - anything-llm
 

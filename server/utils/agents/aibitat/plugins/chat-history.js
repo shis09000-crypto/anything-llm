@@ -208,7 +208,6 @@ const chatHistory = {
         aibitat,
         { prompt, response, attachments = [], imageAnalysis = null } = {}
       ) {
-        const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
@@ -263,7 +262,6 @@ const chatHistory = {
           options = {},
         } = {}
       ) {
-        const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
