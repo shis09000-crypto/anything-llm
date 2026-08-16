@@ -219,6 +219,19 @@ function normalizeStoredTimeline(timeline = []) {
     : [];
 }
 
+export function isTransientAgentReconnectEvent(event = {}) {
+  if (event?.type !== "thought") return false;
+  return String(event?.content || "").startsWith(
+    "Agent connection interrupted. Reconnecting"
+  );
+}
+
+export function withoutTransientAgentReconnectEvents(timeline = []) {
+  return normalizeStoredTimeline(timeline).filter(
+    (event) => !isTransientAgentReconnectEvent(event)
+  );
+}
+
 export function normalizeTurnItem(item = {}) {
   const createdAt = item.createdAt || item.sentAt || nowMs();
   if (isUserItem(item)) {
@@ -396,13 +409,17 @@ function shouldRemoveTransientAssistantTurn(
 ) {
   if (!isAssistantTurn(turn) || turn.chatId) return false;
   const hasMeaningfulOutput = hasMeaningfulTransientAssistantOutput(turn);
-  if (turn.status === TURN_STATUSES.failed) return !hasMeaningfulOutput;
-  if (turn.reconnectState === "failed") return !hasMeaningfulOutput;
+  if (turn.status === TURN_STATUSES.failed) {
+    return options.removeFailed === true;
+  }
+  if (turn.reconnectState === "failed") {
+    return options.removeFailed === true;
+  }
   if (
     turn.status === TURN_STATUSES.interrupted ||
     turn.reconnectState === "offer"
   ) {
-    return !hasMeaningfulOutput;
+    return options.removeInterrupted === true && !hasMeaningfulOutput;
   }
   if (turn.status !== TURN_STATUSES.running) return false;
   if (options.removeRunning === false) return false;
@@ -525,6 +542,7 @@ function serverGroupToItems(group, chatKey = null) {
     textRef: assistant.textRef || null,
     sources: assistant.sources || [],
     metrics: assistant.metrics || {},
+    execution: assistant.execution || null,
     chatId: group.chatId,
     publicChatId: group.publicChatId,
     clientTurnId:
@@ -848,10 +866,15 @@ function patchLocalTurnWithServer(
       ? TURN_STATUSES.running
       : TURN_STATUSES.completed,
     error: preserveRunningTurn ? localAssistant.error : null,
-    timeline: normalizeStoredTimeline([
-      ...(localAssistant.timeline || []),
-      ...(serverAssistant.timeline || []),
-    ]),
+    timeline: preserveRunningTurn
+      ? normalizeStoredTimeline([
+          ...(localAssistant.timeline || []),
+          ...(serverAssistant.timeline || []),
+        ])
+      : withoutTransientAgentReconnectEvents([
+          ...(localAssistant.timeline || []),
+          ...(serverAssistant.timeline || []),
+        ]),
     updatedAt: nowMs(),
   };
 

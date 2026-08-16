@@ -51,7 +51,7 @@ const CHAT_CLIENT_PLATFORMS = new Set([
 ]);
 const CHAT_CLIENT_VISIBILITY = new Set(["visible", "hidden"]);
 const CHAT_CLIENT_RUN_KINDS = new Set(["chat", "agent"]);
-const CHAT_CLIENT_TRANSPORTS = new Set(["sse", "websocket"]);
+const CHAT_CLIENT_TRANSPORTS = new Set(["sse", "websocket", "ledger_poll"]);
 const CHAT_CLIENT_OUTCOMES = new Set([
   "observed",
   "stalled",
@@ -62,12 +62,44 @@ const CLIENT_UI_EVENT_TYPES = new Set([
   "overview_preempted",
   "overview_recovered",
   "overview_failed",
+  "auth_reconnecting",
+  "auth_recovered",
+  "auth_terminal",
+  "passkey_local_ready",
+  "passkey_cross_device_only",
+  "passkey_unavailable",
+  "document_loaded",
+  "react_root_mounted",
 ]);
-const CLIENT_UI_SURFACES = new Set(["workspace_overview"]);
+const CLIENT_UI_SURFACES = new Set([
+  "workspace_overview",
+  "auth_lifecycle",
+  "passkey_capability",
+  "application_shell",
+]);
 const CLIENT_UI_REASONS = new Set([
   "scheduler_abort",
   "http_error",
   "network_error",
+  "identity_unavailable",
+  "session_expired",
+  "session_idle_expired",
+  "session_revoked",
+  "session_epoch_incompatible",
+  "account_disabled",
+  "account_suspended",
+  "client_revoked",
+  "device_identity_reauth",
+  "force_reauth",
+  "insecure_context",
+  "rp_id_invalid",
+  "server_passkey_disabled",
+  "webauthn_unavailable",
+  "embedded_webview_unsupported",
+  "platform_authenticator_unavailable",
+  "no_available_authenticator",
+  "webauthn_security_error",
+  "none",
   "unknown",
 ]);
 
@@ -309,11 +341,24 @@ function recordClientUiObservation(request, response, input = {}) {
     overview_preempted: "navigation.client.overview_preempted",
     overview_recovered: "navigation.client.overview_recovered",
     overview_failed: "navigation.client.overview_failed",
+    auth_reconnecting: "auth.client.reconnecting",
+    auth_recovered: "auth.client.recovered",
+    auth_terminal: "auth.client.terminal",
+    passkey_local_ready: "auth.passkey.capability_local_ready",
+    passkey_cross_device_only: "auth.passkey.capability_cross_device_only",
+    passkey_unavailable: "auth.passkey.capability_unavailable",
+    document_loaded: "navigation.client.document_loaded",
+    react_root_mounted: "navigation.client.react_root_mounted",
   };
+  const category = ["workspace_overview", "application_shell"].includes(surface)
+    ? "navigation_client"
+    : "auth_client";
   emitSemanticEvent({
     eventType: semanticTypes[event],
-    category: "navigation_client",
-    severity: event === "overview_failed" ? "warning" : "info",
+    category,
+    severity: ["overview_failed", "auth_terminal"].includes(event)
+      ? "warning"
+      : "info",
     outcome,
     subject: {
       type: "client_ui",
@@ -365,6 +410,7 @@ function filtersFromQuery(query = {}) {
     eventType: query.eventType || undefined,
     subjectId: query.subjectId || undefined,
     operationId: query.operationId || undefined,
+    traceId: query.traceId || undefined,
     limit: boundedLimit(query.limit),
   };
 }
@@ -755,6 +801,45 @@ function operationsEndpoints(app) {
       });
     }
   });
+
+  app.get("/operations/aicp/topology", guards, async (_request, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        ...(await operationsAccess().aicpTopology()),
+      });
+    } catch (error) {
+      response.status(503).json({
+        success: false,
+        error: "operations_aicp_topology_unavailable",
+        reasonCode: error?.code || "aicp_topology_read_failed",
+      });
+    }
+  });
+
+  app.get(
+    "/operations/aicp/traces/:traceId",
+    guards,
+    async (request, response) => {
+      try {
+        const result = await operationsAccess().aicpTrace(
+          request.params.traceId
+        );
+        if (!result.trace?.found)
+          return response.status(404).json({
+            success: false,
+            error: "operations_aicp_trace_not_found",
+          });
+        return response.status(200).json({ success: true, ...result });
+      } catch (error) {
+        return response.status(503).json({
+          success: false,
+          error: "operations_aicp_trace_unavailable",
+          reasonCode: error?.code || "aicp_trace_read_failed",
+        });
+      }
+    }
+  );
 
   app.get("/operations/flows", guards, async (request, response) => {
     try {

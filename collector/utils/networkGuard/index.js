@@ -179,9 +179,16 @@ async function assertSafeDestination(value) {
 }
 
 function guardedLookup(hostname, options, callback) {
-  dns.lookup(hostname, { ...options, all: false }, (error, address, family) => {
+  const lookupOptions =
+    options && typeof options === "object" ? options : { family: options };
+  dns.lookup(hostname, lookupOptions, (error, address, family) => {
     if (error) return callback(error);
-    if (!isAddressAllowed(address, hostname)) {
+    const records = lookupOptions.all ? address : [{ address, family }];
+    if (
+      !Array.isArray(records) ||
+      records.length === 0 ||
+      records.some((record) => !isAddressAllowed(record.address, hostname))
+    ) {
       return callback(
         new CollectorDestinationError(
           "Destination changed to a forbidden address during connection.",
@@ -189,7 +196,9 @@ function guardedLookup(hostname, options, callback) {
         )
       );
     }
-    return callback(null, address, family);
+    return lookupOptions.all
+      ? callback(null, records)
+      : callback(null, address, family);
   });
 }
 

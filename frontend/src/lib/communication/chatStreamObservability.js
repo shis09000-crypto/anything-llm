@@ -43,6 +43,9 @@ export function recordChatStreamObservation(observation = {}) {
       Math.min(Number(observation.durationMs) || 0, 60_000)
     ),
     outcome: observation.outcome || "observed",
+    runKind: observation.runKind || "chat",
+    transport: observation.transport || "sse",
+    invocationId: String(observation.invocationId || "").slice(0, 160),
     platform: platform(),
     visibility: visibility(),
   });
@@ -231,7 +234,12 @@ export function recordChatStreamPaint(clientTurnId, revision = 0) {
   state.unpaintedSince = 0;
 }
 
-export function recordChatStreamReconnect(clientTurnId, phase, attempt = 0) {
+export function recordChatStreamReconnect(
+  clientTurnId,
+  phase,
+  attempt = 0,
+  context = {}
+) {
   recordChatStreamObservation({
     event:
       phase === "recovered"
@@ -241,6 +249,10 @@ export function recordChatStreamReconnect(clientTurnId, phase, attempt = 0) {
           : "reconnect_started",
     clientTurnId,
     durationMs: attempt,
+    runKind: context.runKind || "chat",
+    transport: context.transport || "sse",
+    invocationId: context.invocationId || "",
+    requestId: context.requestId || "",
     outcome:
       phase === "recovered"
         ? "recovered"

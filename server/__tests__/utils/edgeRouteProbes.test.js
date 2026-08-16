@@ -46,10 +46,10 @@ describe("Edge public route readiness", () => {
     const request = async (url) => {
       if (url.endsWith("/api/ready"))
         return { statusCode: 200, body: '{"ready":true}' };
-      if (url.includes("registration/config"))
+      if (url.includes("auth/bootstrap"))
         return {
           statusCode: 200,
-          body: '{"success":true,"allowPublicRegistration":false}',
+          body: '{"schemaVersion":"athena.auth.bootstrap.v1","serviceStatus":"ready"}',
         };
       return { statusCode: 200, body: "{}" };
     };

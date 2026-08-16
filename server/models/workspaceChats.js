@@ -4,7 +4,10 @@ const {
   hasDeepSeekCacheDiagnostics,
   withDeepSeekCacheDiagnosis,
 } = require("../utils/AiProviders/deepseek/promptCache");
-const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
+const {
+  newPublicChatId,
+  normalizePublicChatId,
+} = require("../utils/chats/chatIdentifiers");
 const { SyncV2 } = require("./syncV2");
 const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
 const {
@@ -209,6 +212,7 @@ const WorkspaceChats = {
     include = true,
     apiSessionId = null,
     clientTurnId = null,
+    publicChatId = null,
     sourceChannel = "web",
   }) {
     try {
@@ -260,7 +264,7 @@ const WorkspaceChats = {
         workspaceSlug: workspace?.slug || String(workspaceId),
       });
       const chatData = {
-        public_id: newPublicChatId(),
+        public_id: normalizePublicChatId(publicChatId) || newPublicChatId(),
         clientTurnId: normalizedClientTurnId,
         workspaceId,
         prompt: await encryptWorkspaceChatFieldAsync(prompt, scope),
@@ -328,16 +332,23 @@ const WorkspaceChats = {
         });
         return created;
       });
-      if (threadId && include && !apiSessionId) {
+      if (
+        threadId &&
+        include &&
+        !apiSessionId &&
+        typeof response?.text === "string" &&
+        response.text.trim()
+      ) {
         const {
-          maybeEnqueueTitleGenerationAfterChat,
+          requestThreadTitleGeneration,
         } = require("../utils/chats/threadTitleGeneration");
-        maybeEnqueueTitleGenerationAfterChat({
+        requestThreadTitleGeneration({
           workspaceId,
           threadId,
           userId: user?.id || null,
           include,
           apiSessionId,
+          clientTurnId: normalizedClientTurnId,
         }).catch((error) =>
           console.warn("[ThreadTitle] failed to schedule", error.message)
         );

@@ -160,6 +160,19 @@ describe("durable chat stream runs", () => {
     expect(runtime.cancel()).toBe(false);
   });
 
+  test("Responses cancellation emits one incomplete terminal instead of legacy stop events", () => {
+    const runtime = new ChatStreamRuntime(run());
+    const response = new TestResponse();
+    runtime.responsesMode = true;
+    void runtime.attach(response, 0);
+
+    expect(runtime.cancel()).toBe(true);
+    const output = response.frames.join("");
+    expect(output).toContain("event: response.incomplete");
+    expect(output).toContain('"type":"response.incomplete"');
+    expect(output).not.toContain("stopGeneration");
+  });
+
   test("manager delegates duplicate claims to the persistent idempotency boundary", async () => {
     const manager = new ChatStreamRunManager();
     const scope = {

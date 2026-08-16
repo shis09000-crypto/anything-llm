@@ -8,7 +8,7 @@ import React, {
 } from "react";
 import { Info, Warning } from "@phosphor-icons/react";
 import Actions from "./Actions";
-import renderMarkdown from "@/utils/chat/markdown";
+import renderMarkdown, { renderAssistantMarkdown } from "@/utils/chat/markdown";
 import Citations from "../Citation";
 import { v4 } from "uuid";
 import DOMPurify from "@/utils/chat/purify";
@@ -66,6 +66,7 @@ const HistoricalMessage = ({
   saveEditedMessage,
   forkThread,
   metrics = {},
+  execution = null,
   outputs = [],
   clarifyingQuestions = [],
   hydrationStatus = null,
@@ -199,6 +200,7 @@ const HistoricalMessage = ({
               role={role}
               forkThread={forkThread}
               metrics={metrics}
+              execution={execution}
             />
           )}
         </div>
@@ -290,6 +292,7 @@ const HistoricalMessage = ({
               role={role}
               forkThread={forkThread}
               metrics={metrics}
+              execution={execution}
             />
           </div>
         )}
@@ -314,6 +317,8 @@ export default memo(
       prevProps.chatId === nextProps.chatId &&
       prevProps.publicChatId === nextProps.publicChatId &&
       JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics) &&
+      JSON.stringify(prevProps.execution) ===
+        JSON.stringify(nextProps.execution) &&
       JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
       JSON.stringify(prevProps.readerTextSources) ===
         JSON.stringify(nextProps.readerTextSources) &&
@@ -568,7 +573,7 @@ const RenderChatContent = memo(
         <div
           className="flex flex-col gap-y-1 text-white light:text-slate-900"
           dangerouslySetInnerHTML={{
-            __html: DOMPurify.sanitize(renderMarkdown(msgToRender)),
+            __html: DOMPurify.sanitize(renderAssistantMarkdown(msgToRender)),
           }}
         />
       </>

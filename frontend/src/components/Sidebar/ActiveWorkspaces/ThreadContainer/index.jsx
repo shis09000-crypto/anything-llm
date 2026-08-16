@@ -1155,6 +1155,7 @@ function NewThreadButton({
       protected: true,
       abortable: false,
       emergency: true,
+      immediate: true,
       label: "optimistic:thread-create",
       dedupeKey: `optimistic:thread-create:${workspace.slug}:${optimisticThread.slug}`,
       optimisticPatch: () => onThreadCreated?.(optimisticThread),

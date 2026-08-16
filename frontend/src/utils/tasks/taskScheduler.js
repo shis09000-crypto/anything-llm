@@ -1,5 +1,6 @@
 import { recoveryCenter } from "../recovery/recoveryCenter.js";
 import { redactSensitiveSnapshotEntry } from "../sensitive/sensitiveDataGuards.js";
+import { normalizeCoordinationContext } from "../coordination/coordinationContext.js";
 
 const PRIORITY_ORDER = {
   P0: 0,
@@ -210,6 +211,9 @@ class TaskScheduler {
       id: options.id || createTaskId(options.kind || "task"),
       kind: options.kind || "request",
       scope: normalizeScope(options.scope),
+      coordinationContext: normalizeCoordinationContext(
+        options.coordinationContext
+      ),
       priority,
       intentRank: normalizeIntentRank(options.intentRank),
       resource: normalizeResource(options.resource),
@@ -408,6 +412,7 @@ class TaskScheduler {
         emergency: task.emergency,
         dedupeKey: task.dedupeKey,
         scope: task.scope,
+        coordinationContext: task.coordinationContext,
         ageMs: Math.round(nowMs() - task.createdAt),
         intentRank: task.intentRank,
         resource: task.resource,
@@ -1063,6 +1068,9 @@ function serializeTaskContext(task) {
     emergency: task.emergency,
     intentRank: task.intentRank,
     scope: { ...(task.scope || {}) },
+    coordinationContext: task.coordinationContext
+      ? { ...task.coordinationContext }
+      : null,
   };
 }
 

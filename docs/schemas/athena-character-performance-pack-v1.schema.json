@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-character-performance-pack-v1.schema.json",
+  "title": "Athena Character Performance Pack v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "id",
+    "version",
+    "adapter",
+    "character_id",
+    "minimum_runtime_version",
+    "manifest_ref",
+    "asset",
+    "track_support",
+    "bindings",
+    "policies",
+    "adapter_payload_schema",
+    "integrity"
+  ],
+  "properties": {
+    "schema": { "const": "athena.character.performance_pack" },
+    "schema_version": { "const": "1.0" },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "adapter": { "const": "mock.anatomy.v1" },
+    "character_id": { "type": "string", "minLength": 1 },
+    "minimum_runtime_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "manifest_ref": { "$ref": "#/$defs/digestRef" },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_ref", "media_type", "sha256"],
+      "properties": {
+        "asset_ref": {
+          "type": "string",
+          "pattern": "^(asset|builtin):[A-Za-z0-9._/-]+$"
+        },
+        "media_type": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "track_support": {
+      "type": "array",
+      "prefixItems": [
+        { "$ref": "#/$defs/faceTrack" },
+        { "$ref": "#/$defs/gazeTrack" },
+        { "$ref": "#/$defs/headTrack" },
+        { "$ref": "#/$defs/shouldersTrack" },
+        { "$ref": "#/$defs/torsoTrack" },
+        { "$ref": "#/$defs/leftArmTrack" },
+        { "$ref": "#/$defs/rightArmTrack" },
+        { "$ref": "#/$defs/leftHandTrack" },
+        { "$ref": "#/$defs/rightHandTrack" },
+        { "$ref": "#/$defs/leftLegTrack" },
+        { "$ref": "#/$defs/rightLegTrack" },
+        { "$ref": "#/$defs/actionTrack" },
+        { "$ref": "#/$defs/speechTrack" }
+      ],
+      "items": false,
+      "minItems": 13,
+      "maxItems": 13
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/binding" }
+    },
+    "fallbacks": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*:[a-z][a-z0-9_-]*/[a-z][a-z0-9_.-]*$"
+      },
+      "additionalProperties": { "type": "string", "minLength": 3 }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fallback_max_depth",
+        "exclusive_conflict",
+        "reduced_motion",
+        "blend_default_ms"
+      ],
+      "properties": {
+        "fallback_max_depth": { "type": "integer", "minimum": 0, "maximum": 4 },
+        "exclusive_conflict": { "const": "first_wins" },
+        "reduced_motion": {
+          "enum": [
+            "reduce_amplitude",
+            "replace_with_stillness",
+            "disable_optional"
+          ]
+        },
+        "blend_default_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      }
+    },
+    "adapter_payload_schema": { "type": "object" },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature_algorithm", "sha256"],
+      "allOf": [
+        {
+          "if": { "properties": { "signature_algorithm": { "const": "ed25519" } } },
+          "then": { "required": ["key_id", "signature"] }
+        }
+      ],
+      "properties": {
+        "signature_algorithm": { "enum": ["none", "ed25519"] },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "key_id": { "type": "string" },
+        "signature": { "type": "string" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "digestRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["track", "status"],
+      "properties": {
+        "track": { "type": "string" },
+        "status": { "enum": ["supported", "unsupported"] }
+      }
+    },
+    "faceTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "face" } } }
+      ]
+    },
+    "gazeTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "gaze" } } }
+      ]
+    },
+    "headTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "head_neck" } } }
+      ]
+    },
+    "shouldersTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "shoulders" } } }
+      ]
+    },
+    "torsoTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "torso" } } }
+      ]
+    },
+    "leftArmTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "left_arm" } } }
+      ]
+    },
+    "rightArmTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "right_arm" } } }
+      ]
+    },
+    "leftHandTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "left_hand" } } }
+      ]
+    },
+    "rightHandTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "right_hand" } } }
+      ]
+    },
+    "leftLegTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "left_leg" } } }
+      ]
+    },
+    "rightLegTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "right_leg" } } }
+      ]
+    },
+    "actionTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "action" } } }
+      ]
+    },
+    "speechTrack": {
+      "allOf": [
+        { "$ref": "#/$defs/track" },
+        { "properties": { "track": { "const": "speech" } } }
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "capability_pattern",
+        "tracks",
+        "primitive",
+        "target_template"
+      ],
+      "properties": {
+        "binding_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" },
+        "capability_pattern": { "type": "string", "minLength": 3 },
+        "tracks": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "face",
+              "gaze",
+              "head_neck",
+              "shoulders",
+              "torso",
+              "left_arm",
+              "right_arm",
+              "left_hand",
+              "right_hand",
+              "left_leg",
+              "right_leg",
+              "action",
+              "speech"
+            ]
+          }
+        },
+        "primitive": {
+          "enum": [
+            "face.region_state",
+            "gaze.target",
+            "body.motion",
+            "limb.motion",
+            "world.action",
+            "speech.text"
+          ]
+        },
+        "target_template": { "type": "string", "minLength": 1 },
+        "fallback_binding_id": { "type": "string" },
+        "resource_claims": { "type": "array", "items": { "type": "string" } },
+        "duration": { "type": "object" },
+        "blend": { "type": "object" },
+        "payload": { "type": "object" }
+      }
+    }
+  }
+}

@@ -106,6 +106,7 @@ async function consumeRealtimeTicketViaIdentity(ticket, env = process.env) {
 }
 
 const IDENTITY_CAPABILITIES = Object.freeze({
+  "identity.assert": "/internal/v1/principal/assert",
   "identity.client.attach": "/internal/v1/client-identity/attach",
   "identity.request-signing.verify": "/internal/v1/request-signing/verify",
   "identity.session.validate": "/internal/v1/session/validate",
@@ -116,6 +117,7 @@ const IDENTITY_CAPABILITIES = Object.freeze({
   "identity.user-state.delete": "/internal/v1/user-state/delete",
 });
 const CORE_IDENTITY_CAPABILITIES = Object.freeze([
+  "identity.assert",
   "identity.request-signing.verify",
   "identity.session.validate",
   "identity.session.touch",
@@ -164,6 +166,29 @@ async function callIdentityCapability({
 function sessionProof({ request = null, claims = null } = {}) {
   const token = request ? bearerToken(request) : null;
   return token ? { token } : { claims };
+}
+
+async function assertPrincipalViaIdentity({
+  request,
+  client = null,
+  env = process.env,
+} = {}) {
+  const token = bearerToken(request);
+  if (!token) {
+    return {
+      success: true,
+      active: false,
+      reasonCode: "session_missing",
+    };
+  }
+  return callIdentityCapability({
+    capability: "identity.assert",
+    body: {
+      token,
+      client: safeClientMetadata(client || {}),
+    },
+    env,
+  });
 }
 
 async function validateSessionViaIdentity(options = {}) {
@@ -293,6 +318,7 @@ module.exports = {
   CORE_IDENTITY_CAPABILITIES,
   IDENTITY_CAPABILITIES,
   appendIdentityAuditViaIdentity,
+  assertPrincipalViaIdentity,
   attachClientContextViaIdentity,
   bearerToken,
   callIdentityCapability,

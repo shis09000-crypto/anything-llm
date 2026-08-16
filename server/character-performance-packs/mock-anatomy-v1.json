@@ -1,0 +1,122 @@
+{
+  "schema": "athena.character.performance_pack",
+  "schema_version": "1.0",
+  "id": "athena.mock-anatomy.cold-tsundere",
+  "version": "1.0.0",
+  "adapter": "mock.anatomy.v1",
+  "character_id": "athena.test.cold_tsundere",
+  "minimum_runtime_version": "1.0.0",
+  "manifest_ref": {
+    "id": "athena.cold_tsundere.expressive",
+    "version": "2.0.0",
+    "sha256": "1b82e27288c8e2b6d82d0cb7c4173dad44049944736c408851696445eb5dd252"
+  },
+  "asset": {
+    "asset_ref": "builtin:mock-anatomy-v1",
+    "media_type": "application/vnd.athena.mock-anatomy+json",
+    "sha256": "0db9f85e07742345ff23c180fef5165d22ff9d2e042dc2d5d2fab160903062c5"
+  },
+  "track_support": [
+    { "track": "face", "status": "supported" },
+    { "track": "gaze", "status": "supported" },
+    { "track": "head_neck", "status": "supported" },
+    { "track": "shoulders", "status": "supported" },
+    { "track": "torso", "status": "supported" },
+    { "track": "left_arm", "status": "supported" },
+    { "track": "right_arm", "status": "supported" },
+    { "track": "left_hand", "status": "supported" },
+    { "track": "right_hand", "status": "supported" },
+    { "track": "left_leg", "status": "supported" },
+    { "track": "right_leg", "status": "supported" },
+    { "track": "action", "status": "supported" },
+    { "track": "speech", "status": "supported" }
+  ],
+  "bindings": [
+    {
+      "binding_id": "mock_face",
+      "capability_pattern": "^athena\\.core:face_(?<region>[a-z_]+)/(?<state>[a-z_]+)$",
+      "tracks": ["face"],
+      "primitive": "face.region_state",
+      "target_template": "face.{region}.{side}"
+    },
+    {
+      "binding_id": "mock_gaze",
+      "capability_pattern": "^athena\\.core:gaze/(?<state>[a-z_]+)$",
+      "tracks": ["gaze"],
+      "primitive": "gaze.target",
+      "target_template": "gaze.primary"
+    },
+    {
+      "binding_id": "mock_head_neck",
+      "capability_pattern": "^athena\\.core:head_neck_motion/(?<state>[a-z_]+)$",
+      "tracks": ["head_neck"],
+      "primitive": "body.motion",
+      "target_template": "body.head_neck"
+    },
+    {
+      "binding_id": "mock_shoulders",
+      "capability_pattern": "^athena\\.core:shoulders_motion/(?<state>[a-z_]+)$",
+      "tracks": ["shoulders"],
+      "primitive": "body.motion",
+      "target_template": "body.shoulders"
+    },
+    {
+      "binding_id": "mock_torso",
+      "capability_pattern": "^athena\\.core:torso_motion/(?<state>[a-z_]+)$",
+      "tracks": ["torso"],
+      "primitive": "body.motion",
+      "target_template": "body.torso"
+    },
+    {
+      "binding_id": "mock_arm",
+      "capability_pattern": "^athena\\.core:arm_motion/(?<state>[a-z_]+)$",
+      "tracks": ["left_arm", "right_arm"],
+      "primitive": "limb.motion",
+      "target_template": "body.{track}"
+    },
+    {
+      "binding_id": "mock_hand",
+      "capability_pattern": "^athena\\.core:hand_motion/(?<state>[a-z_]+)$",
+      "tracks": ["left_hand", "right_hand"],
+      "primitive": "limb.motion",
+      "target_template": "body.{track}"
+    },
+    {
+      "binding_id": "mock_leg",
+      "capability_pattern": "^athena\\.core:leg_motion/(?<state>[a-z_]+)$",
+      "tracks": ["left_leg", "right_leg"],
+      "primitive": "limb.motion",
+      "target_template": "body.{track}"
+    },
+    {
+      "binding_id": "mock_action",
+      "capability_pattern": "^athena\\.core:action/(?<state>[a-z_]+)$",
+      "tracks": ["action"],
+      "primitive": "world.action",
+      "target_template": "world.action"
+    },
+    {
+      "binding_id": "mock_speech",
+      "capability_pattern": "^athena\\.core:voice_style/(?<state>[a-z_]+)$",
+      "tracks": ["speech"],
+      "primitive": "speech.text",
+      "target_template": "voice.primary"
+    }
+  ],
+  "policies": {
+    "fallback_max_depth": 4,
+    "exclusive_conflict": "first_wins",
+    "reduced_motion": "reduce_amplitude",
+    "blend_default_ms": 120
+  },
+  "adapter_payload_schema": {
+    "type": "object",
+    "additionalProperties": true
+  },
+  "integrity": {
+    "signature_algorithm": "ed25519",
+    "key_id": "athena-performance-release-2026-01",
+    "signature": "YjICxB1P8BrWTTSz4sbAmD8pIiPYbE/ZOLawGZDO3HIlLHj2wq41d/W29iYyiMG55jvwzsTpWEJewenTVraCBQ==",
+    "sha256": "8b5282bdeea5432ba437a8d3f3c393b5bd2911c602add6ddfb7f40fc259bef18"
+  }
+}

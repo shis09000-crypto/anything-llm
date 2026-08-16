@@ -34,6 +34,7 @@ function cursorFromSql(sql = "", field = "id") {
 jest.mock("../../utils/prisma", () => mockPrisma);
 jest.mock("../../utils/chats/chatIdentifiers", () => ({
   newPublicChatId: jest.fn(() => "chat_public_test"),
+  normalizePublicChatId: jest.fn((value) => value || null),
 }));
 
 describe("WorkspaceChats chat history encryption", () => {
@@ -61,7 +62,9 @@ describe("WorkspaceChats chat history encryption", () => {
             api_session_id: params[5],
             wrapped_key: params[6],
           };
-          if (!conversationKeys.some((item) => item.scope_hash === row.scope_hash)) {
+          if (
+            !conversationKeys.some((item) => item.scope_hash === row.scope_hash)
+          ) {
             conversationKeys.push(row);
           }
         }
@@ -140,7 +143,9 @@ describe("WorkspaceChats chat history encryption", () => {
         if (sql.includes(`WHERE "scope_hash" = ?`)) {
           const tail = cryptoMetadata
             .filter((row) => row.scope_hash === params[0])
-            .sort((left, right) => Number(right.chat_id) - Number(left.chat_id))[0];
+            .sort(
+              (left, right) => Number(right.chat_id) - Number(left.chat_id)
+            )[0];
           return Promise.resolve([
             {
               chat_id: tail?.chat_id ?? null,
@@ -338,9 +343,9 @@ describe("WorkspaceChats chat history encryption", () => {
     });
 
     const { WorkspaceChats } = require("../../models/workspaceChats");
-    await expect(
-      WorkspaceChats._update(12, { include: false })
-    ).resolves.toBe(true);
+    await expect(WorkspaceChats._update(12, { include: false })).resolves.toBe(
+      true
+    );
 
     expect(mockPrisma.workspace_chats.update).toHaveBeenCalledWith({
       where: { id: 12 },

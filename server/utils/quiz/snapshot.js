@@ -50,18 +50,19 @@ function progressFromQuiz(quiz = {}) {
 
 function analysisStateFromQuiz(quiz = {}) {
   const analysisState = quiz.analysisState || {};
+  const status =
+    analysisState.status ||
+    quiz.analysisStatus ||
+    (quiz.submitted ? "completed" : null);
   return {
-    status:
-      analysisState.status ||
-      quiz.analysisStatus ||
-      (quiz.submitted ? "completed" : null),
+    status,
     markdown: analysisState.markdown ?? quiz.analysis ?? "",
     error: analysisState.error ?? quiz.analysisError ?? null,
     metrics: analysisState.metrics ?? quiz.analysisMetrics ?? {},
     questionResultsReliable:
       analysisState.questionResultsReliable ??
       quiz.questionResultsReliable ??
-      true,
+      (status === "completed" ? true : null),
     questionResultsParseError:
       analysisState.questionResultsParseError ??
       quiz.questionResultsParseError ??

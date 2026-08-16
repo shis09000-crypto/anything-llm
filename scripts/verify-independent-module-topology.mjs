@@ -28,9 +28,21 @@ const RUNTIME_BINDINGS = Object.freeze({
     "anything-llm-operations-plane",
     "operations-plane-build",
   ],
+  "coordination-plane": [
+    "anything-llm-coordination-plane",
+    "coordination-plane-build",
+  ],
   "chat-runtime": ["anything-llm-chat-runtime", "chat-runtime-build"],
   "agent-runtime": ["anything-llm-agent-runtime", "agent-runtime-build"],
   "model-gateway": ["anything-llm-model-gateway", "model-gateway-build"],
+  "responses-runtime": [
+    "anything-llm-responses-runtime",
+    "responses-runtime-build",
+  ],
+  "character-performance-runtime": [
+    "anything-llm-character-performance-runtime",
+    "character-performance-runtime-build",
+  ],
   "tool-runtime": ["anything-llm-tool-broker", "tool-broker-build"],
   "crypto-market": ["anything-llm-crypto-market", "crypto-market-build"],
   "crypto-account-access": [
@@ -52,7 +64,46 @@ const RUNTIME_BINDINGS = Object.freeze({
   ],
   "browser-plane": ["anything-llm-browser-plane", "browser-plane-build"],
   "browser-worker": ["anything-llm-browser-worker", "browser-worker-build"],
+  "browser-egress": ["anything-llm-browser-egress", "browser-egress-build"],
 });
+
+const RUNTIME_SOURCES = Object.freeze({
+  "athena-api": "server/utils/modulePlatform/apiProbeHost.js",
+  "edge-web": "server/edge-probe.js",
+  "background-worker": "server/background-worker.js",
+  "sync-v2": "server/realtime-gateway.js",
+  "reader-worker": "server/reader-worker.js",
+  scheduler: "server/scheduler.js",
+  "operations-plane": "server/operations-plane.js",
+  "coordination-plane": "server/coordination-plane.js",
+  "chat-runtime": "server/chat-runtime.js",
+  "agent-runtime": "server/agent-runtime.js",
+  "model-gateway": "server/model-gateway.js",
+  "responses-runtime": "server/responses-runtime.js",
+  "character-performance-runtime": "server/character-performance-runtime.js",
+  "tool-runtime": "server/tool-broker.js",
+  "crypto-market": "server/crypto-market.js",
+  "crypto-account-access": "server/crypto-account.js",
+  "crypto-forecast": "server/crypto-forecast.js",
+  "key-custody": "server/key-custody.js",
+  collector: "collector/utils/moduleLifecycle.js",
+  authentication: "server/identity.js",
+  "knowledge-ingest": "server/knowledge-ingest.js",
+  rag: "server/rag.js",
+  "operations-shadow-agents": "server/operations-shadow-agents.js",
+  "browser-plane": "server/browser-plane.js",
+  "browser-worker": "server/browser-worker.js",
+  "browser-egress": "server/browser-egress.js",
+});
+
+const STANDARD_LIFECYCLE_CAPABILITIES = Object.freeze([
+  "module.describe",
+  "module.self-test",
+  "module.lifecycle.query",
+  "module.drain",
+  "module.quiesce",
+  "module.resume",
+]);
 
 // RPC edges must not become Compose lifecycle edges. Otherwise pausing an
 // optional module can block an unrelated caller from restarting or rolling
@@ -216,6 +267,22 @@ function main() {
     const overlayService = preproduction.services?.[serviceName] || {};
     const service = { ...baseService, ...overlayService };
     const env = environment(overlayService);
+    const runtimeSourceFile = RUNTIME_SOURCES[manifest.id];
+    const runtimeSource = runtimeSourceFile ? read(runtimeSourceFile) : "";
+
+    if (!runtimeSourceFile)
+      findings.push(`runtime_source_missing:${manifest.id}`);
+    else if (
+      manifest.id === "collector"
+        ? !runtimeSource.includes("class CollectorModuleLifecycle")
+        : !runtimeSource.includes("MicroModuleServiceHost")
+    )
+      findings.push(`lifecycle_runtime_adapter_missing:${manifest.id}`);
+    for (const capability of STANDARD_LIFECYCLE_CAPABILITIES)
+      if (!manifest.rpc.provides.includes(capability))
+        findings.push(
+          `lifecycle_capability_missing:${manifest.id}:${capability}`
+        );
 
     if (!Object.keys(service).length)
       findings.push(`compose_service_missing:${manifest.id}:${serviceName}`);
@@ -333,6 +400,7 @@ function main() {
     "athena_key_custody",
     "athena_crypto_forecast",
     "athena_browser_plane",
+    "athena_browser_egress",
   ])
     if (!databaseRoleInitializer.includes(`ALTER ROLE ${role} PASSWORD`))
       findings.push(`database_role_password_reconciliation_missing:${role}`);

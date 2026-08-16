@@ -12,6 +12,7 @@ import {
   isUserItem,
   normalizeTurnItems,
   updateAssistantTurnInItems,
+  withoutTransientAgentReconnectEvents,
 } from "@/utils/chat/turns";
 import { storageKeys } from "@/utils/appEnvironment";
 import {
@@ -266,6 +267,11 @@ function draftFromStorageValue(value) {
   const { items, removedTurnIds } = cleanupTransientDraftItems(storedItems, {
     now,
     runningMaxAgeMs: RUNNING_DRAFT_STORAGE_GRACE_MS,
+    // Failed turns remain visible for the current page lifetime, but they are
+    // not authoritative conversation history. A Responses turn only becomes
+    // reloadable after the server finalizes and persists it, so discard failed
+    // local pairs when restoring the session draft.
+    removeFailed: true,
   });
   const removedTurnIdSet = new Set(removedTurnIds);
   const storedTail = storedItems[storedItems.length - 1] || null;
@@ -1095,7 +1101,13 @@ function cleanupTransientDraftState(
   const beforeTail = beforeItems[beforeItems.length - 1] || null;
   const { items, removedTurnIds, removedTurns } = cleanupTransientDraftItems(
     beforeItems,
-    { now: Date.now(), removeRunning: false }
+    {
+      now: Date.now(),
+      removeRunning: false,
+      // Terminal failures are user-visible conversation state. Removing them
+      // here also removes the paired user item because both share a turnId.
+      removeFailed: false,
+    }
   );
   if (removedTurnIds.length === 0) return { ...draft, items };
 
@@ -1144,14 +1156,6 @@ function cleanupTransientDraftState(
   });
 
   return next;
-}
-
-function withoutTransientAgentReconnectEvents(timeline = []) {
-  return (timeline || []).filter((event) => {
-    if (event?.type !== "thought") return true;
-    const content = String(event?.content || "");
-    return !content.startsWith("Agent connection interrupted. Reconnecting");
-  });
 }
 
 function definedPatch(source = {}, fields = []) {

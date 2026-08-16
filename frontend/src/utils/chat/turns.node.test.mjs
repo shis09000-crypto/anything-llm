@@ -41,16 +41,48 @@ function localTurn({
   return { user, assistant, items: [user, assistant] };
 }
 
-test("cleanup removes empty failed transient turn with its local user", () => {
+test("cleanup retains an empty failed turn and its user prompt by default", () => {
   const { items } = localTurn({ status: TURN_STATUSES.failed });
   const result = cleanupTransientDraftItems(items, { removeRunning: false });
+
+  assert.equal(result.items.length, 2);
+  assert.deepEqual(result.removedTurnIds, []);
+});
+
+test("explicit failed-turn cleanup removes the assistant and local user", () => {
+  const { items } = localTurn({ status: TURN_STATUSES.failed });
+  const result = cleanupTransientDraftItems(items, {
+    removeRunning: false,
+    removeFailed: true,
+  });
 
   assert.deepEqual(result.items, []);
   assert.deepEqual(result.removedTurnIds, ["turn:local"]);
   assert.equal(result.removedTurns[0].status, TURN_STATUSES.failed);
 });
 
-test("cleanup removes empty interrupted reconnect offer", () => {
+test("explicit failed-turn cleanup also removes partial output", () => {
+  const { items } = localTurn({
+    status: TURN_STATUSES.failed,
+    finalContent: "模型已经输出，但持久化失败",
+    timeline: [
+      {
+        type: "error",
+        content: "permission denied for table workspace_chats",
+      },
+    ],
+  });
+  const result = cleanupTransientDraftItems(items, {
+    removeRunning: false,
+    removeFailed: true,
+  });
+
+  assert.deepEqual(result.items, []);
+  assert.deepEqual(result.removedTurnIds, ["turn:local"]);
+  assert.equal(result.removedTurns[0].hasMeaningfulOutput, true);
+});
+
+test("explicit interrupted-turn cleanup removes an empty reconnect offer", () => {
   const { items } = localTurn({
     status: TURN_STATUSES.interrupted,
     reconnectState: "offer",
@@ -61,7 +93,10 @@ test("cleanup removes empty interrupted reconnect offer", () => {
       },
     ],
   });
-  const result = cleanupTransientDraftItems(items, { removeRunning: false });
+  const result = cleanupTransientDraftItems(items, {
+    removeRunning: false,
+    removeInterrupted: true,
+  });
 
   assert.deepEqual(result.items, []);
   assert.deepEqual(result.removedTurnIds, ["turn:local"]);
@@ -119,6 +154,76 @@ test("server hydration can patch an interrupted local turn", () => {
   );
   assert.equal(merged[1].status, TURN_STATUSES.completed);
   assert.equal(merged[1].finalContent, "落库成功回答");
+});
+
+test("server hydration preserves the model used by that historical turn", () => {
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      { chatId: 47, role: "user", content: "你好", sentAt: 100 },
+      {
+        chatId: 47,
+        role: "assistant",
+        content: "你好",
+        sentAt: 100,
+        execution: {
+          model: "deepseek-v4-flash",
+          provider: "deepseek",
+          requestedProtocol: "responses",
+          effectiveProtocol: "responses",
+          responseId: "ath_resp_47",
+          source: "responses_runtime",
+        },
+      },
+    ],
+    [],
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.execution.model, "deepseek-v4-flash");
+  assert.equal(assistant.execution.responseId, "ath_resp_47");
+});
+
+test("completed server hydration removes transient Agent reconnect thoughts", () => {
+  const { items } = localTurn({
+    status: TURN_STATUSES.running,
+    timeline: [
+      {
+        id: "agent-reconnect:invocation",
+        type: "thought",
+        content: "Agent connection interrupted. Reconnecting 1/5...",
+      },
+      {
+        id: "tool-result:market",
+        type: "tool_result",
+        toolName: "crypto_market_snapshot",
+        content: "complete",
+      },
+    ],
+  });
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      { chatId: 45, role: "user", content: "用户问题", sentAt: 100 },
+      { chatId: 45, role: "assistant", content: "完整回答", sentAt: 100 },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.status, TURN_STATUSES.completed);
+  assert.equal(
+    assistant.timeline.some((event) =>
+      String(event.content || "").startsWith(
+        "Agent connection interrupted. Reconnecting"
+      )
+    ),
+    false
+  );
+  assert.equal(
+    assistant.timeline.some((event) => event.type === "tool_result"),
+    true
+  );
 });
 
 test("server hydration preserves an active agent turn during handoff", () => {

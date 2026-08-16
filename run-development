@@ -519,6 +519,14 @@ ensure_env_database() {
   fi
 }
 
+ensure_auth_database() {
+  local db_path="$STORAGE_BASE/shared/auth.db"
+
+  mkdir -p "$(dirname "$db_path")"
+  apply_sqlite_migrations "$db_path"
+  log "shared authentication database schema is ready"
+}
+
 run_key_custody_preflight() {
   log "running Athena key custody bootstrap and preflight..."
   (
@@ -889,6 +897,7 @@ else
   SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" FRONTEND_PORT="$FRONTEND_PORT" bash "$ROOT_DIR/stop-all" --env development --quiet || true
   prepare_storage_dirs
   ensure_env_database
+  ensure_auth_database
   run_key_custody_preflight
   launch_supervisor
 fi

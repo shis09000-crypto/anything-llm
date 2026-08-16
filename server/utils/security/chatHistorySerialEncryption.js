@@ -4,11 +4,12 @@ const {
   ensureMigrationOwnedTables,
 } = require("../database/schemaIntrospection");
 const {
-  decryptSecretIfNeeded,
-  encryptSecret,
+  decryptSecretIfNeededAsync,
+  encryptSecretAsync,
   isEncryptedSecret,
 } = require("./encryption");
 const { resolveActiveKey } = require("./keyCustody");
+const { remoteKeyCustodyEnabled } = require("./keyCustody/remoteClient");
 const { queueUserDomainWrap } = require("./userDomainWrapService");
 
 const CHAT_HISTORY_CRYPTO_VERSION = "athena-chat-history:v2";
@@ -45,6 +46,7 @@ function chatHistorySerialEncryptionEnabled(env = process.env) {
     String(env.CHAT_HISTORY_ENCRYPTION_DISABLED || "").toLowerCase() === "true"
   )
     return false;
+  if (remoteKeyCustodyEnabled(env, { purpose: "secret-store" })) return true;
   try {
     return Boolean(resolveActiveKey());
   } catch {
@@ -240,14 +242,14 @@ async function ensureSerialEncryptionTables(client = prisma) {
   if (client === prisma) tablesReady = true;
 }
 
-function unwrapConversationKey(row = null) {
+async function unwrapConversationKey(row = null) {
   if (!row?.wrapped_key) return null;
-  const raw = decryptSecretIfNeeded(row.wrapped_key);
+  const raw = await decryptSecretIfNeededAsync(row.wrapped_key);
   return Buffer.from(raw, "base64url");
 }
 
-function cacheKey(row = null) {
-  const key = unwrapConversationKey(row);
+async function cacheKey(row = null) {
+  const key = await unwrapConversationKey(row);
   if (!key) return null;
   keyCache.set(row.key_id, key);
   return key;
@@ -292,7 +294,7 @@ async function getConversationKeyById(keyId, client = prisma) {
     `SELECT "key_id", "wrapped_key" FROM "workspace_chat_conversation_keys" WHERE "key_id" = ? LIMIT 1`,
     keyId
   );
-  const key = cacheKey(rows?.[0]);
+  const key = await cacheKey(rows?.[0]);
   if (!key) throw new Error("chat_history_conversation_key_not_found");
   return key;
 }
@@ -309,12 +311,17 @@ async function getOrCreateConversationKey(scope, client = prisma) {
     if (!keyCache.has(existing[0].key_id)) {
       await queueConversationKeyUserWrap(existing[0], normalized, client);
     }
-    return { keyId: existing[0].key_id, key: cacheKey(existing[0]) };
+    return { keyId: existing[0].key_id, key: await cacheKey(existing[0]) };
   }
 
   const key = crypto.randomBytes(CONVERSATION_KEY_BYTES);
   const keyId = keyIdForScope(normalized);
-  const wrappedKey = encryptSecret(key.toString("base64url"));
+  const wrappedKey = await encryptSecretAsync(key.toString("base64url"), {
+    purpose: "chat-conversation-key",
+    domain: "chat-history",
+    operation: "wrap-conversation-key",
+    resource: keyId,
+  });
   await client.$executeRawUnsafe(
     `INSERT OR IGNORE INTO "workspace_chat_conversation_keys" (
       "key_id", "scope_hash", "workspace_id", "user_id", "thread_id", "api_session_id",
@@ -338,7 +345,7 @@ async function getOrCreateConversationKey(scope, client = prisma) {
   const row = rows?.[0];
   if (!row) throw new Error("chat_history_conversation_key_create_failed");
   await queueConversationKeyUserWrap(row, normalized, client);
-  return { keyId: row.key_id, key: cacheKey(row) };
+  return { keyId: row.key_id, key: await cacheKey(row) };
 }
 
 function encryptedFieldAdditionalData(keyId) {
@@ -834,7 +841,7 @@ function resetChatChainRuntimeMetrics() {
 async function decryptChatFieldCompat(value, client = prisma) {
   if (isSerialEncryptedChatField(value))
     return decryptSerialChatField(value, client);
-  return decryptSecretIfNeeded(value);
+  return decryptSecretIfNeededAsync(value);
 }
 
 async function decryptChatRecordCompat(chat = null, client = prisma) {

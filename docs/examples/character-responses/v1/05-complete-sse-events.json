@@ -1,0 +1,304 @@
+[
+  {
+    "type": "character.response.created",
+    "event_id": "chr_evt_full_00",
+    "sequence_number": 0,
+    "created_at": 1786406440000,
+    "response_id": "chr_resp_full_stream",
+    "response": {
+      "id": "chr_resp_full_stream",
+      "object": "character.response",
+      "protocol_version": "1.0",
+      "status": "queued",
+      "created_at": 1786406440000,
+      "completed_at": null,
+      "character": {
+        "character_id": "athena.default",
+        "instance_id": "char_inst_01",
+        "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      },
+      "conversation": { "id": "ath_conv_stream", "previous_response_id": null },
+      "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "output": [],
+      "warnings": [],
+      "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 },
+      "error": null
+    }
+  },
+  {
+    "type": "character.response.in_progress",
+    "event_id": "chr_evt_full_01",
+    "sequence_number": 1,
+    "created_at": 1786406440010,
+    "response_id": "chr_resp_full_stream",
+    "response": {
+      "id": "chr_resp_full_stream",
+      "object": "character.response",
+      "protocol_version": "1.0",
+      "status": "in_progress",
+      "created_at": 1786406440000,
+      "completed_at": null,
+      "character": {
+        "character_id": "athena.default",
+        "instance_id": "char_inst_01",
+        "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      },
+      "conversation": { "id": "ath_conv_stream", "previous_response_id": null },
+      "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "output": [],
+      "warnings": [],
+      "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 },
+      "error": null
+    }
+  },
+  {
+    "type": "character.response.output_item.added",
+    "event_id": "chr_evt_full_02",
+    "sequence_number": 2,
+    "created_at": 1786406440120,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 0,
+    "item_id": "perf_full",
+    "revision": 0,
+    "item": {
+      "id": "perf_full",
+      "type": "performance_intent",
+      "status": "in_progress",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1800 },
+      "interruptibility": "blend_out",
+      "affect": { "primary": "athena.core:emotion/shy", "secondary": null, "intensity": 0.55, "valence": 0.35, "arousal": 0.42 },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 180 },
+      "persistence": "response_lifetime",
+      "revision": 0
+    }
+  },
+  {
+    "type": "character.response.output_item.done",
+    "event_id": "chr_evt_full_03",
+    "sequence_number": 3,
+    "created_at": 1786406440160,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 0,
+    "item_id": "perf_full",
+    "revision": 1,
+    "item": {
+      "id": "perf_full",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1800 },
+      "interruptibility": "blend_out",
+      "affect": { "primary": "athena.core:emotion/shy", "secondary": null, "intensity": 0.55, "valence": 0.35, "arousal": 0.42 },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 180 },
+      "persistence": "response_lifetime",
+      "revision": 1
+    }
+  },
+  {
+    "type": "character.response.output_item.added",
+    "event_id": "chr_evt_full_04",
+    "sequence_number": 4,
+    "created_at": 1786406440180,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 1,
+    "item_id": "gaze_full",
+    "revision": 0,
+    "item": {
+      "id": "gaze_full",
+      "type": "gaze",
+      "status": "in_progress",
+      "intent_id": "perf_full",
+      "required": false,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 900 },
+      "interruptibility": "blend_out",
+      "target": { "type": "semantic", "value": "away" },
+      "style": "athena.core:gaze_style/brief_glance",
+      "intensity": 0.45,
+      "tracking": false
+    }
+  },
+  {
+    "type": "character.response.output_item.done",
+    "event_id": "chr_evt_full_05",
+    "sequence_number": 5,
+    "created_at": 1786406440220,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 1,
+    "item_id": "gaze_full",
+    "revision": 1,
+    "item": {
+      "id": "gaze_full",
+      "type": "gaze",
+      "status": "completed",
+      "intent_id": "perf_full",
+      "required": false,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 900 },
+      "interruptibility": "blend_out",
+      "target": { "type": "semantic", "value": "away" },
+      "style": "athena.core:gaze_style/brief_glance",
+      "intensity": 0.45,
+      "tracking": false
+    }
+  },
+  {
+    "type": "character.response.output_item.added",
+    "event_id": "chr_evt_full_06",
+    "sequence_number": 6,
+    "created_at": 1786406440300,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 2,
+    "item_id": "speech_full",
+    "revision": 0,
+    "item": {
+      "id": "speech_full",
+      "type": "speech",
+      "status": "in_progress",
+      "intent_id": "perf_full",
+      "required": true,
+      "timing": { "start": "at_offset", "after_item_id": null, "offset_ms": 260, "duration_hint_ms": 1300 },
+      "interruptibility": "immediate",
+      "text": "",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/shy",
+        "emotion_source": "performance_intent",
+        "intensity": 0.55,
+        "rate": 0.92,
+        "volume": 0.86,
+        "style": "athena.core:voice_style/soft",
+        "pause_before_ms": 180,
+        "pause_after_ms": 80
+      }
+    }
+  },
+  {
+    "type": "character.response.output_item.delta",
+    "event_id": "chr_evt_full_07",
+    "sequence_number": 7,
+    "created_at": 1786406440390,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 2,
+    "item_id": "speech_full",
+    "revision": 1,
+    "delta": { "kind": "speech_text_append", "text": "……你" }
+  },
+  {
+    "type": "character.response.output_item.delta",
+    "event_id": "chr_evt_full_08",
+    "sequence_number": 8,
+    "created_at": 1786406440450,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 2,
+    "item_id": "speech_full",
+    "revision": 2,
+    "delta": { "kind": "speech_text_append", "text": "干嘛。" }
+  },
+  {
+    "type": "character.response.output_item.done",
+    "event_id": "chr_evt_full_09",
+    "sequence_number": 9,
+    "created_at": 1786406440900,
+    "response_id": "chr_resp_full_stream",
+    "output_index": 2,
+    "item_id": "speech_full",
+    "revision": 3,
+    "item": {
+      "id": "speech_full",
+      "type": "speech",
+      "status": "completed",
+      "intent_id": "perf_full",
+      "required": true,
+      "timing": { "start": "at_offset", "after_item_id": null, "offset_ms": 260, "duration_hint_ms": 1300 },
+      "interruptibility": "immediate",
+      "text": "……你干嘛。",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/shy",
+        "emotion_source": "performance_intent",
+        "intensity": 0.55,
+        "rate": 0.92,
+        "volume": 0.86,
+        "style": "athena.core:voice_style/soft",
+        "pause_before_ms": 180,
+        "pause_after_ms": 80
+      }
+    }
+  },
+  {
+    "type": "character.response.completed",
+    "event_id": "chr_evt_full_10",
+    "sequence_number": 10,
+    "created_at": 1786406441000,
+    "response_id": "chr_resp_full_stream",
+    "response": {
+      "id": "chr_resp_full_stream",
+      "object": "character.response",
+      "protocol_version": "1.0",
+      "status": "completed",
+      "created_at": 1786406440000,
+      "completed_at": 1786406441000,
+      "character": {
+        "character_id": "athena.default",
+        "instance_id": "char_inst_01",
+        "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      },
+      "conversation": { "id": "ath_conv_stream", "previous_response_id": null },
+      "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "output": [
+        {
+          "id": "perf_full",
+          "type": "performance_intent",
+          "status": "completed",
+          "required": true,
+          "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1800 },
+          "interruptibility": "blend_out",
+          "affect": { "primary": "athena.core:emotion/shy", "secondary": null, "intensity": 0.55, "valence": 0.35, "arousal": 0.42 },
+          "source": "main_agent",
+          "transition": { "style": "blend", "duration_ms": 180 },
+          "persistence": "response_lifetime",
+          "revision": 1
+        },
+        {
+          "id": "gaze_full",
+          "type": "gaze",
+          "status": "completed",
+          "intent_id": "perf_full",
+          "required": false,
+          "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 900 },
+          "interruptibility": "blend_out",
+          "target": { "type": "semantic", "value": "away" },
+          "style": "athena.core:gaze_style/brief_glance",
+          "intensity": 0.45,
+          "tracking": false
+        },
+        {
+          "id": "speech_full",
+          "type": "speech",
+          "status": "completed",
+          "intent_id": "perf_full",
+          "required": true,
+          "timing": { "start": "at_offset", "after_item_id": null, "offset_ms": 260, "duration_hint_ms": 1300 },
+          "interruptibility": "immediate",
+          "text": "……你干嘛。",
+          "language": "zh-CN",
+          "delivery": {
+            "emotion": "athena.core:emotion/shy",
+            "emotion_source": "performance_intent",
+            "intensity": 0.55,
+            "rate": 0.92,
+            "volume": 0.86,
+            "style": "athena.core:voice_style/soft",
+            "pause_before_ms": 180,
+            "pause_after_ms": 80
+          }
+        }
+      ],
+      "warnings": [],
+      "usage": { "input_tokens": 20, "output_tokens": 31, "total_tokens": 51, "latency_ms": 1000, "first_semantic_item_ms": 120, "first_speech_delta_ms": 390 },
+      "error": null
+    }
+  }
+]

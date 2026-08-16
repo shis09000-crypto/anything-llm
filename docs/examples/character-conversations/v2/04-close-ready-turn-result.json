@@ -1,0 +1,84 @@
+{
+  "object": "character.turn.result",
+  "conversation": {
+    "id": "ath_conv_continuous_01",
+    "object": "character.conversation",
+    "protocol_version": "2.0",
+    "status": "close_ready",
+    "character_id": "athena.test.cold_tsundere",
+    "character_instance_id": "char_inst_continuous_01",
+    "current_turn_id": null,
+    "last_response_id": "chr_resp_continuous_02",
+    "state_revision": 2,
+    "previous_activity": "reading",
+    "soft_close_due_at": 1786500028000,
+    "suspended_at": null,
+    "ended_at": null,
+    "created_at": 1786500000000,
+    "updated_at": 1786500020000,
+    "character_state": {
+      "revision": 2,
+      "affect": {
+        "primary": "athena.core:emotion/tender",
+        "secondary": "athena.core:emotion/embarrassed",
+        "intensity": 0.35,
+        "valence": 0.5,
+        "arousal": 0.25
+      },
+      "attention": { "target": "player", "intensity": 0.65 },
+      "gaze": { "target": "player", "style": "soft" },
+      "posture": "conversation_relaxed",
+      "activity": { "current": "conversation", "previous": "reading" },
+      "performance_state": "close_ready",
+      "decay": { "mode": "gradual", "target": "reading", "duration_ms": 8000 },
+      "source_turn_id": "chr_turn_continuous_02",
+      "updated_at": 1786500020000
+    }
+  },
+  "turn": {
+    "id": "chr_turn_continuous_02",
+    "status": "completed",
+    "ordinal": 2
+  },
+  "response": {
+    "id": "chr_resp_continuous_02",
+    "object": "character.response",
+    "output": [
+      { "type": "performance_intent" },
+      { "type": "performance_sequence", "speech": "路上小心，早点回来。" }
+    ]
+  },
+  "conversation_horizon": {
+    "depth": "brief",
+    "continuation_probability": 0.15,
+    "closure_readiness": 0.9,
+    "basis": "answer_complete"
+  },
+  "model_handoff": { "target": "user", "mode": "close_ready" },
+  "effective_handoff": { "target": "user", "mode": "close_ready" },
+  "soft_close_timing": {
+    "model_wait_ms": null,
+    "effective_wait_ms": 8000,
+    "source": "depth_default",
+    "depth": "brief"
+  },
+  "character_state": {
+    "revision": 2,
+    "affect": {
+      "primary": "athena.core:emotion/tender",
+      "secondary": "athena.core:emotion/embarrassed",
+      "intensity": 0.35,
+      "valence": 0.5,
+      "arousal": 0.25
+    },
+    "attention": { "target": "player", "intensity": 0.65 },
+    "gaze": { "target": "player", "style": "soft" },
+    "posture": "conversation_relaxed",
+    "activity": { "current": "conversation", "previous": "reading" },
+    "performance_state": "close_ready",
+    "decay": { "mode": "gradual", "target": "reading", "duration_ms": 8000 },
+    "source_turn_id": "chr_turn_continuous_02",
+    "updated_at": 1786500020000
+  },
+  "warnings": [{ "code": "soft_close_wait_defaulted" }]
+}

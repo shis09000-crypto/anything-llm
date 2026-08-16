@@ -1,0 +1,356 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.1",
+  "id": "character-performance-runtime",
+  "name": "Athena Character Performance Runtime",
+  "version": "1.0.0",
+  "kind": "service",
+  "owner": "character-platform",
+  "criticality": "high",
+  "runtimeRole": "character-performance-runtime",
+  "sourcePaths": [
+    "server/character-performance-runtime.js",
+    "server/utils/characterPerformance/",
+    "server/character-performance-packs/"
+  ],
+  "capabilities": [
+    "performance-pack-negotiation",
+    "semantic-cue-compilation",
+    "execution-feedback",
+    "performance-event-streaming"
+  ],
+  "routes": {
+    "public": [],
+    "internal": [
+      "/internal/v1/character-performance/packs/:packId",
+      "/internal/v1/character-performance/sessions",
+      "/internal/v1/character-performance/sessions/:sessionId",
+      "/internal/v1/character-performance/sessions/:sessionId/scope",
+      "/internal/v1/character-performance/sessions/:sessionId/link",
+      "/internal/v1/character-performance/sessions/:sessionId/plans",
+      "/internal/v1/character-performance/sessions/:sessionId/events",
+      "/internal/v1/character-performance/sessions/:sessionId/execution-feedback",
+      "/internal/v1/character-performance/sessions/:sessionId/cancel"
+    ]
+  },
+  "rpc": {
+    "provides": [
+      "character-performance.packs.retrieve",
+      "character-performance.sessions.create",
+      "character-performance.sessions.retrieve",
+      "character-performance.sessions.resolve-scope",
+      "character-performance.sessions.link",
+      "character-performance.plans.compile",
+      "character-performance.events.retrieve",
+      "character-performance.feedback.create",
+      "character-performance.sessions.cancel",
+      "module.describe",
+      "module.self-test",
+      "module.lifecycle.query",
+      "module.drain",
+      "module.quiesce",
+      "module.resume"
+    ],
+    "consumes": []
+  },
+  "events": {
+    "publishes": ["character.performance.*", "character.execution.*"],
+    "subscribes": ["character.response.completed"]
+  },
+  "data": { "schemas": ["character_performance"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/character-performance-runtime",
+    "keyDomains": [],
+    "allowedCallers": ["responses-runtime", "athena-api"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/character-performance-runtime",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.999,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["infra:postgresql"],
+  "domain": "character-runtime",
+  "responsibilities": [
+    "performance-pack-selection",
+    "resolved-cue-to-command-compilation",
+    "performance-session-state",
+    "execution-evidence-persistence"
+  ],
+  "nonResponsibilities": [
+    "character-language-generation",
+    "semantic-cue-authoring",
+    "asset-upload",
+    "3d-engine-rendering",
+    "provider-credentials",
+    "foreign-schema-writes"
+  ],
+  "contracts": {
+    "provides": [
+      {
+        "id": "character-performance.packs.retrieve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/character-performance.packs.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.packs.retrieve/response/1.0",
+        "errorCodes": ["contract_invalid", "performance_pack_not_found"],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "character-performance.sessions.create",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.sessions.create/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.create/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "performance_pack_negotiation_failed"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.retrieve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/character-performance.sessions.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.retrieve/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.resolve-scope",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/character-performance.sessions.resolve-scope/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.resolve-scope/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.link",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.sessions.link/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.link/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_conversation_already_linked"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.plans.compile",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.plans.compile/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.plans.compile/response/1.0",
+        "errorCodes": [
+          "performance_plan_manifest_mismatch",
+          "performance_required_binding_missing"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.events.retrieve",
+        "version": "1.0",
+        "callType": "Stream",
+        "requestSchema": "athena://contracts/character-performance.events.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.events.retrieve/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.feedback.create",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.feedback.create/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.feedback.create/response/1.0",
+        "errorCodes": [
+          "performance_feedback_event_invalid",
+          "performance_feedback_command_forged"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.cancel",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/character-performance.sessions.cancel/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.cancel/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.describe",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.describe/request/1.0",
+        "responseSchema": "athena://contracts/module.describe/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.self-test",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.self-test/request/1.0",
+        "responseSchema": "athena://contracts/module.self-test/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.lifecycle.query",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/module.lifecycle.query/request/1.0",
+        "responseSchema": "athena://contracts/module.lifecycle.query/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "module.drain",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.drain/request/1.0",
+        "responseSchema": "athena://contracts/module.drain/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.quiesce",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.quiesce/request/1.0",
+        "responseSchema": "athena://contracts/module.quiesce/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "module.resume",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/module.resume/request/1.0",
+        "responseSchema": "athena://contracts/module.resume/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      }
+    ],
+    "consumes": []
+  },
+  "ownership": {
+    "dataSchemas": ["character_performance"],
+    "objectPrefixes": [],
+    "keyDomains": [],
+    "configuration": ["runtime:character-performance-runtime"],
+    "runtimeState": ["module-instance:character-performance-runtime"]
+  },
+  "coordination": {
+    "centers": ["task", "recovery", "data"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "aicpPolicy": { "defaultMode": "observe", "links": [] }
+  },
+  "lifecycle": {
+    "states": [
+      "registered",
+      "initializing",
+      "ready",
+      "degraded",
+      "draining",
+      "quiesced",
+      "stopped",
+      "failed"
+    ],
+    "hooks": [
+      "initialize",
+      "self-test",
+      "ready",
+      "checkpoint",
+      "drain",
+      "quiesce",
+      "resume",
+      "stop",
+      "reconcile"
+    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
+    "heartbeatIntervalMs": 30000,
+    "leaseTtlMs": 90000
+  },
+  "reliability": {
+    "rtoMs": 120000,
+    "rpoMs": 0,
+    "forbiddenDegradations": [
+      "semantic-bypass",
+      "unbound-command-execution"
+    ]
+  }
+}

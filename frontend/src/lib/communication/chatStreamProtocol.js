@@ -22,6 +22,45 @@ function streamEvent(type, raw = {}, payload = {}) {
 export function normalizeChatStreamEvent(raw = {}) {
   const rawType = raw?.type || raw?.action || null;
 
+  if (rawType === "response.output_text.delta") {
+    return streamEvent("assistant_delta", raw, {
+      text: raw.delta || "",
+      revision: raw.sequence_number ?? null,
+    });
+  }
+
+  if (rawType === "response.completed") {
+    return streamEvent("final", raw, {
+      chatId: raw.response?.metadata?.chatId ?? null,
+      publicChatId: raw.response?.metadata?.publicChatId ?? null,
+      metrics: raw.response?.usage || {},
+    });
+  }
+
+  if (rawType === "response.failed" || rawType === "response.incomplete") {
+    return streamEvent("error", raw, {
+      error:
+        raw.response?.error?.message ||
+        raw.response?.error?.code ||
+        raw.response?.incomplete_details?.reason ||
+        "Responses turn did not complete.",
+    });
+  }
+
+  if (rawType?.startsWith?.("athena.")) {
+    return streamEvent("status", raw, raw);
+  }
+
+  if (
+    rawType === "response.created" ||
+    rawType === "response.in_progress" ||
+    rawType === "response.output_text.done" ||
+    rawType === "response.output_item.added" ||
+    rawType === "response.output_item.done"
+  ) {
+    return streamEvent("lifecycle", raw, raw);
+  }
+
   if (rawType === "agentInitWebsocketConnection") {
     return streamEvent("agent_init", raw, {
       websocketUUID: raw.websocketUUID,
@@ -172,7 +211,134 @@ export function normalizeChatTurnEvent(raw = {}) {
 
   let normalized = null;
 
-  if (type === "agentInitWebsocketConnection") {
+  if (type === "response.output_text.delta") {
+    normalized = {
+      type: "assistant_delta",
+      uuid: raw.response_id,
+      content: raw.delta || "",
+      sources: [],
+      closed: false,
+      revision: raw.sequence_number ?? null,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "response.completed") {
+    normalized = {
+      type: "assistant_final",
+      uuid: raw.response_id || raw.response?.id,
+      content: "",
+      sources: [],
+      chatId: raw.response?.metadata?.chatId ?? null,
+      publicChatId: raw.response?.metadata?.publicChatId ?? null,
+      metrics: raw.response?.usage || {},
+      closed: true,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "response.failed") {
+    const responseError =
+      raw.response?.error?.message ||
+      raw.response?.error?.code ||
+      "Responses turn failed.";
+    normalized = {
+      type: "assistant_error",
+      uuid: raw.response_id || raw.response?.id,
+      content: responseError,
+      error: responseError,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "response.incomplete") {
+    normalized = {
+      type: "stop_generation",
+      uuid: raw.response_id || raw.response?.id,
+      content:
+        raw.response?.incomplete_details?.reason || "Generation stopped.",
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.tool.progress") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "thought",
+        uuid: `${raw.response_id}:${raw.sequence_number}`,
+        content: raw.content || "",
+        animate: true,
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.tool.started") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "tool_call",
+        uuid: raw.call_id,
+        toolName: raw.tool_name,
+        content: raw.content || `Calling ${raw.tool_name}`,
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.tool.completed") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "tool_result",
+        uuid: raw.call_id,
+        toolName: raw.tool_name,
+        result: raw.result || null,
+        content: raw.content || "Tool completed.",
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.approval.required") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "approval_request",
+        requestId: raw.request_id || raw.action_id,
+        responseId: raw.response_id,
+        skillName: raw.tool_name,
+        payload: raw.payload || {},
+        description: raw.description || null,
+        content: raw.description || `Approval requested for ${raw.tool_name}`,
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.clarification.required") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "clarification_request",
+        requestId: raw.request_id || raw.action_id,
+        responseId: raw.response_id,
+        questions: raw.questions || [],
+        content: "Additional input is required.",
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.citations") {
+    normalized = {
+      type: "assistant_patch",
+      uuid: raw.response_id,
+      patch: { sources: raw.citations || [] },
+      revision: raw.sequence_number ?? null,
+      closed: false,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (
+    type === "response.created" ||
+    type === "response.in_progress" ||
+    type === "response.output_text.done" ||
+    type === "response.output_item.added" ||
+    type === "response.output_item.done"
+  ) {
+    normalized = {
+      type: "response_lifecycle",
+      status: type,
+      chatId: raw.response?.metadata?.chatId ?? null,
+      publicChatId: raw.response?.metadata?.publicChatId ?? null,
+      clientTurnId: raw.response?.metadata?.clientTurnId ?? null,
+      responseId: raw.response_id || raw.response?.id || null,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "agentInitWebsocketConnection") {
     normalized = {
       type: "agent_socket_start",
       websocketUUID,

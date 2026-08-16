@@ -6,6 +6,7 @@ const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const { metrics } = require("../observability/metrics");
 const { ensureStoragePath } = require("../environment");
 const { emitSemanticEvent } = require("../observability/semanticEvents");
+const { dispatchBrowserEgress } = require("../browserEgress/client");
 const { browserPermissionDecision, compactUrl, sha256 } = require(".");
 const {
   workerAction,
@@ -56,6 +57,39 @@ function profileId(userId, requested = "default") {
 
 function userRef(userId) {
   return `u-${Number(userId)}`;
+}
+
+function publicNode(node) {
+  if (!node) return null;
+  return {
+    nodeId: node.nodeId,
+    userId: node.userId,
+    capabilities: {
+      ...node.capabilities,
+      egressEncryptionPublicKey: undefined,
+      egressKeyAvailable: Boolean(node.capabilities?.egressEncryptionPublicKey),
+    },
+    version: node.version,
+    lastSeenAt: new Date(node.lastSeenAt).toISOString(),
+  };
+}
+
+function profileNetwork(profile, effectiveRoute = null) {
+  const requestedRoute = profile?.networkRoute || "system";
+  return {
+    requestedRoute,
+    effectiveRoute: effectiveRoute || requestedRoute,
+    region: requestedRoute === "athena_egress" ? "overseas" : "local",
+    connected: requestedRoute !== "athena_egress",
+    latencyMs: null,
+    grantExpiresAt: null,
+    degradedReason:
+      requestedRoute === "athena_egress"
+        ? "browser_egress_connection_not_confirmed"
+        : null,
+    routePolicyVersion:
+      profile?.routePolicyVersion || "browser-egress-route-v1",
+  };
 }
 
 function pageMetadata(result) {
@@ -153,6 +187,20 @@ class BrowserPlaneRuntime {
         downloads: capabilities.downloads !== false,
         uploads: capabilities.uploads !== false,
         platform: String(capabilities.platform || "unknown").slice(0, 32),
+        systemChrome: capabilities.systemChrome === true,
+        proxyModes: Array.isArray(capabilities.proxyModes)
+          ? capabilities.proxyModes
+              .map((value) => String(value))
+              .filter((value) =>
+                ["direct", "system", "athena_egress"].includes(value)
+              )
+          : ["direct", "system"],
+        egressEnvelopeVersion: String(
+          capabilities.egressEnvelopeVersion || ""
+        ).slice(0, 64),
+        egressEncryptionPublicKey: String(
+          capabilities.egressEncryptionPublicKey || ""
+        ).slice(0, 8192),
       },
       version: String(version || "unknown").slice(0, 64),
       lastSeenAt: Date.now(),
@@ -163,7 +211,7 @@ class BrowserPlaneRuntime {
         outcome: "success",
         driver: "electron-webcontentsview",
       });
-    return { ...node, lastSeenAt: new Date(node.lastSeenAt).toISOString() };
+    return publicNode(node);
   }
 
   nodesForUser(userId) {
@@ -172,10 +220,19 @@ class BrowserPlaneRuntime {
       .filter(
         (node) => node.userId === Number(userId) && node.lastSeenAt >= deadline
       )
-      .map((node) => ({
-        ...node,
-        lastSeenAt: new Date(node.lastSeenAt).toISOString(),
-      }));
+      .map(publicNode);
+  }
+
+  nodeForUser(userId, nodeId = null) {
+    const deadline = Date.now() - 45_000;
+    return (
+      [...this.nodes.values()].find(
+        (node) =>
+          node.userId === Number(userId) &&
+          node.lastSeenAt >= deadline &&
+          (!nodeId || node.nodeId === String(nodeId))
+      ) || null
+    );
   }
 
   async createSession({
@@ -218,7 +275,8 @@ class BrowserPlaneRuntime {
       executionLocation,
     });
     if (executionLocation === "desktop") {
-      const node = this.nodesForUser(userId)[0] || null;
+      const rawNode = this.nodeForUser(userId);
+      const node = publicNode(rawNode);
       const existing = await BrowserData.activeSession({
         userId,
         executionLocation,
@@ -239,6 +297,12 @@ class BrowserPlaneRuntime {
           driver: row.driver,
           status: row.status,
           node,
+          profile: {
+            profileId: profile.profileId,
+            networkRoute: profile.networkRoute || "system",
+            preferredDriver: profile.preferredDriver || "embedded",
+          },
+          network: profileNetwork(profile),
         };
       }
       const row = await BrowserData.createSession({
@@ -266,6 +330,12 @@ class BrowserPlaneRuntime {
         driver: row.driver,
         status: row.status,
         node,
+        profile: {
+          profileId: profile.profileId,
+          networkRoute: profile.networkRoute || "system",
+          preferredDriver: profile.preferredDriver || "embedded",
+        },
+        network: profileNetwork(profile),
       };
     }
     const existing = await BrowserData.activeSession({
@@ -299,7 +369,16 @@ class BrowserPlaneRuntime {
             errorCode: null,
           },
         });
-        return { id: existing.id, ...worker };
+        return {
+          id: existing.id,
+          ...worker,
+          profile: {
+            profileId: profile.profileId,
+            networkRoute: profile.networkRoute || "system",
+            preferredDriver: profile.preferredDriver || "embedded",
+          },
+          network: profileNetwork(profile, "direct"),
+        };
       } catch {
         await BrowserData.updateSession({
           userId,
@@ -381,7 +460,16 @@ class BrowserPlaneRuntime {
       action: "create",
       driver: "playwright-chromium",
     });
-    return { id: row.id, ...worker };
+    return {
+      id: row.id,
+      ...worker,
+      profile: {
+        profileId: profile.profileId,
+        networkRoute: profile.networkRoute || "system",
+        preferredDriver: profile.preferredDriver || "embedded",
+      },
+      network: profileNetwork(profile, "direct"),
+    };
   }
 
   async session({ userId, sessionId } = {}) {
@@ -942,6 +1030,246 @@ class BrowserPlaneRuntime {
     });
     await BrowserData.markProfileDeleted({ userId, profileId: id });
     return result;
+  }
+
+  async egressStatus({ userId } = {}) {
+    return dispatchBrowserEgress("status", { userId }, { timeoutMs: 10_000 });
+  }
+
+  async profileRoute({ userId, requestedProfileId = "default" } = {}) {
+    const id = profileId(userId, requestedProfileId);
+    const profile = await BrowserData.ensureProfile({
+      userId,
+      profileId: id,
+      executionLocation: "desktop",
+    });
+    let network = profileNetwork(profile);
+    if (profile.networkRoute === "athena_egress") {
+      const node = this.nodeForUser(userId);
+      network = node
+        ? await dispatchBrowserEgress("resolve", {
+            userId,
+            profileId: id,
+            deviceId: node.nodeId,
+          })
+        : {
+            ...network,
+            effectiveRoute: "unavailable",
+            connected: false,
+            degradedReason: "browser_node_offline",
+          };
+    }
+    return {
+      profileId: id,
+      networkRoute: profile.networkRoute || "system",
+      preferredDriver: profile.preferredDriver || "embedded",
+      egressGrantId: profile.egressGrantId || null,
+      routePolicyVersion:
+        profile.routePolicyVersion || "browser-egress-route-v1",
+      network,
+    };
+  }
+
+  async setProfileRoute({
+    userId,
+    requestedProfileId = "default",
+    networkRoute,
+    preferredDriver = "embedded",
+  } = {}) {
+    if (!["direct", "system", "athena_egress"].includes(String(networkRoute)))
+      throw Object.assign(new Error("browser_profile_network_route_invalid"), {
+        code: "browser_profile_network_route_invalid",
+        httpStatus: 400,
+      });
+    if (!["embedded", "system_chrome"].includes(String(preferredDriver)))
+      throw Object.assign(new Error("browser_profile_driver_invalid"), {
+        code: "browser_profile_driver_invalid",
+        httpStatus: 400,
+      });
+    const id = profileId(userId, requestedProfileId);
+    await BrowserData.ensureProfile({
+      userId,
+      profileId: id,
+      executionLocation: "desktop",
+    });
+    if (networkRoute === "athena_egress") {
+      const node = this.nodeForUser(userId);
+      if (!node)
+        throw Object.assign(new Error("browser_node_offline"), {
+          code: "browser_node_offline",
+          httpStatus: 409,
+        });
+      const resolved = await dispatchBrowserEgress("resolve", {
+        userId,
+        profileId: id,
+        deviceId: node.nodeId,
+      });
+      if (!resolved.connected)
+        throw Object.assign(
+          new Error(resolved.degradedReason || "browser_egress_unavailable"),
+          {
+            code: resolved.degradedReason || "browser_egress_unavailable",
+            httpStatus: 409,
+          }
+        );
+    }
+    await BrowserData.updateProfileRoute({
+      userId,
+      profileId: id,
+      networkRoute,
+      preferredDriver,
+      lastRouteHealth: "route_selected_pending_device_confirmation",
+    });
+    return this.profileRoute({ userId, requestedProfileId });
+  }
+
+  async enrollEgress({ userId, requestedProfileId = "default", nodeId } = {}) {
+    const id = profileId(userId, requestedProfileId);
+    const node = this.nodeForUser(userId, nodeId);
+    if (!node)
+      throw Object.assign(new Error("browser_node_offline"), {
+        code: "browser_node_offline",
+        httpStatus: 409,
+      });
+    if (!node.capabilities.egressEncryptionPublicKey)
+      throw Object.assign(new Error("browser_node_egress_key_unavailable"), {
+        code: "browser_node_egress_key_unavailable",
+        httpStatus: 409,
+      });
+    await BrowserData.ensureProfile({
+      userId,
+      profileId: id,
+      executionLocation: "desktop",
+    });
+    const issued = await dispatchBrowserEgress(
+      "issue",
+      {
+        userId,
+        profileId: id,
+        deviceId: node.nodeId,
+        encryptionPublicKey: node.capabilities.egressEncryptionPublicKey,
+      },
+      { idempotencyKey: `browser-egress-enroll:${id}:${node.nodeId}` }
+    );
+    await BrowserData.updateProfileRoute({
+      userId,
+      profileId: id,
+      networkRoute: "athena_egress",
+      preferredDriver: "embedded",
+      egressGrantId: issued.grant.id,
+      lastRouteHealth: "grant_issued_pending_device_confirmation",
+    });
+    return {
+      profileId: id,
+      nodeId: node.nodeId,
+      grant: issued.grant,
+      sealedConfig: issued.sealedConfig,
+      network: await dispatchBrowserEgress("resolve", {
+        userId,
+        profileId: id,
+        deviceId: node.nodeId,
+      }),
+    };
+  }
+
+  async renewEgress({ userId, grantId } = {}) {
+    return dispatchBrowserEgress(
+      "renew",
+      { userId, grantId },
+      { idempotencyKey: `browser-egress-renew:${grantId}` }
+    );
+  }
+
+  async revokeEgress({ userId, grantId } = {}) {
+    const result = await dispatchBrowserEgress(
+      "revoke",
+      { userId, grantId },
+      { idempotencyKey: `browser-egress-revoke:${grantId}` }
+    );
+    if (result.profileId) {
+      await BrowserData.updateProfileRoute({
+        userId,
+        profileId: result.profileId,
+        networkRoute: "system",
+        preferredDriver: "embedded",
+        egressGrantId: null,
+        lastRouteHealth: "grant_revoked",
+      }).catch(() => null);
+    }
+    return result;
+  }
+
+  async confirmProfileRoute({
+    userId,
+    requestedProfileId = "default",
+    nodeId,
+    networkRoute,
+    connected,
+    latencyMs = null,
+    errorCode = null,
+  } = {}) {
+    const id = profileId(userId, requestedProfileId);
+    const profile = await BrowserData.getProfile({ userId, profileId: id });
+    if (!profile || profile.networkRoute !== networkRoute)
+      throw Object.assign(
+        new Error("browser_profile_route_confirmation_mismatch"),
+        {
+          code: "browser_profile_route_confirmation_mismatch",
+          httpStatus: 409,
+        }
+      );
+    const node = this.nodeForUser(userId, nodeId);
+    if (!node)
+      throw Object.assign(new Error("browser_node_offline"), {
+        code: "browser_node_offline",
+        httpStatus: 409,
+      });
+    await BrowserData.updateProfileRoute({
+      userId,
+      profileId: id,
+      networkRoute,
+      preferredDriver: profile.preferredDriver || "embedded",
+      lastRouteHealth: connected
+        ? `connected:${Math.max(0, Number(latencyMs) || 0)}`
+        : `failed:${String(errorCode || "unknown").slice(0, 64)}`,
+    });
+    if (networkRoute === "athena_egress" && profile.egressGrantId)
+      await dispatchBrowserEgress("recordHealth", {
+        userId,
+        grantId: profile.egressGrantId,
+        code: connected ? "connected" : String(errorCode || "failed"),
+        handshakeAt: connected ? new Date().toISOString() : null,
+        latencyMs,
+      });
+    return this.profileRoute({ userId, requestedProfileId });
+  }
+
+  async openSystemChrome({ userId, sessionId, url = null } = {}) {
+    const session = await BrowserData.getSession({ userId, sessionId });
+    if (!session || session.executionLocation !== "desktop")
+      throw Object.assign(new Error("browser_desktop_session_not_found"), {
+        code: "browser_desktop_session_not_found",
+        httpStatus: 404,
+      });
+    const node = this.nodeForUser(userId, session.nodeId);
+    if (!node?.capabilities?.systemChrome)
+      throw Object.assign(new Error("browser_system_chrome_unavailable"), {
+        code: "browser_system_chrome_unavailable",
+        httpStatus: 409,
+      });
+    const profile = await BrowserData.getProfile({
+      userId,
+      profileId: session.profileId,
+    });
+    return {
+      action: "open_system_chrome",
+      nodeId: node.nodeId,
+      sessionId: session.id,
+      profileId: session.profileId,
+      networkRoute: profile?.networkRoute || "system",
+      url: compactUrl(url) || "about:blank",
+      requiresLocalConnector: true,
+    };
   }
 
   async listWorkspaces(userId) {

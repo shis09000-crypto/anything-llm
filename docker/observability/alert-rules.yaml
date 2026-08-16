@@ -211,3 +211,19 @@ groups:
           owner: browser-plane
         annotations:
           summary: Browser driver crashed at least three times within ten minutes.
+      - alert: AthenaBrowserEgressGatewayUnavailable
+        expr: athena_browser_egress_enabled == 1 and athena_browser_egress_gateway_ready == 0
+        for: 2m
+        labels:
+          severity: warning
+          owner: browser-plane
+        annotations:
+          summary: Browser Egress Gateway has failed its real gateway health contract for two minutes.
+      - alert: AthenaBrowserEgressGrantFailures
+        expr: increase(athena_browser_egress_grants_total{outcome="failed"}[10m]) >= 3
+        for: 2m
+        labels:
+          severity: warning
+          owner: browser-plane
+        annotations:
+          summary: Browser Egress grant operations are repeatedly failing.

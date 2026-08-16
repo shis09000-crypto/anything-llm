@@ -141,6 +141,8 @@ const TRANSLATIONS = {
     security: "Security",
     "button-lab": "Button Lab",
     "mobile-page-experiment": "Mobile Page Experiment",
+    "character-performance-lab": "Character Performance Lab",
+    "athena-3d-center": "Athena 3D Center",
     "crypto-component-experiment": "Crypto Component Experiment",
     "crypto-center": "Crypto Center",
     "event-logs": "Event Logs",
@@ -2207,6 +2209,7 @@ const readable = true;
     metrics_visibility: {
       hover_only: "Click to show model info only when hovering",
       always_show: "Click to always show model info",
+      unknown_model: "Unknown model",
     },
     sources: "Sources",
     source_count_one: "{{count}} reference",

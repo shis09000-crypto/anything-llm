@@ -168,6 +168,23 @@ final class APIClient {
         self.requestSigningCenter = requestSigningCenter
     }
 
+    func deviceBindingAssertion(
+        challengeId: String,
+        challenge: String
+    ) throws -> DeviceBindingAssertion {
+        guard let clientID = clientIdentityCenter?.clientID else {
+            throw APIClientError.clientIdentityRequired
+        }
+        guard let requestSigningCenter else {
+            throw APIClientError.signingUnavailable
+        }
+        return try requestSigningCenter.deviceBindingAssertion(
+            challengeId: challengeId,
+            challenge: challenge,
+            clientID: clientID
+        )
+    }
+
     func url(for path: String, queryItems: [URLQueryItem] = []) throws -> URL {
         var trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmedPath.isEmpty else {

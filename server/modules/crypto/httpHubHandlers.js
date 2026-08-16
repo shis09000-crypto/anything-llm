@@ -355,7 +355,7 @@ function cryptoHubEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getTradingPairDetail({
+          await response.locals.cryptoDataHub.getTradingPairDetail({
             pair: request.query?.pair || "BTC_USDT",
             market: request.query?.market || "spot",
           })
@@ -391,7 +391,7 @@ function cryptoHubEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getBtcSummary({
+          await response.locals.cryptoDataHub.getBtcSummary({
             range: request.query?.range || "1d",
           })
         );

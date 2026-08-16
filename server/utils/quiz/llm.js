@@ -1,4 +1,12 @@
+const crypto = require("crypto");
 const { getTaskConnector } = require("../llmTasks");
+const {
+  chatUsage,
+  createBoundDelegateProxy,
+  createResponsesRuntimeConnector,
+  requestBody,
+  toChatStream,
+} = require("../responsesRuntime/chatAdapter");
 const { safeJsonParse } = require("../http");
 const {
   QUIZ_JSON_RESPONSE_FORMAT,
@@ -11,13 +19,68 @@ const {
 const DEFAULT_RETRY_DELAYS_MS = [800, 1600];
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_TOTAL_STREAM_TIMEOUT_MS = 210_000;
+let localResponsesRuntime = null;
+
+function installQuizResponsesRuntime(runtime = null) {
+  localResponsesRuntime = runtime;
+}
+
+function localRuntimeConnector(delegate, { provider, model }) {
+  const overrides = { responsesRuntime: true, responsesRuntimeLocal: true };
+  overrides.getChatCompletion = async (messages, options = {}) => {
+    const response = await localResponsesRuntime.complete(
+      requestBody(messages, options, options.runtimeContext || {}, {
+        provider,
+        model,
+      })
+    );
+    return {
+      textResponse: response.output_text || "",
+      metrics: {
+        ...chatUsage(response.usage),
+        model: response.model || model,
+        provider,
+        requested_protocol: response.athena?.requestedProtocol || "responses",
+        effective_protocol: response.athena?.effectiveProtocol || "responses",
+        degraded_reason: response.athena?.degradedReason || null,
+        response_id: response.id,
+        conversation_id: response.conversation?.id || null,
+        execution_source: "responses_runtime_local",
+      },
+    };
+  };
+  overrides.streamGetChatCompletion = async (messages, options = {}) => {
+    const events = localResponsesRuntime.stream(
+      requestBody(messages, options, options.runtimeContext || {}, {
+        provider,
+        model,
+      })
+    );
+    return toChatStream(events, { provider, model });
+  };
+  return createBoundDelegateProxy(delegate, overrides);
+}
 
 function quizLLM(model, taskName = null) {
   taskName ||= "quiz_generation";
   if (model === QUIZ_PLAN_MODEL) taskName = "quiz_plan";
   if (model === QUIZ_GENERATION_FALLBACK_MODEL)
     taskName = "quiz_generation_fallback";
-  return getTaskConnector(taskName, {}, { model }).connector;
+  const resolved = getTaskConnector(taskName, {}, { model });
+  if (
+    String(process.env.ATHENA_RUNTIME_ROLE || "") === "responses-runtime" &&
+    localResponsesRuntime
+  ) {
+    return localRuntimeConnector(resolved.connector, {
+      provider: resolved.provider,
+      model: resolved.model,
+    });
+  }
+  return createResponsesRuntimeConnector(resolved.connector, {
+    provider: resolved.provider,
+    model: resolved.model,
+    callerRole: String(process.env.ATHENA_RUNTIME_ROLE || "api"),
+  });
 }
 
 function stripThinkBlocks(text = "") {
@@ -28,6 +91,15 @@ function stripThinkBlocks(text = "") {
 
 function parseJsonResponse(text = "", fallback = null) {
   return safeJsonParse(stripThinkBlocks(text), fallback);
+}
+
+function quizRuntimeContext() {
+  return {
+    chatRunId: `quiz:${crypto.randomUUID()}`,
+    taskName: "quiz_generation",
+    taskIntent: "quiz_generation",
+    taskPriority: "P0",
+  };
 }
 
 async function completeJson({
@@ -52,6 +124,8 @@ async function completeJson({
     {
       temperature,
       responseFormat: QUIZ_JSON_RESPONSE_FORMAT,
+      store: false,
+      runtimeContext: quizRuntimeContext(),
     }
   );
   return {
@@ -156,6 +230,8 @@ async function completeJsonStream({
   const stream = await LLMConnector.streamGetChatCompletion(messages, {
     temperature,
     responseFormat: QUIZ_JSON_RESPONSE_FORMAT,
+    store: false,
+    runtimeContext: quizRuntimeContext(),
   });
 
   let textResponse = "";
@@ -331,13 +407,19 @@ async function completeText({
   );
   const { textResponse, metrics } = await LLMConnector.getChatCompletion(
     messages,
-    { temperature }
+    {
+      temperature,
+      store: false,
+      runtimeContext: quizRuntimeContext(),
+    }
   );
   return { text: stripThinkBlocks(textResponse), metrics, model };
 }
 
 module.exports = {
   quizLLM,
+  quizRuntimeContext,
+  installQuizResponsesRuntime,
   completeJson,
   completeJsonWithRetry,
   completeJsonStream,

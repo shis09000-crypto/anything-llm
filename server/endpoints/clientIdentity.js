@@ -119,9 +119,11 @@ function clientIdentityEndpoints(app) {
       });
       if (!result.ok) {
         observeVaultKem("register", "rejected");
-        return response
-          .status(409)
-          .json({ success: false, error: result.reasonCode });
+        return response.status(409).json({
+          success: false,
+          error: result.reasonCode,
+          currentKeyGeneration: result.keyGeneration || null,
+        });
       }
       observeVaultKem("register", "success");
       await recordClientTrustCheckpoint(request, {
@@ -168,9 +170,11 @@ function clientIdentityEndpoints(app) {
       });
       if (!result.ok) {
         observeVaultKem("register", "rejected");
-        return response
-          .status(409)
-          .json({ success: false, error: result.reasonCode });
+        return response.status(409).json({
+          success: false,
+          error: result.reasonCode,
+          currentKeyGeneration: result.keyGeneration || null,
+        });
       }
       observeVaultKem("register", "success");
       await recordClientTrustCheckpoint(request, {

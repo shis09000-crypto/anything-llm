@@ -1,0 +1,125 @@
+{
+  "schema": "athena.character.capability_manifest",
+  "schema_version": "1.0",
+  "id": "athena.default",
+  "version": "1.0.0",
+  "namespace": "athena.core",
+  "character_id": "athena.default",
+  "minimum_runtime_version": "1.0.0",
+  "performance_packs": [
+    {
+      "id": "athena.performance.default",
+      "version": "1.0.0",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "athena.core:emotion/neutral",
+      "kind": "emotion",
+      "version": "1.0.0",
+      "available": true,
+      "channels": ["face", "gaze", "body.upper", "voice"],
+      "resource_claims": [],
+      "parameters": { "type": "object", "properties": {}, "additionalProperties": false },
+      "safety_class": "cosmetic",
+      "interruptibility": "blend_out",
+      "minimum_runtime_version": "1.0.0"
+    },
+    {
+      "id": "athena.core:emotion/amused",
+      "kind": "emotion",
+      "version": "1.0.0",
+      "available": true,
+      "channels": ["face", "gaze", "body.upper", "voice"],
+      "resource_claims": [],
+      "parameters": { "type": "object", "properties": {}, "additionalProperties": false },
+      "fallback": "athena.core:emotion/neutral",
+      "safety_class": "cosmetic",
+      "interruptibility": "blend_out",
+      "minimum_runtime_version": "1.0.0"
+    },
+    {
+      "id": "athena.core:expression/amused",
+      "kind": "expression",
+      "version": "1.0.0",
+      "available": true,
+      "channels": ["face"],
+      "resource_claims": ["face.primary"],
+      "parameters": {
+        "type": "object",
+        "properties": { "intensity": { "type": "number", "minimum": 0, "maximum": 1 } },
+        "required": ["intensity"],
+        "additionalProperties": false
+      },
+      "safety_class": "cosmetic",
+      "interruptibility": "blend_out",
+      "minimum_runtime_version": "1.0.0"
+    },
+    {
+      "id": "athena.core:gaze_style/direct",
+      "kind": "gaze_style",
+      "version": "1.0.0",
+      "available": true,
+      "channels": ["gaze"],
+      "resource_claims": ["gaze.primary"],
+      "parameters": { "type": "object", "properties": {}, "additionalProperties": false },
+      "safety_class": "cosmetic",
+      "interruptibility": "blend_out",
+      "minimum_runtime_version": "1.0.0"
+    },
+    {
+      "id": "athena.core:action/sit",
+      "kind": "action",
+      "version": "1.0.0",
+      "available": true,
+      "channels": ["body.lower", "locomotion", "world.interaction"],
+      "resource_claims": ["locomotion", "seat.interaction"],
+      "parameters": {
+        "type": "object",
+        "properties": { "seat": { "type": "string" } },
+        "additionalProperties": false
+      },
+      "safety_class": "interaction",
+      "interruptibility": "at_boundary",
+      "minimum_runtime_version": "1.0.0"
+    },
+    {
+      "id": "athena.core:voice_style/soft",
+      "kind": "voice_style",
+      "version": "1.0.0",
+      "available": true,
+      "channels": ["voice"],
+      "resource_claims": ["voice.primary"],
+      "parameters": { "type": "object", "properties": {}, "additionalProperties": false },
+      "safety_class": "cosmetic",
+      "interruptibility": "immediate",
+      "minimum_runtime_version": "1.0.0"
+    }
+  ],
+  "fallbacks": {
+    "athena.core:expression/playful_smirk": "athena.core:expression/amused"
+  },
+  "fallback_policy": {
+    "unknown_optional": "warn",
+    "unknown_required": "reject",
+    "max_depth": 4
+  },
+  "permissions": {
+    "default": "deny",
+    "requested": [],
+    "denied_data_domains": [
+      "athena_core",
+      "user_memory",
+      "files",
+      "browser",
+      "finance",
+      "api_keys",
+      "private_tools"
+    ]
+  },
+  "integrity": {
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "signature_algorithm": "none"
+  }
+}

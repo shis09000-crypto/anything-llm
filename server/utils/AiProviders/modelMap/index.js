@@ -1,7 +1,30 @@
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const LEGACY_MODEL_MAP = require("./legacy");
 const { storagePath } = require("../../environment");
+
+function modelMapCacheLocation(env = process.env) {
+  const explicitLocation = String(env.ATHENA_MODEL_MAP_CACHE_DIR || "").trim();
+  if (explicitLocation) return path.resolve(explicitLocation);
+
+  const distributedRuntime = ["distributed", "micro-modules", "cloud"].includes(
+    String(env.ATHENA_RUNTIME_TOPOLOGY || "")
+      .trim()
+      .toLowerCase()
+  );
+  if (!distributedRuntime) return storagePath("models", "context-windows");
+
+  const runtimeRole = String(env.ATHENA_RUNTIME_ROLE || "runtime")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-");
+  return path.resolve(
+    os.tmpdir(),
+    "athena-model-map",
+    runtimeRole || "runtime"
+  );
+}
 
 class ContextWindowFinder {
   static instance = null;
@@ -27,14 +50,22 @@ class ContextWindowFinder {
   static remoteUrl =
     "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json";
 
-  cacheLocation = storagePath("models", "context-windows");
-  cacheFilePath = path.resolve(this.cacheLocation, "context-windows.json");
-  cacheFileExpiryPath = path.resolve(this.cacheLocation, ".cached_at");
+  cacheLocation = null;
+  cacheFilePath = null;
+  cacheFileExpiryPath = null;
   seenStaleCacheWarning = false;
 
   constructor() {
     if (ContextWindowFinder.instance) return ContextWindowFinder.instance;
     ContextWindowFinder.instance = this;
+    // This LiteLLM metadata is a disposable cache. A distributed runtime must
+    // not write it into Athena's shared authoritative storage volume.
+    this.cacheLocation = modelMapCacheLocation();
+    this.cacheFilePath = path.resolve(
+      this.cacheLocation,
+      "context-windows.json"
+    );
+    this.cacheFileExpiryPath = path.resolve(this.cacheLocation, ".cached_at");
     if (!fs.existsSync(this.cacheLocation))
       fs.mkdirSync(this.cacheLocation, { recursive: true });
 
@@ -213,4 +244,8 @@ You can fix this by restarting AnythingLLM so the model map is re-pulled.
   }
 }
 
-module.exports = { MODEL_MAP: new ContextWindowFinder() };
+module.exports = {
+  MODEL_MAP: new ContextWindowFinder(),
+  ContextWindowFinder,
+  modelMapCacheLocation,
+};

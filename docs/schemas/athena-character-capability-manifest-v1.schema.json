@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-character-capability-manifest-v1.schema.json",
+  "title": "Athena Character Capability Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "id",
+    "version",
+    "namespace",
+    "character_id",
+    "capabilities",
+    "fallbacks",
+    "fallback_policy",
+    "permissions",
+    "integrity"
+  ],
+  "properties": {
+    "schema": { "const": "athena.character.capability_manifest" },
+    "schema_version": { "const": "1.0" },
+    "id": { "$ref": "#/$defs/identifier" },
+    "version": { "$ref": "#/$defs/semver" },
+    "namespace": { "$ref": "#/$defs/namespace" },
+    "character_id": { "$ref": "#/$defs/identifier" },
+    "minimum_runtime_version": { "$ref": "#/$defs/semver" },
+    "performance_packs": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "sha256"],
+        "properties": {
+          "id": { "$ref": "#/$defs/identifier" },
+          "version": { "$ref": "#/$defs/semver" },
+          "sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "fallbacks": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/capabilityId" },
+      "additionalProperties": { "$ref": "#/$defs/capabilityId" },
+      "maxProperties": 4096
+    },
+    "fallback_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unknown_optional", "unknown_required", "max_depth"],
+      "properties": {
+        "unknown_optional": { "enum": ["ignore", "warn"] },
+        "unknown_required": { "const": "reject" },
+        "max_depth": { "const": 4 }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "requested", "denied_data_domains"],
+      "properties": {
+        "default": { "const": "deny" },
+        "requested": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.:-]*$",
+            "maxLength": 160
+          }
+        },
+        "denied_data_domains": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "athena_core",
+              "user_memory",
+              "files",
+              "browser",
+              "finance",
+              "api_keys",
+              "private_tools"
+            ]
+          }
+        }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "signature_algorithm": {
+          "enum": ["ed25519", "ml-dsa-65", "none"]
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
+        },
+        "publisher_key_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "signature_algorithm": {
+                "enum": ["ed25519", "ml-dsa-65"]
+              }
+            },
+            "required": ["signature_algorithm"]
+          },
+          "then": {
+            "required": ["signature", "publisher_key_id"]
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$",
+      "maxLength": 160
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*:[a-z][a-z0-9_-]*/[a-z][a-z0-9_.-]*$",
+      "maxLength": 240
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "jsonSchema": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "$schema": { "type": "string", "format": "uri" },
+        "type": { "enum": ["object"] },
+        "properties": { "type": "object", "additionalProperties": true },
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "additionalProperties": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "version",
+        "available",
+        "channels",
+        "resource_claims",
+        "parameters",
+        "safety_class",
+        "interruptibility",
+        "minimum_runtime_version"
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/capabilityId" },
+        "kind": {
+          "enum": [
+            "emotion",
+            "expression",
+            "gaze_style",
+            "gesture",
+            "posture",
+            "action",
+            "voice_style",
+            "interaction",
+            "extension"
+          ]
+        },
+        "version": { "$ref": "#/$defs/semver" },
+        "available": { "type": "boolean" },
+        "channels": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "face",
+              "gaze",
+              "body.upper",
+              "body.lower",
+              "locomotion",
+              "voice",
+              "world.interaction"
+            ]
+          }
+        },
+        "resource_claims": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.-]*$",
+            "maxLength": 120
+          }
+        },
+        "parameters": { "$ref": "#/$defs/jsonSchema" },
+        "fallback": { "$ref": "#/$defs/capabilityId" },
+        "safety_class": {
+          "enum": ["cosmetic", "locomotion", "interaction", "privileged"]
+        },
+        "interruptibility": {
+          "enum": ["immediate", "blend_out", "at_boundary", "finish"]
+        },
+        "minimum_runtime_version": { "$ref": "#/$defs/semver" },
+        "description": { "type": "string", "maxLength": 1000 }
+      }
+    }
+  }
+}

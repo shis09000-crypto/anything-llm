@@ -78,7 +78,9 @@ function generationPrompt({ job, typeRules }) {
 - Every question must include sourceRefs exactly as ["general-knowledge"].
 - Do not claim that these questions are sourced from workspace documents.`
     : `- Use ONLY the evidence chunks below.
-- Every question must include sourceRefs containing one or more evidence ids.
+- For every question, independently judge which evidence chunks actually support its answer, then output those exact evidence ids in that question's sourceRefs JSON field.
+- Do not let the application assign sources by question order, topic, or the overall quiz; sourceRefs must be your per-question evidence judgment.
+- Every question must include sourceRefs containing one or more evidence ids that fully support the answer.
 - Do not invent facts that are not present in evidence.`;
 
   return `Generate ${job.count} ${job.type} quiz questions.
@@ -117,6 +119,7 @@ function repairPrompt({ job, typeRules, previousJson }) {
   const evidenceConstraint = isGeneralKnowledge
     ? `- Every question.sourceRefs must be exactly ["general-knowledge"].`
     : `- Every question.sourceRefs entry must be one of these exact evidence ids: ${evidenceIds.join(", ")}.
+- Independently choose sourceRefs for each question according to the chunks that fully support that question's answer.
 - Do not invent facts outside the evidence.`;
   return `The previous ${job.type} quiz generation returned zero valid questions after validation.
 

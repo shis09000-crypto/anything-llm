@@ -47,7 +47,7 @@ services:
       ATHENA_SERVICE_MTLS_REQUIRED: "true"
       ATHENA_COLLECTOR_SERVICE_ID: ${ATHENA_COLLECTOR_SERVICE_ID:-spiffe://athena/production/collector}
       ATHENA_API_SERVICE_ID: ${ATHENA_API_SERVICE_ID:-spiffe://athena/production/api}
-      COLLECTOR_MTLS_ALLOWED_CLIENT_IDS: ${ATHENA_API_SERVICE_ID:-spiffe://athena/production/api},${ATHENA_BACKGROUND_WORKER_SERVICE_ID:-spiffe://athena/production/background-worker}
+      COLLECTOR_MTLS_ALLOWED_CLIENT_IDS: ${ATHENA_API_SERVICE_ID:-spiffe://athena/production/api},${ATHENA_BACKGROUND_WORKER_SERVICE_ID:-spiffe://athena/production/background-worker},${ATHENA_COORDINATION_PLANE_SERVICE_ID:-spiffe://athena/production/coordination-plane}
       COLLECTOR_MTLS_CA_FILE: /run/secrets/athena_service_ca.pem
       COLLECTOR_MTLS_CERT_FILE: /run/secrets/athena_collector.pem
       COLLECTOR_MTLS_KEY_FILE: /run/secrets/athena_collector.key

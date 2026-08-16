@@ -71,6 +71,27 @@ describe("Key Custody isolated service runtime", () => {
     ).toThrow("key_custody_purpose_denied");
   });
 
+  test.each([
+    ["api", "secret-store"],
+    ["api", "chat-conversation-key"],
+    ["chat-runtime", "secret-store"],
+    ["chat-runtime", "chat-conversation-key"],
+    ["identity", "user-state:chat-draft"],
+  ])("authorizes %s for owned application purpose %s", (role, purpose) => {
+    const caller = `spiffe://athena/production/${role}`;
+    const context = { purpose, domain: "data" };
+    const wrapped = wrapMaterial(
+      { plaintext: "owned material", context },
+      { caller, env: { NODE_ENV: "production" } }
+    );
+    expect(
+      unwrapMaterial(
+        { wrapped: wrapped.wrapped, context },
+        { caller, env: { NODE_ENV: "production" } }
+      ).plaintext
+    ).toBe("owned material");
+  });
+
   test.each(["api", "identity"])(
     "signs only canonical security-audit checkpoint payloads for %s",
     (callerRole) => {

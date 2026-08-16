@@ -50,6 +50,7 @@ import {
   isAssistantTurn,
   mergeServerHistoryIntoTurns,
 } from "@/utils/chat/turns";
+import { hasActiveResponseTurn } from "@/utils/chat/turnActivity";
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
 import showToast from "@/utils/toast";
@@ -173,7 +174,11 @@ export default function ChatContainer({
   const visibleChatItems = chatEditSession
     ? chatEditSession.prefixItems
     : chatItems;
-  const loadingResponse = !!draft?.isStreaming;
+  // `isStreaming` describes text deltas only. Responses/Agent turns also pass
+  // through planning, tool, and socket phases where no text delta is flowing.
+  // Keep the composer in one running state until the assistant turn itself is
+  // terminal so those phase changes cannot swap the stop/send button.
+  const loadingResponse = hasActiveResponseTurn(draft, chatItems);
   const latestAssistantTurn = lastAssistantTurn(chatItems);
   const [mindMapRequest, setMindMapRequest] = useState(null);
   const [quizModeActive, setQuizModeActive] = useState(false);
@@ -1086,11 +1091,14 @@ export default function ChatContainer({
       message,
       threadSlug,
       nodeContext,
+      clientTurnId: localTurn.turnId,
     });
     appendTimelineEvent(localTurn.chatKey, localTurn.turnId, {
       type: "thought",
       content: result?.success
-        ? "已生成首批题目，后续题型将继续补齐。"
+        ? result?.quiz?.questions?.length
+          ? "已生成首批题目，后续题型将继续补齐。"
+          : "测验已接收，正在通过 Responses API 生成题目。"
         : "测试题生成失败。",
     });
     if (result?.history) {
@@ -1106,6 +1114,10 @@ export default function ChatContainer({
         localTurn.turnId,
         result?.error || "测试题生成失败。"
       );
+      // A failed quiz request must remain recoverable. Restore the exact prompt
+      // and keep quiz mode enabled so a retry does not silently become chat.
+      setMessageEmit(message);
+      setQuizModeActive(true);
       showToast(result?.error || "测试题生成失败。", "error");
     } else {
       completeAssistantTurn(localTurn.chatKey, localTurn.turnId, {
@@ -1127,6 +1139,22 @@ export default function ChatContainer({
       history: knownHistory,
     });
   }, [workspace?.slug, threadSlug, chatKey, knownHistory, mergeServerHistory]);
+
+  useEffect(() => {
+    if (!workspace?.slug || !chatKey) return;
+    let cancelled = false;
+    Workspace.quizHistory(workspace.slug, threadSlug).then((result) => {
+      if (cancelled || !result?.history?.length) return;
+      mergeServerHistory({
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        history: result.history,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspace?.slug, threadSlug, chatKey, mergeServerHistory]);
 
   useEffect(() => {
     if (

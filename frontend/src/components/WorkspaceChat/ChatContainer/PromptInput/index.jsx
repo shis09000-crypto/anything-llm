@@ -1,10 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { GlassCard } from "@developer-hub/liquid-glass";
 import debounce from "lodash.debounce";
 import {
   ArrowUp,
-  At,
   CaretDown,
   CircleNotch,
   ClockCounterClockwise,
@@ -37,6 +36,7 @@ import ReaderTextSourceCards from "@/modules/reader/ReaderTextSourceCards";
 import { useDocumentReader } from "@/modules/reader/DocumentReaderProvider";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import WorkspaceCognition from "@/models/workspaceCognition";
+import { appendPromptUndoSnapshot } from "@/utils/promptInputRuntime";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";
 export const PROMPT_INPUT_EVENT = "set_prompt_input";
@@ -100,7 +100,6 @@ export default function PromptInput({
   }, [workspaceSlug, threadSlug]);
   const { t } = useTranslation();
   const readerContext = useDocumentReader();
-  const { showAgentCommand = true } = workspace ?? {};
   const { isDisabled: attachmentsProcessing } = useIsDisabled();
   const ocrProcessing = !!readerContext?.hasPendingReaderTextSources;
   const disabledReason = ocrProcessing
@@ -110,7 +109,7 @@ export default function PromptInput({
       : null;
   const isDisabled = !!disabledReason;
   const agentSessionActive = useIsAgentSessionActive();
-  const [promptInput, setPromptInput] = useState("");
+  const [hasPromptInput, setHasPromptInput] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false);
@@ -119,30 +118,81 @@ export default function PromptInput({
   const containerRef = useRef(null);
   const formRef = useRef(null);
   const textareaRef = useRef(null);
+  const promptInputRef = useRef("");
+  const hasPromptInputRef = useRef(false);
+  const isComposingRef = useRef(false);
+  const beforeInputSnapshotRef = useRef(null);
+  const compositionStartSnapshotRef = useRef(null);
+  const textareaResizeFrameRef = useRef(null);
+  const textareaLastHeightRef = useRef(0);
   const [_, setFocused] = useState(false);
   const undoStack = useRef([]);
   const redoStack = useRef([]);
   const { textSizeClass, textSizeStyle } = useTextSize();
   const [searchParams] = useSearchParams();
 
+  const scheduleTextAreaResize = useCallback(() => {
+    if (textareaResizeFrameRef.current !== null) return;
+    textareaResizeFrameRef.current = window.requestAnimationFrame(() => {
+      textareaResizeFrameRef.current = null;
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.style.height = "auto";
+      const nextHeight = Math.max(0, Math.ceil(textarea.scrollHeight));
+      if (nextHeight === textareaLastHeightRef.current) {
+        textarea.style.height = nextHeight ? `${nextHeight}px` : "auto";
+        return;
+      }
+      textareaLastHeightRef.current = nextHeight;
+      textarea.style.height = nextHeight ? `${nextHeight}px` : "auto";
+    });
+  }, []);
+
+  const writePromptValue = useCallback(
+    (nextValue) => {
+      const value = String(nextValue ?? "");
+      promptInputRef.current = value;
+      if (textareaRef.current && textareaRef.current.value !== value)
+        textareaRef.current.value = value;
+      const nextHasPromptInput = value.trim().length > 0;
+      if (nextHasPromptInput !== hasPromptInputRef.current) {
+        hasPromptInputRef.current = nextHasPromptInput;
+        setHasPromptInput(nextHasPromptInput);
+      }
+      scheduleTextAreaResize();
+    },
+    [scheduleTextAreaResize]
+  );
+
   // Synchronizes prompt input value with localStorage, scoped to the current thread.
-  usePromptInputStorage({
-    promptInput,
-    setPromptInput,
+  const schedulePromptInputStorage = usePromptInputStorage({
+    promptInputRef,
+    setPromptInput: writePromptValue,
     storageKey: promptStorageKey,
   });
 
-  /*
-   * @checklist-item
-   * If the URL has the agent param, open the agent menu for the user
-   * automatically when the component mounts.
-   */
+  const commitPromptValue = useCallback(
+    (value, { persist = true } = {}) => {
+      writePromptValue(value);
+      if (persist) schedulePromptInputStorage(String(value ?? ""));
+    },
+    [schedulePromptInputStorage, writePromptValue]
+  );
+
+  useEffect(
+    () => () => {
+      if (textareaResizeFrameRef.current !== null)
+        window.cancelAnimationFrame(textareaResizeFrameRef.current);
+    },
+    []
+  );
+
+  // Legacy links may still carry action=set-agent-chat. Unified Responses
+  // turns need no draft prefix or transport switch, so only focus the input.
   useEffect(() => {
-    if (searchParams.get("action") === "set-agent-chat") {
-      sendCommand({ text: "@agent " });
+    if (searchParams.get("action") === "set-agent-chat")
       textareaRef.current?.focus();
-    }
-  }, [textareaRef.current]);
+  }, [searchParams, textareaRef]);
 
   /**
    * To prevent too many re-renders we remotely listen for updates from the parent
@@ -166,26 +216,29 @@ export default function PromptInput({
     if (!targetInputId && !hasThreadTarget && inputId !== PROMPT_INPUT_ID)
       return;
 
+    const currentValue = promptInputRef.current;
     if (writeMode === "insert") {
       const textarea = textareaRef.current;
-      setPromptInput((prev) => {
-        const start = textarea?.selectionStart ?? prev.length;
-        const end = textarea?.selectionEnd ?? start;
-        const next =
-          prev.substring(0, start) + messageContent + prev.substring(end);
-        setTimeout(() => {
-          if (!textarea) return;
-          const nextCursor = start + String(messageContent ?? "").length;
-          textarea.selectionStart = textarea.selectionEnd = nextCursor;
-          adjustTextArea({ target: textarea });
-        }, 0);
-        return next;
+      const start = textarea?.selectionStart ?? currentValue.length;
+      const end = textarea?.selectionEnd ?? start;
+      const insertedValue = String(messageContent ?? "");
+      const next =
+        currentValue.substring(0, start) +
+        insertedValue +
+        currentValue.substring(end);
+      commitPromptValue(next);
+      window.requestAnimationFrame(() => {
+        if (!textarea) return;
+        const nextCursor = start + insertedValue.length;
+        textarea.selectionStart = textarea.selectionEnd = nextCursor;
       });
-    } else if (writeMode === "append")
-      setPromptInput((prev) => prev + messageContent);
-    else if (writeMode === "prepend")
-      setPromptInput((prev) => messageContent + " " + prev);
-    else setPromptInput(messageContent ?? "");
+    } else if (writeMode === "append") {
+      commitPromptValue(currentValue + String(messageContent ?? ""));
+    } else if (writeMode === "prepend") {
+      commitPromptValue(`${String(messageContent ?? "")} ${currentValue}`);
+    } else {
+      commitPromptValue(messageContent ?? "");
+    }
   }
 
   useEffect(() => {
@@ -193,11 +246,11 @@ export default function PromptInput({
       window.addEventListener(PROMPT_INPUT_EVENT, handlePromptUpdate);
     return () =>
       window?.removeEventListener(PROMPT_INPUT_EVENT, handlePromptUpdate);
-  }, [inputId, targetThreadSlug]);
+  }, [commitPromptValue, inputId, targetThreadSlug]);
 
   useEffect(() => {
     onComposeStateChange?.({
-      hasDraftInput: promptInput.trim().length > 0,
+      hasDraftInput: hasPromptInput,
       isComposing,
       slashMenuOpen: showTools,
       hasAttachments: attachments.length > 0,
@@ -210,7 +263,7 @@ export default function PromptInput({
     isStreaming,
     isVoiceInputActive,
     onComposeStateChange,
-    promptInput,
+    hasPromptInput,
     showTools,
   ]);
 
@@ -223,13 +276,7 @@ export default function PromptInput({
 
   useEffect(() => {
     reportInputHeight();
-  }, [
-    attachments.length,
-    isStreaming,
-    promptInput,
-    quizModeActive,
-    reportInputHeight,
-  ]);
+  }, [attachments.length, isStreaming, quizModeActive, reportInputHeight]);
 
   useEffect(() => {
     if (centered || !onHeightChange || !containerRef.current) return;
@@ -273,7 +320,7 @@ export default function PromptInput({
       agentSessionActive: !!agentSessionActive,
       stopButtonVisible: !!isStreaming,
       sendButtonVisible: !isStreaming,
-      promptLength: promptInput.length,
+      hasPromptInput,
     });
   }, [
     agentSessionActive,
@@ -283,26 +330,39 @@ export default function PromptInput({
     isStreaming,
     inputId,
     ocrProcessing,
-    promptInput.length,
+    hasPromptInput,
     threadSlug,
     workspace?.slug,
     workspaceSlug,
   ]);
 
-  /**
-   * Save the current state before changes
-   * @param {number} adjustment
-   */
-  function saveCurrentState(adjustment = 0) {
-    if (undoStack.current.length >= MAX_EDIT_STACK_SIZE)
-      undoStack.current.shift();
-    undoStack.current.push({
-      value: promptInput,
-      cursorPositionStart: textareaRef.current.selectionStart + adjustment,
-      cursorPositionEnd: textareaRef.current.selectionEnd + adjustment,
-    });
+  const pushUndoSnapshot = useCallback((snapshot) => {
+    if (
+      appendPromptUndoSnapshot(undoStack.current, snapshot, MAX_EDIT_STACK_SIZE)
+    )
+      redoStack.current = [];
+  }, []);
+
+  const debouncedSaveState = useMemo(
+    () => debounce(pushUndoSnapshot, 250),
+    [pushUndoSnapshot]
+  );
+
+  useEffect(() => () => debouncedSaveState.cancel(), [debouncedSaveState]);
+
+  function currentPromptSnapshot() {
+    const textarea = textareaRef.current;
+    return {
+      value: promptInputRef.current,
+      cursorPositionStart: textarea?.selectionStart ?? 0,
+      cursorPositionEnd: textarea?.selectionEnd ?? 0,
+    };
   }
-  const debouncedSaveState = debounce(saveCurrentState, 250);
+
+  function saveCurrentState(snapshot = currentPromptSnapshot()) {
+    debouncedSaveState.cancel();
+    pushUndoSnapshot(snapshot);
+  }
 
   function handleSubmit(e) {
     // Ignore submits from portaled modals (slash command preset forms)
@@ -314,7 +374,13 @@ export default function PromptInput({
 
   function resetTextAreaHeight() {
     if (!textareaRef.current) return;
+    if (textareaResizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(textareaResizeFrameRef.current);
+      textareaResizeFrameRef.current = null;
+    }
+    textareaLastHeightRef.current = 0;
     textareaRef.current.style.height = "auto";
+    if (promptInputRef.current) scheduleTextAreaResize();
   }
 
   /**
@@ -323,6 +389,8 @@ export default function PromptInput({
    * @param {KeyboardEvent} event
    */
   function captureEnterOrUndo(event) {
+    if (event.isComposing || isComposingRef.current) return;
+
     // Forward keyboard events to the ToolsMenu when open
     if (showTools) {
       if (
@@ -360,7 +428,7 @@ export default function PromptInput({
       event.key === "/" &&
       !event.ctrlKey &&
       !event.metaKey &&
-      promptInput.trim() === ""
+      promptInputRef.current.trim() === ""
     ) {
       setShowTools((prev) => {
         autoOpenedToolsRef.current = !prev;
@@ -393,23 +461,20 @@ export default function PromptInput({
       event.shiftKey
     ) {
       event.preventDefault();
+      debouncedSaveState.flush();
       if (redoStack.current.length === 0) return;
 
       const nextState = redoStack.current.pop();
       if (!nextState) return;
 
-      undoStack.current.push({
-        value: promptInput,
-        cursorPositionStart: textareaRef.current.selectionStart,
-        cursorPositionEnd: textareaRef.current.selectionEnd,
-      });
-      setPromptInput(nextState.value);
-      setTimeout(() => {
-        textareaRef.current.setSelectionRange(
+      undoStack.current.push(currentPromptSnapshot());
+      commitPromptValue(nextState.value);
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.setSelectionRange(
           nextState.cursorPositionStart,
           nextState.cursorPositionEnd
         );
-      }, 0);
+      });
     }
 
     // Undo with Ctrl+Z or Cmd+Z
@@ -418,29 +483,21 @@ export default function PromptInput({
       event.key === "z" &&
       !event.shiftKey
     ) {
+      event.preventDefault();
+      debouncedSaveState.flush();
       if (undoStack.current.length === 0) return;
       const lastState = undoStack.current.pop();
       if (!lastState) return;
 
-      redoStack.current.push({
-        value: promptInput,
-        cursorPositionStart: textareaRef.current.selectionStart,
-        cursorPositionEnd: textareaRef.current.selectionEnd,
-      });
-      setPromptInput(lastState.value);
-      setTimeout(() => {
-        textareaRef.current.setSelectionRange(
+      redoStack.current.push(currentPromptSnapshot());
+      commitPromptValue(lastState.value);
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.setSelectionRange(
           lastState.cursorPositionStart,
           lastState.cursorPositionEnd
         );
-      }, 0);
+      });
     }
-  }
-
-  function adjustTextArea(event) {
-    const element = event.target;
-    element.style.height = "auto";
-    element.style.height = `${element.scrollHeight}px`;
   }
 
   function handlePasteEvent(e) {
@@ -476,28 +533,50 @@ export default function PromptInput({
       const textarea = textareaRef.current;
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
+      const currentValue = promptInputRef.current;
       const newPromptInput =
-        promptInput.substring(0, start) +
+        currentValue.substring(0, start) +
         pasteText +
-        promptInput.substring(end);
-      setPromptInput(newPromptInput);
+        currentValue.substring(end);
+      commitPromptValue(newPromptInput);
 
       // Set the cursor position after the pasted text
-      // we need to use setTimeout to prevent the cursor from being set to the end of the text
-      setTimeout(() => {
+      window.requestAnimationFrame(() => {
         textarea.selectionStart = textarea.selectionEnd =
           start + pasteText.length;
-        adjustTextArea({ target: textarea });
-      }, 0);
+      });
     }
+    beforeInputSnapshotRef.current = null;
     return;
   }
 
+  function handleBeforeInput(event) {
+    if (
+      isComposingRef.current ||
+      event.nativeEvent?.inputType === "insertCompositionText"
+    )
+      return;
+    beforeInputSnapshotRef.current = currentPromptSnapshot();
+  }
+
   function handleChange(e) {
-    debouncedSaveState(-1);
-    adjustTextArea(e);
-    const value = e.target.value;
-    setPromptInput(value);
+    const value = e.currentTarget.value;
+    if (
+      isComposingRef.current ||
+      e.nativeEvent?.inputType === "insertCompositionText"
+    ) {
+      writePromptValue(value);
+      return;
+    }
+
+    const snapshot = beforeInputSnapshotRef.current || {
+      value: promptInputRef.current,
+      cursorPositionStart: Math.max(0, e.currentTarget.selectionStart - 1),
+      cursorPositionEnd: Math.max(0, e.currentTarget.selectionEnd - 1),
+    };
+    beforeInputSnapshotRef.current = null;
+    debouncedSaveState(snapshot);
+    commitPromptValue(value);
 
     // Auto-dismiss the tools menu when the "/" that opened it is modified
     if (autoOpenedToolsRef.current && showTools && value !== "/") {
@@ -570,24 +649,33 @@ export default function PromptInput({
                 <textarea
                   id={inputId}
                   ref={textareaRef}
+                  onBeforeInput={handleBeforeInput}
                   onChange={handleChange}
                   onKeyDown={captureEnterOrUndo}
                   onPaste={(e) => {
                     saveCurrentState();
                     handlePasteEvent(e);
                   }}
-                  onCompositionStart={() => setIsComposing(true)}
+                  onCompositionStart={() => {
+                    isComposingRef.current = true;
+                    compositionStartSnapshotRef.current =
+                      currentPromptSnapshot();
+                    setIsComposing(true);
+                  }}
                   onCompositionEnd={(event) => {
+                    isComposingRef.current = false;
                     setIsComposing(false);
-                    setPromptInput(event.currentTarget.value);
+                    if (compositionStartSnapshotRef.current)
+                      debouncedSaveState(compositionStartSnapshotRef.current);
+                    compositionStartSnapshotRef.current = null;
+                    commitPromptValue(event.currentTarget.value);
                   }}
                   required={true}
                   onFocus={() => setFocused(true)}
-                  onBlur={(e) => {
+                  onBlur={() => {
                     setFocused(false);
-                    adjustTextArea(e);
                   }}
-                  value={promptInput}
+                  defaultValue=""
                   spellCheck={Appearance.get("enableSpellCheck")}
                   className={`border-none cursor-text max-h-[50vh] md:max-h-[350px] md:min-h-[40px] pt-[20px] w-full leading-5 bg-transparent resize-none active:outline-none focus:outline-none flex-grow pwa:!text-[16px] ${
                     glass
@@ -604,12 +692,6 @@ export default function PromptInput({
                     <AttachItem
                       workspaceSlug={workspaceSlug}
                       workspaceThreadSlug={threadSlug}
-                    />
-                    <AgentSessionButton
-                      sendCommand={sendCommand}
-                      promptInput={promptInput}
-                      textareaRef={textareaRef}
-                      visible={!agentSessionActive & showAgentCommand}
                     />
                   </div>
                   <ToolsButton
@@ -642,7 +724,7 @@ export default function PromptInput({
                   ) : (
                     <SendPromptButton
                       formRef={formRef}
-                      promptInput={promptInput}
+                      hasPromptInput={hasPromptInput}
                       isDisabled={isDisabled}
                       disabledReason={disabledReason}
                     />
@@ -1262,49 +1344,6 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
   );
 }
 
-function AgentSessionButton({
-  sendCommand,
-  promptInput,
-  textareaRef,
-  visible = true,
-}) {
-  const { t } = useTranslation();
-  if (!visible) return null;
-
-  function handleClick() {
-    try {
-      if (promptInput?.trim()?.startsWith("@agent")) return;
-      sendCommand({ text: "@agent", writeMode: "prepend" });
-    } finally {
-      textareaRef?.current?.focus();
-    }
-  }
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={handleClick}
-        data-tooltip-id="agent-session"
-        data-tooltip-content={t("chat_window.start_agent_session")}
-        aria-label={t("chat_window.start_agent_session")}
-        className="group border-none relative flex justify-center items-center cursor-pointer w-6 h-6 rounded-full hover:bg-zinc-700 light:hover:bg-slate-200"
-      >
-        <At
-          size={18}
-          className="pointer-events-none text-zinc-300 light:text-slate-600 group-hover:text-white light:group-hover:text-slate-600 shrink-0"
-        />
-      </button>
-      <Tooltip
-        id="agent-session"
-        place="bottom"
-        delayShow={300}
-        className="tooltip !text-xs z-99"
-      />
-    </>
-  );
-}
-
 function ToolsButton({
   showTools,
   setShowTools,
@@ -1343,7 +1382,7 @@ function ToolsButton({
 
 function SendPromptButton({
   formRef,
-  promptInput,
+  hasPromptInput,
   isDisabled,
   disabledReason = null,
 }) {
@@ -1360,9 +1399,9 @@ function SendPromptButton({
       <button
         ref={formRef}
         type="submit"
-        disabled={isDisabled || !promptInput.trim().length}
+        disabled={isDisabled || !hasPromptInput}
         className={`border-none flex justify-center items-center rounded-full w-8 h-8 motion-hover ${
-          promptInput.trim().length && !isDisabled
+          hasPromptInput && !isDisabled
             ? "cursor-pointer bg-white hover:bg-zinc-200 light:bg-blue-500 light:hover:bg-blue-600"
             : "cursor-not-allowed bg-zinc-600 light:bg-slate-300"
         }`}

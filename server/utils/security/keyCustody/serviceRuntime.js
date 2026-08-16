@@ -9,9 +9,20 @@ const RPC_VERSION = "athena-key-custody-rpc:v1";
 const MAX_MATERIAL_BYTES = 64 * 1024;
 const CALLER_PURPOSES = Object.freeze({
   "crypto-account": new Set(["crypto-account-dek"]),
-  "athena-api": new Set(["crypto-account-dek", "security-audit-checkpoint"]),
-  identity: new Set(["security-audit-checkpoint"]),
+  "athena-api": new Set([
+    "crypto-account-dek",
+    "security-audit-checkpoint",
+    "secret-store",
+    "chat-conversation-key",
+  ]),
+  "chat-runtime": new Set(["secret-store", "chat-conversation-key"]),
+  "responses-runtime": new Set(["responses-state"]),
+  identity: new Set([
+    "security-audit-checkpoint",
+    "user-state:chat-draft",
+  ]),
   "browser-worker": new Set(["browser-profile-dek"]),
+  "browser-egress": new Set(["browser-egress-credential"]),
 });
 
 function observe(operation, outcome) {

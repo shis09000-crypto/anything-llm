@@ -40,6 +40,14 @@ const {
   publishCommittedChatDeletion,
 } = require("../utils/chats/chatTurnMutations");
 const { chatStreamRunManager } = require("../utils/chats/chatStreamRuns");
+const {
+  cancelResponsesTurn,
+  executeResponsesTurn,
+  submitResponsesTurnAction,
+} = require("../utils/responsesTurn/runtime");
+const {
+  DEEPSEEK_RESPONSE_MODELS,
+} = require("../utils/responsesRuntime/contract");
 
 const User = DataAccessCenter.user;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
@@ -225,7 +233,10 @@ function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
       thread: {
         slug: titleUpdate.slug,
         name: titleUpdate.name,
-        title: titleUpdate.title || titleUpdate.name,
+        title: titleUpdate.title,
+        isUntitled: titleUpdate.isUntitled,
+        titleSource: titleUpdate.titleSource,
+        titleGenerationStatus: titleUpdate.titleGenerationStatus,
         titleVersion: titleUpdate.titleVersion,
         animate: true,
       },
@@ -381,8 +392,357 @@ async function executeDetachedChatRun({
   }
 }
 
+async function executeDetachedResponsesRun({
+  response,
+  workspace,
+  effectiveWorkspace = workspace,
+  thread = null,
+  user,
+  clientContext,
+  message,
+  displayPrompt = null,
+  attachments = [],
+  fileAccess = {},
+  clientTurnId,
+  editContext = null,
+  regenerateContext = null,
+  isMultiUser = false,
+}) {
+  if (isMultiUser && !(await User.canSendChat(user))) {
+    const error = new Error("chat_quota_exceeded");
+    error.code = "chat_quota_exceeded";
+    throw error;
+  }
+
+  await prepareNativeTurnMutationStream({
+    response,
+    workspace,
+    thread,
+    user,
+    clientContext,
+    editContext,
+    regenerateContext,
+    clientTurnId,
+  });
+
+  publishWorkspaceSyncEvent({
+    type: "chat_prompt_submitted",
+    workspaceId: workspace.id,
+    workspaceSlug: workspace.slug,
+    userId: user?.id ?? null,
+    threadId: thread?.id || null,
+    threadSlug: thread?.slug || null,
+    senderClientId: clientContext.clientId,
+    clientTurnId,
+    message: displayPrompt || message,
+  });
+
+  await executeResponsesTurn({
+    responseId: response.runResponseId,
+    emit: (event) => response.onResponsesEvent(event),
+    workspace: effectiveWorkspace,
+    user,
+    thread,
+    message,
+    displayPrompt,
+    attachments,
+    fileAccess,
+    clientTurnId,
+  });
+}
+
+function responsesModelSupported(workspace = {}) {
+  return (
+    String(workspace.chatProvider || workspace.agentProvider || "") ===
+      "deepseek" &&
+    DEEPSEEK_RESPONSE_MODELS.includes(
+      String(workspace.chatModel || workspace.agentModel || "")
+    )
+  );
+}
+
+async function responsesRunScope({
+  responseId,
+  workspace,
+  thread = null,
+  user = null,
+}) {
+  const run = await DataAccessCenter.chatStreamRun.getScopedById({
+    id: responseId,
+    workspaceId: workspace.id,
+    threadId: thread?.id || null,
+    userId: user?.id || null,
+  });
+  if (!run) return null;
+  return chatStreamScope({
+    workspace,
+    thread,
+    user,
+    clientTurnId: run.clientTurnId,
+  });
+}
+
+async function handleResponsesTurnPost(
+  request,
+  response,
+  { thread = null } = {}
+) {
+  const user = await userFromSession(request, response);
+  const {
+    message,
+    displayPrompt = null,
+    attachments = [],
+    fileAccess = {},
+    clientTurnId = null,
+    editContext: rawEditContext = null,
+    regenerateContext: rawRegenerateContext = null,
+  } = reqBody(request);
+  const workspace = response.locals.workspace;
+  const effectiveWorkspace = thread
+    ? workspaceWithThreadChatModel(workspace, thread)
+    : workspace;
+  if (typeof message !== "string" || !message.trim()) {
+    return response.status(400).json({
+      success: false,
+      error: "message_required",
+    });
+  }
+  if (!responsesModelSupported(effectiveWorkspace)) {
+    return response.status(400).json({
+      success: false,
+      error: "responses_model_not_supported",
+    });
+  }
+
+  let editContext = null;
+  let regenerateContext = null;
+  try {
+    editContext = nativeEditContext(rawEditContext);
+    regenerateContext = nativeRegenerateContext(rawRegenerateContext);
+    if (editContext && regenerateContext) {
+      const error = new Error("Chat mutation contexts are mutually exclusive.");
+      error.code = "chat_mutation_context_conflict";
+      throw error;
+    }
+  } catch (error) {
+    return response.status(400).json({
+      success: false,
+      error: error.code || error.message,
+    });
+  }
+
+  const clientContext = getClientContext(request, { user });
+  const resolvedClientTurnId = String(clientTurnId || "").trim() || uuidv4();
+  const scope = chatStreamScope({
+    workspace,
+    thread,
+    user,
+    clientTurnId: resolvedClientTurnId,
+  });
+  const { run, created } = await chatStreamRunManager.claim(scope);
+  setSseTransportHeaders(response, { "Access-Control-Allow-Origin": "*" });
+  response.setHeader("X-Athena-Response-Id", run.id);
+  response.flushHeaders();
+  if (!created) {
+    await chatStreamRunManager.attach(
+      response,
+      scope,
+      request.headers["last-event-id"] || request.query?.afterSequence
+    );
+    return;
+  }
+
+  const runtime = chatStreamRunManager.start(run, (streamResponse) => {
+    streamResponse.runResponseId = run.id;
+    streamResponse.onResponsesEvent = (event) =>
+      streamResponse.onPayload(event);
+    return executeDetachedResponsesRun({
+      response: streamResponse,
+      workspace,
+      effectiveWorkspace,
+      thread,
+      user,
+      clientContext,
+      message,
+      displayPrompt,
+      attachments,
+      fileAccess,
+      clientTurnId: resolvedClientTurnId,
+      editContext,
+      regenerateContext,
+      isMultiUser: multiUserMode(response),
+    });
+  });
+  runtime.responsesMode = true;
+  runtime.sink.__athenaGoldenJourney = response.__athenaGoldenJourney || null;
+  await runtime.attach(
+    response,
+    request.headers["last-event-id"] || request.query?.afterSequence
+  );
+}
+
 function chatEndpoints(app) {
   if (!app) return;
+
+  app.post(
+    "/workspace/:slug/responses",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        await handleResponsesTurnPost(request, response);
+      } catch (error) {
+        console.error("[ResponsesTurn]", error);
+        if (!response.headersSent)
+          return response.status(error.httpStatus || 500).json({
+            success: false,
+            error: error.code || "responses_turn_failed",
+          });
+        if (!response.writableEnded && !response.destroyed) response.end();
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/thread/:threadSlug/responses",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        await handleResponsesTurnPost(request, response, {
+          thread: response.locals.thread,
+        });
+      } catch (error) {
+        console.error("[ResponsesTurn]", error);
+        if (!response.headersSent)
+          return response.status(error.httpStatus || 500).json({
+            success: false,
+            error: error.code || "responses_turn_failed",
+          });
+        if (!response.writableEnded && !response.destroyed) response.end();
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/responses/:responseId/stream",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      const user = await userFromSession(request, response);
+      const scope = await responsesRunScope({
+        responseId: request.params.responseId,
+        workspace: response.locals.workspace,
+        user,
+      });
+      if (!scope)
+        return response
+          .status(404)
+          .json({ success: false, error: "response_not_found" });
+      setSseTransportHeaders(response, { "Access-Control-Allow-Origin": "*" });
+      response.flushHeaders();
+      await chatStreamRunManager.attach(
+        response,
+        scope,
+        request.headers["last-event-id"] || request.query?.afterSequence
+      );
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread/:threadSlug/responses/:responseId/stream",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      const user = await userFromSession(request, response);
+      const scope = await responsesRunScope({
+        responseId: request.params.responseId,
+        workspace: response.locals.workspace,
+        thread: response.locals.thread,
+        user,
+      });
+      if (!scope)
+        return response
+          .status(404)
+          .json({ success: false, error: "response_not_found" });
+      setSseTransportHeaders(response, { "Access-Control-Allow-Origin": "*" });
+      response.flushHeaders();
+      await chatStreamRunManager.attach(
+        response,
+        scope,
+        request.headers["last-event-id"] || request.query?.afterSequence
+      );
+    }
+  );
+
+  for (const threaded of [false, true]) {
+    const route = threaded
+      ? "/workspace/:slug/thread/:threadSlug/responses/:responseId/cancel"
+      : "/workspace/:slug/responses/:responseId/cancel";
+    const middleware = threaded
+      ? [
+          validatedRequest,
+          flexUserRoleValid([ROLES.all]),
+          validWorkspaceAndThreadSlug,
+        ]
+      : [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug];
+    app.post(route, middleware, async (request, response) => {
+      const user = await userFromSession(request, response);
+      const scope = await responsesRunScope({
+        responseId: request.params.responseId,
+        workspace: response.locals.workspace,
+        thread: threaded ? response.locals.thread : null,
+        user,
+      });
+      if (!scope)
+        return response
+          .status(404)
+          .json({ success: false, error: "response_not_found" });
+      const cancelled = await chatStreamRunManager.cancel(scope);
+      if (cancelled)
+        await cancelResponsesTurn(request.params.responseId).catch(() => {});
+      return response.status(cancelled ? 200 : 409).json({
+        success: cancelled,
+        status: cancelled ? "cancelling" : "not_running",
+      });
+    });
+  }
+
+  for (const threaded of [false, true]) {
+    const route = threaded
+      ? "/workspace/:slug/thread/:threadSlug/responses/:responseId/actions/:actionId"
+      : "/workspace/:slug/responses/:responseId/actions/:actionId";
+    const middleware = threaded
+      ? [
+          validatedRequest,
+          flexUserRoleValid([ROLES.all]),
+          validWorkspaceAndThreadSlug,
+        ]
+      : [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug];
+    app.post(route, middleware, async (request, response) => {
+      const user = await userFromSession(request, response);
+      const scope = await responsesRunScope({
+        responseId: request.params.responseId,
+        workspace: response.locals.workspace,
+        thread: threaded ? response.locals.thread : null,
+        user,
+      });
+      if (!scope)
+        return response
+          .status(404)
+          .json({ success: false, error: "response_not_found" });
+      const result = await submitResponsesTurnAction(
+        request.params.responseId,
+        request.params.actionId,
+        reqBody(request)
+      );
+      return response.status(result.success ? 200 : 409).json(result);
+    });
+  }
 
   app.post(
     "/workspace/:slug/tool-approval",
@@ -610,6 +970,12 @@ function chatEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
+        if (process.env.ATHENA_UNIFIED_RESPONSES_TURN !== "false") {
+          return response.status(410).json({
+            success: false,
+            error: "legacy_chat_route_disabled",
+          });
+        }
         const user = await userFromSession(request, response);
         const {
           message,
@@ -757,6 +1123,12 @@ function chatEndpoints(app) {
     ],
     async (request, response) => {
       try {
+        if (process.env.ATHENA_UNIFIED_RESPONSES_TURN !== "false") {
+          return response.status(410).json({
+            success: false,
+            error: "legacy_chat_route_disabled",
+          });
+        }
         const user = await userFromSession(request, response);
         const {
           message,

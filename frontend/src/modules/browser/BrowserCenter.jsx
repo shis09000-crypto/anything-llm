@@ -27,9 +27,10 @@ import { useNavigate } from "react-router-dom";
 import BrowserPlane from "@/models/browserPlane";
 import paths from "@/utils/paths";
 import useUser from "@/hooks/useUser";
+import { ACCOUNT_ROLES, roleMatches } from "@/utils/authz";
 
 const CLOUD_FALLBACK_FRAME_INTERVAL_MS = 1_500;
-const DEFAULT_URL = "https://www.bing.com";
+const DEFAULT_URL = "https://www.google.com/";
 
 function desktopNode() {
   return typeof window !== "undefined"
@@ -45,7 +46,7 @@ function navigationTarget(value) {
     const url = new URL(candidate);
     if (input.includes(".") && !/\s/.test(input)) return url.toString();
   } catch {}
-  return `https://www.bing.com/search?q=${encodeURIComponent(input)}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(input)}`;
 }
 
 function displayUrl(value) {
@@ -225,6 +226,15 @@ export default function BrowserCenter() {
   const [zoom, setZoom] = useState(1);
   const [cloudTextOpen, setCloudTextOpen] = useState(false);
   const [cloudText, setCloudText] = useState("");
+  const [networkRoute, setNetworkRoute] = useState("system");
+  const [networkState, setNetworkState] = useState(null);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [egressStatus, setEgressStatus] = useState(null);
+
+  const canManageEgress = roleMatches(user, [
+    ACCOUNT_ROLES.owner,
+    ACCOUNT_ROLES.admin,
+  ]);
 
   const currentTab = useMemo(() => {
     const tabs = location === "desktop" ? desktopState?.tabs : session?.tabs;
@@ -293,14 +303,34 @@ export default function BrowserCenter() {
           location: "desktop",
           profileId: "default",
         });
+        const route = canManageEgress
+          ? await BrowserPlane.profileRoute("default").catch(() => null)
+          : null;
+        const selectedRoute =
+          route?.networkRoute ||
+          controlSession?.profile?.networkRoute ||
+          "system";
         const next = await node.attach({
           accountRef: String(user?.id || user?.username || "local-account"),
           profileId: "default",
+          networkRoute: selectedRoute,
         });
         if (cancelled) return;
         setSession(controlSession);
         setDesktopState(next);
-        setStatus("本机 · WebContentsView");
+        setNetworkRoute(selectedRoute);
+        setNetworkState(next?.network || route?.network || null);
+        setStatus(
+          selectedRoute === "athena_egress"
+            ? "本机 · WebContentsView · Athena海外出口"
+            : selectedRoute === "direct"
+              ? "本机 · WebContentsView · 本地直连"
+              : "本机 · WebContentsView · 系统代理"
+        );
+        if (canManageEgress)
+          void BrowserPlane.egressStatus()
+            .then((value) => mounted.current && setEgressStatus(value))
+            .catch(() => null);
         requestAnimationFrame(refreshDesktopBounds);
         return;
       }
@@ -324,7 +354,13 @@ export default function BrowserCenter() {
       cancelled = true;
       if (location === "desktop") desktopNode()?.detach?.();
     };
-  }, [location, refreshDesktopBounds, user?.id, user?.username]);
+  }, [
+    canManageEgress,
+    location,
+    refreshDesktopBounds,
+    user?.id,
+    user?.username,
+  ]);
 
   useEffect(() => {
     if (location !== "desktop" || !viewportRef.current) return;
@@ -615,6 +651,123 @@ export default function BrowserCenter() {
     ]);
   };
 
+  const changeNetworkRoute = async (nextRoute) => {
+    const node = desktopNode();
+    if (!node || location !== "desktop" || routeBusy) return;
+    const previous = networkRoute;
+    setRouteBusy(true);
+    setError(null);
+    try {
+      if (nextRoute === "athena_egress") {
+        const capabilities = node.capabilities();
+        if (!capabilities.proxyModes?.includes("athena_egress"))
+          throw new Error(
+            capabilities.egressCoreError || "当前桌面包尚未安装已签名的出口核心"
+          );
+        const enrolled = await BrowserPlane.enrollEgress("default", {
+          nodeId: node.nodeId(),
+        });
+        try {
+          await node.installEgressConfig(enrolled.sealedConfig);
+          const next = await node.applyNetworkRoute("athena_egress");
+          const confirmed = await BrowserPlane.confirmProfileRoute("default", {
+            nodeId: node.nodeId(),
+            networkRoute: "athena_egress",
+            connected: Boolean(next?.network?.connected),
+            latencyMs: next?.network?.latencyMs ?? null,
+          });
+          setDesktopState(next);
+          setNetworkState(
+            next.network || confirmed?.network || enrolled.network
+          );
+        } catch (cause) {
+          if (enrolled?.grant?.id)
+            await BrowserPlane.revokeEgress(enrolled.grant.id).catch(
+              () => null
+            );
+          await BrowserPlane.setProfileRoute("default", {
+            networkRoute: previous,
+            preferredDriver: "embedded",
+          }).catch(() => null);
+          throw cause;
+        }
+      } else {
+        const next = await node.applyNetworkRoute(nextRoute);
+        try {
+          const profile = await BrowserPlane.setProfileRoute("default", {
+            networkRoute: nextRoute,
+            preferredDriver: "embedded",
+          });
+          await BrowserPlane.confirmProfileRoute("default", {
+            nodeId: node.nodeId(),
+            networkRoute: nextRoute,
+            connected: Boolean(next?.network?.connected),
+            latencyMs: next?.network?.latencyMs ?? null,
+          });
+          setNetworkState(next.network || profile.network);
+          setDesktopState(next);
+        } catch (cause) {
+          await node.applyNetworkRoute(previous).catch(() => null);
+          throw cause;
+        }
+      }
+      setNetworkRoute(nextRoute);
+      setStatus(
+        nextRoute === "athena_egress"
+          ? "本机 · WebContentsView · Athena海外出口"
+          : nextRoute === "direct"
+            ? "本机 · WebContentsView · 本地直连"
+            : "本机 · WebContentsView · 系统代理"
+      );
+    } catch (cause) {
+      await BrowserPlane.confirmProfileRoute("default", {
+        nodeId: node.nodeId(),
+        networkRoute: nextRoute,
+        connected: false,
+        errorCode: [
+          "browser_egress_grant_expired",
+          "browser_egress_remote_probe_failed",
+          "browser_egress_local_proxy_start_timeout",
+          "browser_egress_gateway_unavailable",
+        ].includes(cause?.message)
+          ? cause.message
+          : "route_activation_failed",
+      }).catch(() => null);
+      setError(cause?.message || "切换网络出口失败");
+    } finally {
+      setRouteBusy(false);
+    }
+  };
+
+  const openInSystemChrome = async () => {
+    if (location !== "desktop" || !session?.id) return;
+    try {
+      const instruction = await BrowserPlane.openSystemChrome(
+        session.id,
+        currentTab?.url || DEFAULT_URL
+      );
+      await desktopNode().openSystemChrome({
+        url: instruction.url,
+        profileId: instruction.profileId,
+      });
+    } catch (cause) {
+      setError(cause?.message || "无法打开Athena管理的真实Chrome");
+    }
+  };
+
+  const compatibilitySensitive = useMemo(() => {
+    try {
+      const host = new URL(currentTab?.url || "about:blank").hostname;
+      return (
+        host === "accounts.google.com" ||
+        host === "youtube.com" ||
+        host.endsWith(".youtube.com")
+      );
+    } catch {
+      return false;
+    }
+  }, [currentTab?.url]);
+
   const cloudPointer = async (event) => {
     if (location !== "cloud" || !frame) return;
     if (suppressNextClick.current) {
@@ -840,6 +993,31 @@ export default function BrowserCenter() {
           <Desktop className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-cyan-400" />
           <CaretDown className="pointer-events-none absolute right-2 top-3 h-3 w-3 text-theme-text-secondary" />
         </div>
+        {location === "desktop" && canManageEgress ? (
+          <div className="relative hidden lg:block">
+            <select
+              aria-label="浏览器网络出口"
+              value={networkRoute}
+              disabled={routeBusy}
+              onChange={(event) => void changeNetworkRoute(event.target.value)}
+              className="h-9 appearance-none rounded-xl border border-white/10 bg-theme-bg-primary pl-3 pr-7 text-xs font-medium text-theme-text-primary outline-none disabled:opacity-50 light:border-slate-200 light:bg-slate-100"
+            >
+              <option value="direct">本地直连</option>
+              <option value="system">系统代理</option>
+              <option value="athena_egress">Athena海外出口</option>
+            </select>
+            <CaretDown className="pointer-events-none absolute right-2 top-3 h-3 w-3 text-theme-text-secondary" />
+          </div>
+        ) : null}
+        {location === "desktop" && compatibilitySensitive ? (
+          <button
+            type="button"
+            onClick={() => void openInSystemChrome()}
+            className="hidden h-9 shrink-0 rounded-xl border border-amber-400/30 px-3 text-xs text-amber-300 hover:bg-amber-400/10 xl:block light:text-amber-700"
+          >
+            使用真实Chrome
+          </button>
+        ) : null}
         <ToolbarButton
           label="历史和书签"
           onClick={() => openSidePanel(sidePanel ? null : "history")}
@@ -992,6 +1170,17 @@ export default function BrowserCenter() {
         <div className="pointer-events-none absolute bottom-3 left-3 rounded-full border border-white/10 bg-black/65 px-3 py-1 text-[11px] text-white/80 backdrop-blur">
           {status}
         </div>
+        {location === "desktop" && networkRoute === "athena_egress" ? (
+          <div className="pointer-events-none absolute bottom-3 right-3 max-w-[420px] rounded-xl border border-amber-400/20 bg-black/70 px-3 py-2 text-[10px] text-amber-100 backdrop-blur">
+            Athena海外出口 · {networkState?.connected ? "已连接" : "未确认"}
+            {egressStatus?.gatewayStatus?.checkedAt
+              ? ` · 最近探测 ${new Date(egressStatus.gatewayStatus.checkedAt).toLocaleTimeString()}`
+              : ""}
+            <span className="ml-2 text-white/60">
+              不保证目标网站在所有地区均可访问
+            </span>
+          </div>
+        ) : null}
         {error ? (
           <div className="absolute left-1/2 top-4 -translate-x-1/2 rounded-xl border border-red-400/30 bg-red-950/90 px-4 py-2 text-xs text-red-100 shadow-xl">
             {error}

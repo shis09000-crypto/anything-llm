@@ -59,11 +59,10 @@ export function useAssetAllocationDonutData({
     hasGateItemsRef.current = Boolean(gateItems?.length);
   }, [gateItems]);
 
-  const activeItems = useRealGateData && gateItems ? gateItems : mockItems;
-  const activeTotalValueUsd =
-    useRealGateData && gateTotalValueUsd
-      ? gateTotalValueUsd
-      : mockTotalValueUsd;
+  const activeItems = useRealGateData ? gateItems || [] : mockItems;
+  const activeTotalValueUsd = useRealGateData
+    ? gateTotalValueUsd || "0"
+    : mockTotalValueUsd;
 
   const loadGateAllocation = useCallback(async (signal?: AbortSignal) => {
     try {

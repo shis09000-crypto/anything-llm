@@ -3,6 +3,7 @@ import {
   CaretDown,
   CircleNotch,
   CurrencyBtc,
+  Cube,
   GlobeHemisphereWest,
   House,
   List,
@@ -29,7 +30,7 @@ import {
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
 import UserButton from "../UserMenu/UserButton";
-import { canSeeAdmin } from "@/utils/authz";
+import { canSeeAdmin, canSeeExperiment } from "@/utils/authz";
 
 function homeLinkPath() {
   const lastVisited = getLastVisitedWorkspace();
@@ -55,6 +56,7 @@ export default function Sidebar() {
     hideModal: hideNewWsModal,
   } = useNewWorkspaceModal();
   const canEnterCryptoCenter = !user || canSeeAdmin(user);
+  const canEnter3DCenter = !user || canSeeExperiment(user);
 
   useEffect(() => {
     if (!brandMenuOpen) return;
@@ -90,6 +92,12 @@ export default function Sidebar() {
   function enterBrowserCenter() {
     setBrandMenuOpen(false);
     navigate(paths.browser());
+  }
+
+  function enter3DCenter() {
+    if (!canEnter3DCenter) return;
+    setBrandMenuOpen(false);
+    navigate(paths.settings.athena3dCenter());
   }
 
   return (
@@ -169,6 +177,16 @@ export default function Sidebar() {
                     <GlobeHemisphereWest className="h-4 w-4 shrink-0" />
                     内置浏览器
                   </button>
+                  {canEnter3DCenter ? (
+                    <button
+                      type="button"
+                      onClick={enter3DCenter}
+                      className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-xs font-bold text-violet-300 hover:bg-violet-400/10"
+                    >
+                      <Cube className="h-4 w-4 shrink-0" />
+                      Athena 3D 中心
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
 

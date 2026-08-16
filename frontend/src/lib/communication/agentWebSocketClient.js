@@ -178,9 +178,12 @@ function stateAllowsReconnect(state) {
 }
 
 function stateAllowsFinalize(state) {
-  return [AgentSessionState.OPEN, AgentSessionState.WAITING_ON_INPUT].includes(
-    state
-  );
+  return [
+    AgentSessionState.CONNECTING,
+    AgentSessionState.OPEN,
+    AgentSessionState.RECONNECTING,
+    AgentSessionState.WAITING_ON_INPUT,
+  ].includes(state);
 }
 
 async function fetchAgentInvocationState(
@@ -288,6 +291,7 @@ export function createAgentWebSocketSession({
   onEvent,
   onProtocolEvent,
   onState,
+  onReconnectPhase,
   onReconnectOffer,
   onFinal,
   onError,
@@ -300,6 +304,7 @@ export function createAgentWebSocketSession({
   let ledgerPollInFlight = false;
   let emittedStop = false;
   let emittedTurnFinal = false;
+  let responseTurnCompleted = false;
   let emittedFinalWithChatId = false;
   let emittedFailure = false;
   let emittedClose = false;
@@ -327,6 +332,7 @@ export function createAgentWebSocketSession({
     silenceTimeoutMs: silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
     reconnectAttemptStartedAt,
     reconnectDueAt,
+    reconnectNoticeVisible: false,
     finalChatId: null,
     finalPublicChatId: null,
     closeReason: null,
@@ -370,6 +376,7 @@ export function createAgentWebSocketSession({
       reconnectDueAt: session.reconnectDueAt,
       finalChatId: session.finalChatId,
       finalPublicChatId: session.finalPublicChatId,
+      turnFinalized: emittedTurnFinal || responseTurnCompleted,
       ...extra,
     };
   }
@@ -485,24 +492,62 @@ export function createAgentWebSocketSession({
   }
 
   function emitReconnectThought() {
+    if (session.reconnectNoticeVisible) return;
+    session.reconnectNoticeVisible = true;
     emitEvent({
       type: "timeline_event",
       event: {
+        id: `agent-reconnect:${websocketUUID}`,
         type: "thought",
         content: `Agent connection interrupted. Reconnecting ${session.retryCount}/${MAX_AGENT_RECONNECT_ATTEMPTS}...`,
       },
     });
   }
 
+  function clearReconnectThought() {
+    if (!session.reconnectNoticeVisible) return;
+    session.reconnectNoticeVisible = false;
+    emitEvent({
+      type: "timeline_event",
+      event: {
+        type: "remove_agent_event",
+        targetId: `agent-reconnect:${websocketUUID}`,
+      },
+    });
+  }
+
+  function notifyReconnectPhase(phase, transport, attempt = 0) {
+    onReconnectPhase?.(phase, {
+      attempt: Number(attempt) || 0,
+      transport: transport || "websocket",
+      ...snapshot(),
+    });
+  }
+
+  function recoverReconnect(transport = "websocket") {
+    const attempt = Number(session.retryCount || 0);
+    if (!attempt && session.current !== AgentSessionState.RECONNECTING) {
+      return false;
+    }
+    clearReconnectThought();
+    notifyReconnectPhase("recovered", transport, attempt);
+    session.retryCount = 0;
+    session.reconnectAttemptStartedAt = null;
+    session.reconnectDueAt = null;
+    return true;
+  }
+
   function offerReconnect(reason) {
     if (emittedFailure || isTerminal()) return false;
     emittedFailure = true;
     clearTimers();
+    clearReconnectThought();
     transition(AgentSessionState.FAILED, "max_retries_exceeded", {
       failureReason: reason,
       reconnectAttemptStartedAt: null,
       reconnectDueAt: null,
     });
+    notifyReconnectPhase("failed", "websocket", session.retryCount);
     const interruptedContext =
       getInterruptedContext?.(reason, snapshot({ reason })) || null;
     handleAgentRecovery(
@@ -530,7 +575,7 @@ export function createAgentWebSocketSession({
       reconnectDueAt: startedAt + delay,
       closeReason: reason,
     });
-    emitReconnectThought();
+    clearReconnectThought();
     clearReconnectTimer();
     reconnectTimer = setTimeout(() => {
       connect({ forceReconnect: true });
@@ -538,8 +583,9 @@ export function createAgentWebSocketSession({
     return true;
   }
 
-  function handleFinal(normalized) {
+  function handleFinal(normalized, delivery = {}) {
     if (!canFinalize()) return null;
+    recoverReconnect(delivery.transport || "websocket");
     emittedTurnFinal = true;
     const applied = emitEvent(normalized);
     const chatId = applied?.chatId || normalized?.chatId || session.finalChatId;
@@ -591,7 +637,7 @@ export function createAgentWebSocketSession({
     return applied;
   }
 
-  function handleMessage(event) {
+  function handleMessage(event, delivery = {}) {
     const raw = parseAgentWebSocketMessage(event);
     const normalized = normalizeAgentWebSocketEvent(raw);
     debugAgentProtocolEvent(raw, normalized);
@@ -627,7 +673,11 @@ export function createAgentWebSocketSession({
     }
 
     if (normalized.type === "assistant_final") {
-      handleFinal(normalized);
+      if (normalized.responseCompleted === true) {
+        responseTurnCompleted = true;
+        updateState("response_api_completed");
+      }
+      handleFinal(normalized, delivery);
       return;
     }
 
@@ -691,7 +741,10 @@ export function createAgentWebSocketSession({
         afterSeq: session.lastEventSeq,
       });
       for (const payload of state?.events || []) {
-        handleMessage({ data: JSON.stringify(payload) });
+        handleMessage(
+          { data: JSON.stringify(payload) },
+          { transport: "ledger_poll" }
+        );
       }
     } catch {
       // The websocket remains primary; polling only recovers missed frames.
@@ -768,6 +821,7 @@ export function createAgentWebSocketSession({
     }
     if (socket && !forceReconnect) return true;
     clearSilenceTimer();
+    const reconnectAttempt = Number(session.retryCount || 0);
 
     if (session.current === AgentSessionState.RECONNECTING) {
       transition(AgentSessionState.CONNECTING, "reconnect_connecting");
@@ -786,6 +840,12 @@ export function createAgentWebSocketSession({
       onError?.(error, snapshot({ reason: "realtime_ticket_failed" }));
       scheduleReconnect(session.closeReason);
       return false;
+    }
+
+    const reconnecting = forceReconnect || reconnectAttempt > 0;
+    if (reconnecting) {
+      emitReconnectThought();
+      notifyReconnectPhase("started", "websocket", reconnectAttempt);
     }
 
     socket = createWebSocket({
@@ -808,7 +868,9 @@ export function createAgentWebSocketSession({
     });
 
     socket.addEventListener("open", () => {
+      if (reconnecting) recoverReconnect("websocket");
       transition(AgentSessionState.OPEN, "socket_open", {
+        retryCount: 0,
         reconnectAttemptStartedAt: null,
         reconnectDueAt: null,
       });
@@ -829,7 +891,9 @@ export function createAgentWebSocketSession({
         .catch(() => scheduleSilenceTimer());
       scheduleLedgerPoll(250);
     });
-    socket.addEventListener("message", handleMessage);
+    socket.addEventListener("message", (event) =>
+      handleMessage(event, { transport: "websocket" })
+    );
     socket.addEventListener("close", handleClose);
     socket.addEventListener("error", handleError);
     scheduleSilenceTimer();
@@ -842,10 +906,13 @@ export function createAgentWebSocketSession({
     }
     const result = await safeSendSignedJson(socket, payload);
     if (!result.ok) return result;
+    responseTurnCompleted = false;
+    emittedTurnFinal = false;
+    emittedFinalWithChatId = false;
     if (session.current === AgentSessionState.WAITING_ON_INPUT) {
-      emittedTurnFinal = false;
-      emittedFinalWithChatId = false;
       transition(AgentSessionState.OPEN, "client_input_sent");
+    } else {
+      updateState("client_input_sent");
     }
     scheduleSilenceTimer();
     return result;
@@ -853,6 +920,7 @@ export function createAgentWebSocketSession({
 
   function markClientInputSent(reason = "client_input_sent") {
     if (session.current !== AgentSessionState.WAITING_ON_INPUT) return false;
+    responseTurnCompleted = false;
     emittedTurnFinal = false;
     emittedFinalWithChatId = false;
     transition(AgentSessionState.OPEN, reason);

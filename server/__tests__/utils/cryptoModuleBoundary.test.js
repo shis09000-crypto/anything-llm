@@ -44,6 +44,21 @@ describe("Crypto module boundary", () => {
     expect(source).not.toContain("../../utils/cryptoGate");
   });
 
+  test("private Crypto Hub detail routes use the authenticated account hub", () => {
+    const source = read("modules/crypto/httpHubHandlers.js");
+
+    expect(source).toContain(
+      "await response.locals.cryptoDataHub.getTradingPairDetail({"
+    );
+    expect(source).toContain(
+      "await response.locals.cryptoDataHub.getBtcSummary({"
+    );
+    expect(source).not.toContain(
+      "await cryptoDataHub.getTradingPairDetail({"
+    );
+    expect(source).not.toContain("await cryptoDataHub.getBtcSummary({");
+  });
+
   test("DataAccess and background worker use CryptoRuntime facade", () => {
     const repository = read("repositories/cryptoRepository.js");
     const backgroundWorker = read("utils/BackgroundWorkers/index.js");

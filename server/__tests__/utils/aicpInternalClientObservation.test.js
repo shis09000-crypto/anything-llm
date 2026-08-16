@@ -105,4 +105,48 @@ describe("AICP internal RPC shadow integration", () => {
       causationId: "operation-task-priority",
     });
   });
+
+  test("drops an expired inherited coordination context for ordinary RPCs", () => {
+    const headers = runWithOperationContext(
+      {
+        operationId: "operation-expired-context",
+        correlationId: "correlation-expired-context",
+        coordinationRunId: "coordination-expired-context",
+        stepId: "step-expired-context",
+        coordinationCenter: "task",
+        coordinationDeadlineAt: new Date(Date.now() - 1_000).toISOString(),
+        taskPriority: "P1",
+      },
+      () =>
+        aicpRequestHeaders({
+          callerRole: "athena-api",
+          targetModule: "authentication",
+          capability: "identity.client.attach",
+          contractVersion: "1.0",
+          env: { ATHENA_AICP_ENFORCEMENT_MODE: "observe" },
+        })
+    );
+
+    expect(headers["x-athena-aicp-coordination"]).toBeUndefined();
+  });
+
+  test("rejects an invalid coordination context supplied explicitly", () => {
+    expect(() =>
+      aicpRequestHeaders({
+        callerRole: "athena-api",
+        targetModule: "authentication",
+        capability: "identity.client.attach",
+        contractVersion: "1.0",
+        coordinationContext: {
+          coordinationRunId: "coordination-explicit-expired",
+          stepId: "step-explicit-expired",
+          correlationId: "correlation-explicit-expired",
+          center: "task",
+          priority: "P1",
+          deadlineAt: new Date(Date.now() - 1_000).toISOString(),
+        },
+        env: { ATHENA_AICP_ENFORCEMENT_MODE: "observe" },
+      })
+    ).toThrow("aicp_coordination_context_invalid");
+  });
 });

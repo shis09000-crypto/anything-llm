@@ -41,10 +41,13 @@ private_dir="${secrets_dir}/bootstrap-private"
 runtime_env="${secrets_dir}/runtime.env"
 agent_runtime_env="${secrets_dir}/runtime-agent.env"
 compose_env="${secrets_dir}/compose.env"
+browser_egress_state_dir="${state_dir}/browser-egress"
+browser_egress_secret_dir="${secrets_dir}/browser-egress"
 
 install -d -m 0700 "${state_dir}" "${secrets_dir}" "${runtime_secret_dir}" \
   "${mtls_dir}" "${nats_dir}" "${capability_dir}" "${private_dir}" \
-  "${state_dir}/postgresql" "${state_dir}/minio" "${state_dir}/web"
+  "${state_dir}/postgresql" "${state_dir}/minio" "${state_dir}/web" \
+  "${browser_egress_state_dir}" "${browser_egress_secret_dir}"
 
 read_env() {
   local name="$1"
@@ -128,9 +131,11 @@ fi
 roles=(
   api background-worker realtime-gateway reader-worker scheduler
   operations-plane chat-runtime agent-runtime model-gateway tool-broker
+  responses-runtime character-performance-runtime
   crypto-market crypto-account crypto-forecast key-custody collector edge-web
   identity knowledge-ingest rag operations-shadow-agents prometheus minio
   browser-plane browser-worker
+  coordination-plane browser-egress
 )
 
 dns_for_role() {
@@ -144,6 +149,8 @@ dns_for_role() {
     chat-runtime) printf '%s' 'anything-llm-chat-runtime,chat-runtime' ;;
     agent-runtime) printf '%s' 'anything-llm-agent-runtime,agent-runtime' ;;
     model-gateway) printf '%s' 'anything-llm-model-gateway,model-gateway' ;;
+    responses-runtime) printf '%s' 'anything-llm-responses-runtime,responses-runtime' ;;
+    character-performance-runtime) printf '%s' 'anything-llm-character-performance-runtime,character-performance-runtime' ;;
     tool-broker) printf '%s' 'anything-llm-tool-broker,tool-broker' ;;
     crypto-market) printf '%s' 'anything-llm-crypto-market,crypto-market' ;;
     crypto-account) printf '%s' 'anything-llm-crypto-account,crypto-account' ;;
@@ -157,6 +164,8 @@ dns_for_role() {
     operations-shadow-agents) printf '%s' 'anything-llm-operations-shadow-agents,operations-shadow-agents' ;;
     browser-plane) printf '%s' 'anything-llm-browser-plane,browser-plane' ;;
     browser-worker) printf '%s' 'anything-llm-browser-worker,browser-worker' ;;
+    coordination-plane) printf '%s' 'anything-llm-coordination-plane,coordination-plane' ;;
+    browser-egress) printf '%s' 'anything-llm-browser-egress,browser-egress' ;;
     prometheus) printf '%s' 'anything-llm-prometheus,prometheus' ;;
     minio) printf '%s' 'minio' ;;
   esac
@@ -288,6 +297,7 @@ module_image_variables=(
   ATHENA_PROD_READER_WORKER_IMAGE
   ATHENA_PROD_SCHEDULER_IMAGE
   ATHENA_PROD_OPERATIONS_PLANE_IMAGE
+  ATHENA_PROD_COORDINATION_PLANE_IMAGE
   ATHENA_PROD_CHAT_RUNTIME_IMAGE
   ATHENA_PROD_AGENT_RUNTIME_IMAGE
   ATHENA_PROD_MODEL_GATEWAY_IMAGE
@@ -301,6 +311,7 @@ module_image_variables=(
   ATHENA_PROD_RAG_IMAGE
   ATHENA_PROD_OPERATIONS_SHADOW_AGENTS_IMAGE
   ATHENA_PROD_BROWSER_PLANE_IMAGE
+  ATHENA_PROD_BROWSER_EGRESS_IMAGE
   ATHENA_PROD_COLLECTOR_IMAGE
 )
 for module_image_variable in "${module_image_variables[@]}"; do

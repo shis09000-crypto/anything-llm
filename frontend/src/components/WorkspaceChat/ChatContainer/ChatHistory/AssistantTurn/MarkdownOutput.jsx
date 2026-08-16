@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from "react";
-import renderMarkdown from "@/utils/chat/markdown";
+import { renderAssistantMarkdown } from "@/utils/chat/markdown";
 import DOMPurify from "@/utils/chat/purify";
 import { runIdleTask } from "@/utils/chat/idleChunk";
 import {
@@ -57,12 +57,14 @@ function MarkdownOutput({
     () => splitThoughtContent(content),
     [content]
   );
+  // Render every streamed revision through the same sanitized Markdown -> HTML
+  // pipeline as the final message. Markdown-it tolerates incomplete blocks, so
+  // headings, lists, code and tables can progressively take shape without ever
+  // exposing raw provider HTML.
   const html = useMemo(
     () =>
-      !isStreaming && enhanced
-        ? DOMPurify.sanitize(renderMarkdown(markdown))
-        : null,
-    [enhanced, isStreaming, markdown]
+      enhanced ? DOMPurify.sanitize(renderAssistantMarkdown(markdown)) : null,
+    [enhanced, markdown]
   );
 
   useEffect(() => {
@@ -81,7 +83,7 @@ function MarkdownOutput({
       {thoughtChain && (
         <ThoughtChainComponent content={thoughtChain} messageId={messageId} />
       )}
-      {markdown && enhanced && !isStreaming && (
+      {markdown && enhanced && (
         <div
           className="break-words flex flex-col gap-y-1 text-white light:text-slate-900"
           dangerouslySetInnerHTML={{
@@ -89,7 +91,7 @@ function MarkdownOutput({
           }}
         />
       )}
-      {markdown && (isStreaming || !enhanced) && (
+      {markdown && !enhanced && (
         <div className="whitespace-pre-wrap break-words text-white light:text-slate-900">
           {markdown}
         </div>

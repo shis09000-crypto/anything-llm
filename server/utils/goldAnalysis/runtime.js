@@ -8,8 +8,8 @@ const {
   fetchEtfContext,
   fetchFredContext,
   fetchGoldCrosscheck,
+  fetchGoldSeries,
   fetchSgeContext,
-  fetchTwelveSeries,
   fetchUsdCny,
   normalizeError,
 } = require("./providers");
@@ -23,7 +23,7 @@ const { GoldAnalysisStore } = require("./store");
 const CACHE_TTL_MS = 10 * 60 * 1_000;
 const REFRESH_INTERVAL_MS = 60 * 60 * 1_000;
 const START_DELAY_MS = 5_000;
-const SOURCE_TIMEOUT_MS = 7_000;
+const SOURCE_TIMEOUT_MS = 20_000;
 
 const SOURCE_NAMES = Object.freeze([
   "twelve_data",
@@ -154,7 +154,7 @@ class GoldAnalysisRuntime {
     this.now = now;
     this.store = store;
     this.providers = {
-      twelve: providers.twelve || fetchTwelveSeries,
+      twelve: providers.twelve || fetchGoldSeries,
       gold: providers.gold || fetchGoldCrosscheck,
       fred: providers.fred || fetchFredContext,
       cot: providers.cot || fetchCotContext,
@@ -285,14 +285,24 @@ class GoldAnalysisRuntime {
       Object.entries(tasks).map(async ([key, task]) => [key, await task])
     );
     Object.assign(data, Object.fromEntries(values));
+    if (data.xagDaily?.status === "optional_unavailable")
+      data.sourceStatuses.silver_series = "unavailable_optional";
     data.sourceStatuses.twelve_data = [data.xau5m, data.xauDaily].some(Boolean)
       ? [data.xau5m, data.xauDaily].every(Boolean)
-        ? "available"
+        ? [data.xau5m, data.xauDaily].some((series) =>
+            series?.bars?.some((bar) => bar.source === "gate_paxg_usdt_proxy")
+          )
+          ? "fallback_available"
+          : "available"
         : "degraded"
       : data.sourceStatuses.twelve_data;
     metrics.goldAnalysisSourceAvailable.set(
       { source: "twelve_data" },
-      data.sourceStatuses.twelve_data === "available" ? 1 : 0
+      ["available", "fallback_available"].includes(
+        data.sourceStatuses.twelve_data
+      )
+        ? 1
+        : 0
     );
     for (const failure of new Map(
       failures.map((item) => [`${item.source}:${item.errorCode}`, item])

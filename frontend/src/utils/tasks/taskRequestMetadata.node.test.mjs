@@ -22,6 +22,9 @@ test("infers protected P0 for high-risk security requests", () => {
   assert.equal(task.abortable, false);
   assert.equal(task.kind, "security");
   assert.equal(task.scope.route, "global");
+  assert.equal(task.coordinationContext.center, "task");
+  assert.equal(task.coordinationContext.priority, "P0");
+  assert.match(task.coordinationContext.coordinationRunId, /^coordination:/);
 });
 
 test("P0 requests are not exclusive unless emergency is explicit", () => {

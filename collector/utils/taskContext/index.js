@@ -142,6 +142,17 @@ function taskStats() {
   return { active, queued: pending.filter((item) => !item.closed).length };
 }
 
+async function waitForTasks({ timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + Math.max(1_000, Number(timeoutMs) || 0);
+  while (Date.now() < deadline) {
+    const stats = taskStats();
+    if (stats.active === 0 && stats.queued === 0) return true;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const stats = taskStats();
+  return stats.active === 0 && stats.queued === 0;
+}
+
 module.exports = {
   collectorTaskGuard,
   currentTask,
@@ -149,5 +160,6 @@ module.exports = {
   currentTaskSignal,
   isCollectorProcessingRoute,
   taskStats,
+  waitForTasks,
   _private: { cleanupTaskDirectory, taskConfig },
 };

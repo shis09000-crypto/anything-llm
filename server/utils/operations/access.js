@@ -4,7 +4,11 @@ const { distributedTopology } = require("../microModules/serviceHost");
 const { agentDefinitions, agentRegistrySnapshot } = require("./agentRegistry");
 const { operationsPlane } = require("./operationsPlane");
 const { serviceCatalog } = require("./serviceCatalog");
-const { buildStateGraph, explainEvent } = require("./stateGraph");
+const {
+  buildStateGraph,
+  eventComponent,
+  explainEvent,
+} = require("./stateGraph");
 const { operationsShadowRuntime } = require("./shadowAgents/runtime");
 const {
   operationsActionOrchestrator,
@@ -24,6 +28,55 @@ function operationsRemoteMode(env = process.env) {
       "false" &&
     Boolean(String(env.ATHENA_OPERATIONS_INTERNAL_URL || "").trim())
   );
+}
+
+function coordinationRemoteMode(env = process.env) {
+  return (
+    distributedTopology(env) &&
+    String(env.ATHENA_RUNTIME_ROLE || "") === "operations-plane" &&
+    Boolean(String(env.ATHENA_COORDINATION_INTERNAL_URL || "").trim())
+  );
+}
+
+async function coordinationLifecycleHealth(
+  env = process.env,
+  request = requestInternalService
+) {
+  if (!coordinationRemoteMode(env))
+    return {
+      enabled: false,
+      status: "not-configured",
+      coverage: null,
+    };
+  try {
+    const result = await request({
+      callerRole: "operations-plane",
+      callerModule: "operations-plane",
+      targetModule: "coordination-plane",
+      capability: "coordination.status",
+      url: `${String(env.ATHENA_COORDINATION_INTERNAL_URL).replace(
+        /\/+$/,
+        ""
+      )}/internal/v1/coordination/modules`,
+      method: "GET",
+      env,
+      timeoutMs: 5_000,
+    });
+    return {
+      enabled: true,
+      status: result.coverage?.complete ? "healthy" : "degraded",
+      coverage: result.coverage || null,
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      status: "unavailable",
+      reasonCode: String(
+        error?.code || error?.message || "coordination_unavailable"
+      ).slice(0, 160),
+      coverage: null,
+    };
+  }
 }
 
 function runtimeStateById() {
@@ -85,6 +138,43 @@ function operationsShadowRemoteMode(env = process.env) {
   );
 }
 
+function finiteOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function aicpTraceEntryFromEvent(event = {}) {
+  if (event.eventType === "aicp.rpc.observed")
+    return {
+      observationId: `rpc:${event.subject?.id || event.eventId}`,
+      kind: "rpc",
+      from: event.subject?.component || null,
+      to: event.impact?.scope || null,
+      capability: event.subject?.operation || null,
+      operationId: event.correlation?.operationId || null,
+      occurredAt: event.occurredAt,
+      observedAt: event.observedAt,
+      outcome: event.outcome,
+      statusCode: finiteOrNull(event.metadata?.statusCode),
+      errorCode: event.metadata?.errorCode || null,
+      durationMs: finiteOrNull(event.metadata?.durationMs),
+      contractConformant: event.metadata?.validationStatus !== "contract_drift",
+      linkIds: [],
+    };
+  return {
+    observationId: `event:${event.eventId}`,
+    kind: "event",
+    eventId: event.eventId,
+    eventType: event.eventType,
+    moduleId: eventComponent(event),
+    operationId: event.correlation?.operationId || null,
+    occurredAt: event.occurredAt,
+    observedAt: event.observedAt,
+    outcome: event.outcome,
+    linkIds: [],
+  };
+}
+
 async function remoteShadowCall(path, env = process.env) {
   return requestInternalService({
     callerRole: "operations-plane",
@@ -127,6 +217,7 @@ const localOperationsAccess = {
     const moduleHealth = moduleHealthMonitor.snapshot();
     const infrastructureHealth = infrastructureHealthMonitor.snapshot();
     const coverage = operationsCoverageSnapshot();
+    const coordination = await coordinationLifecycleHealth();
     const ready =
       plane.ready &&
       moduleHealth.summary.complete &&
@@ -146,6 +237,7 @@ const localOperationsAccess = {
       moduleHealth,
       infrastructureHealth,
       coverage,
+      coordination,
     };
   },
 
@@ -265,6 +357,47 @@ const localOperationsAccess = {
         moduleHealth: moduleHealthMonitor.snapshot(),
         infrastructureHealth: infrastructureHealthMonitor.snapshot(),
       }),
+      runtimeTopology: operationsPlane.aicpTopology(),
+    };
+  },
+
+  async aicpTopology() {
+    return {
+      generatedAt: new Date().toISOString(),
+      topology: operationsPlane.aicpTopology(),
+      shadow: operationsPlane.health().aicpShadow,
+    };
+  },
+
+  async aicpTrace(traceId) {
+    const runtimeTrace = operationsPlane.aicpTrace(traceId);
+    if (runtimeTrace.found)
+      return {
+        generatedAt: new Date().toISOString(),
+        trace: {
+          ...runtimeTrace,
+          source: "runtime-shadow",
+          completeness: "bounded-live-window",
+        },
+      };
+    const timeline = await operationsPlane.timelineWithMetadata({
+      traceId: String(traceId || "").slice(0, 64),
+      limit: 500,
+    });
+    return {
+      generatedAt: new Date().toISOString(),
+      trace: {
+        traceId: String(traceId || "").slice(0, 64),
+        found: timeline.events.length > 0,
+        entries: timeline.events
+          .map(aicpTraceEntryFromEvent)
+          .sort(
+            (left, right) =>
+              Date.parse(left.occurredAt) - Date.parse(right.occurredAt)
+          ),
+        source: timeline.source,
+        completeness: timeline.completeness,
+      },
     };
   },
 
@@ -416,6 +549,16 @@ class RemoteOperationsAccess {
     });
   }
 
+  aicpTopology() {
+    return this.call("/internal/v1/operations/aicp/topology");
+  }
+
+  aicpTrace(traceId) {
+    return this.call(
+      `/internal/v1/operations/aicp/traces/${encodeURIComponent(traceId)}`
+    );
+  }
+
   flows(input = {}) {
     return this.call("/internal/v1/operations/flows", {
       method: "POST",
@@ -441,6 +584,8 @@ function operationsAccess(env = process.env) {
 
 module.exports = {
   RemoteOperationsAccess,
+  coordinationLifecycleHealth,
+  coordinationRemoteMode,
   localOperationsAccess,
   operationsAccess,
   operationsCoverageSnapshot,

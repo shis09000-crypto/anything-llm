@@ -58,5 +58,7 @@ export function hasMissingCredentials(settings, provider) {
 }
 
 export const WORKSPACE_LLM_PROVIDERS = AVAILABLE_LLM_PROVIDERS.filter(
-  (provider) => !DISABLED_PROVIDERS.includes(provider.value)
+  (provider) =>
+    provider.value === "deepseek" &&
+    !DISABLED_PROVIDERS.includes(provider.value)
 );

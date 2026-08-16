@@ -11,6 +11,7 @@ const { OperationsJetStreamTransport } = require("./jetStreamTransport");
 const { validateRegistered } = require("./schemaRegistry");
 const { metrics } = require("../observability/metrics");
 const { loadManifests } = require("../modulePlatform/manifestRegistry");
+const { aicpShadowObserver } = require("../modulePlatform/aicp/shadowObserver");
 
 const MAX_RETRY_QUEUE = 1_000;
 
@@ -79,6 +80,8 @@ function matches(event, filters = {}) {
     event.correlation?.operationId !== filters.operationId
   )
     return false;
+  if (filters.traceId && event.correlation?.traceId !== filters.traceId)
+    return false;
   if (filters.after && Date.parse(event.occurredAt) < Date.parse(filters.after))
     return false;
   if (
@@ -95,21 +98,32 @@ class OperationsPlane {
     store = null,
     transport = null,
     registerSink = registerSemanticEventSink,
+    aicpObserver = aicpShadowObserver,
   } = {}) {
     this.env = env;
     this.config = operationsConfig(env);
     this.store = store || new ClickHouseEventStore(env);
     this.transport = transport || new OperationsJetStreamTransport(env);
     this.registerSink = registerSink;
+    this.aicpObserver = aicpObserver;
     this.unregisterSink = null;
     this.retryQueue = [];
     this.retryTimer = null;
+    this.transportRecoveryTimer = null;
+    this.transportRecoveryPromise = null;
+    this.transportRecoveryAttempt = 0;
+    this.stopping = false;
     this.status = this.config.enabled ? "created" : "disabled";
     this.lastError = null;
     this.rejected = 0;
     this.queued = 0;
     this.producers = new Map();
     this.moduleHeartbeats = new Map();
+    this.expectedModuleIds = Object.freeze(
+      loadManifests()
+        .map((manifest) => manifest.id)
+        .sort()
+    );
   }
 
   securityFindings() {
@@ -127,6 +141,7 @@ class OperationsPlane {
     if (!this.config.enabled) return this.health();
     if (["running", "degraded"].includes(this.status)) return this.health();
     this.status = "starting";
+    this.stopping = false;
     const findings = this.securityFindings();
     if (findings.length) {
       this.status = "degraded";
@@ -146,13 +161,14 @@ class OperationsPlane {
       });
     }
     try {
-      await this.transport.start((events) => this.consumeBatch(events));
+      await this.startTransport();
       transportReady = true;
     } catch (error) {
       this.lastError = error?.code || error?.message || String(error);
       console.error("[OperationsPlane] JetStream startup degraded", {
         code: this.lastError,
       });
+      this.scheduleTransportRecovery();
     }
     if (storeReady || transportReady) {
       this.unregisterSink = this.registerSink((event) => this.ingest(event));
@@ -163,6 +179,53 @@ class OperationsPlane {
       this.status = "degraded";
     }
     return this.health();
+  }
+
+  async startTransport() {
+    if (this.transportRecoveryPromise) return this.transportRecoveryPromise;
+    this.transportRecoveryPromise = (async () => {
+      await this.transport.start((events) => this.consumeBatch(events));
+      this.transportRecoveryAttempt = 0;
+      if (this.store.health().ready) {
+        this.status = "running";
+        this.lastError = null;
+      }
+      this.scheduleRetry();
+      return this.transport.health();
+    })().finally(() => {
+      this.transportRecoveryPromise = null;
+    });
+    return this.transportRecoveryPromise;
+  }
+
+  scheduleTransportRecovery() {
+    if (
+      this.stopping ||
+      this.transportRecoveryTimer ||
+      this.transportRecoveryPromise ||
+      this.transport.health().ready
+    )
+      return;
+    const attempt = this.transportRecoveryAttempt;
+    const delayMs = Math.min(120_000, 5_000 * 2 ** Math.min(attempt, 5));
+    this.transportRecoveryAttempt += 1;
+    this.transportRecoveryTimer = setTimeout(() => {
+      this.transportRecoveryTimer = null;
+      void this.recoverTransport();
+    }, delayMs);
+    this.transportRecoveryTimer.unref?.();
+  }
+
+  async recoverTransport() {
+    if (this.stopping || this.transport.health().ready) return;
+    try {
+      await this.startTransport();
+    } catch (error) {
+      this.lastError = error?.code || error?.message || String(error);
+      this.status = "degraded";
+      await this.transport.drain().catch(() => null);
+      this.scheduleTransportRecovery();
+    }
   }
 
   async ingest(event) {
@@ -249,6 +312,16 @@ class OperationsPlane {
   }
 
   observeProducer(event = {}) {
+    try {
+      this.aicpObserver?.observeSemanticEvent(event);
+    } catch (error) {
+      console.warn("[OperationsPlane] AICP shadow observation skipped", {
+        code: String(error?.code || "aicp_shadow_observation_failed").slice(
+          0,
+          128
+        ),
+      });
+    }
     const runtimeRole = String(event.producer?.runtimeRole || "unknown").slice(
       0,
       96
@@ -297,6 +370,17 @@ class OperationsPlane {
     this.retryTimer.unref?.();
   }
 
+  clearRecoveredError() {
+    const transportHealth = this.transport.health();
+    const storeHealth = this.store.health();
+    const transportReady = Boolean(
+      transportHealth.connected || transportHealth.ready
+    );
+    if (!transportReady || !storeHealth.ready || this.retryQueue.length) return;
+    this.lastError = null;
+    if (this.config.enabled && !this.stopping) this.status = "running";
+  }
+
   async flushRetryQueue() {
     const batch = this.retryQueue.splice(0, 100);
     metrics.operationsRetryQueue.set(this.retryQueue.length);
@@ -314,6 +398,7 @@ class OperationsPlane {
         break;
       }
     }
+    this.clearRecoveredError();
     this.scheduleRetry();
   }
 
@@ -338,6 +423,7 @@ class OperationsPlane {
             ? this.store.latestPersistedAt()
             : Promise.resolve(this.store.health().persistedThrough || null),
         ]);
+        this.clearRecoveredError();
         return {
           events: rows.map(eventFromClickHouseRow),
           source: "clickhouse",
@@ -404,14 +490,32 @@ class OperationsPlane {
   }
 
   async stop() {
+    this.stopping = true;
     this.unregisterSink?.();
     this.unregisterSink = null;
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
+    if (this.transportRecoveryTimer) clearTimeout(this.transportRecoveryTimer);
+    this.transportRecoveryTimer = null;
+    await this.transportRecoveryPromise?.catch(() => null);
     await this.flushRetryQueue().catch(() => null);
     await this.transport.drain();
     this.status = this.config.enabled ? "stopped" : "disabled";
     metrics.operationsRetryQueue.set(0);
+  }
+
+  aicpTopology() {
+    return this.aicpObserver?.topology() || null;
+  }
+
+  aicpTrace(traceId) {
+    return (
+      this.aicpObserver?.trace(traceId) || {
+        traceId: String(traceId || "").slice(0, 64),
+        found: false,
+        entries: [],
+      }
+    );
   }
 
   health() {
@@ -441,9 +545,7 @@ class OperationsPlane {
           producerStaleAfterMs,
       }))
       .sort((left, right) => left.runtimeRole.localeCompare(right.runtimeRole));
-    const expectedModuleIds = loadManifests()
-      .map((manifest) => manifest.id)
-      .sort();
+    const expectedModuleIds = this.expectedModuleIds;
     const moduleHeartbeats = [...this.moduleHeartbeats.values()]
       .map((heartbeat) => ({
         ...heartbeat,
@@ -479,6 +581,11 @@ class OperationsPlane {
         missing: expectedModuleIds.filter((id) => !freshModuleIds.has(id)),
         staleAfterMs: producerStaleAfterMs,
         heartbeats: moduleHeartbeats,
+      },
+      aicpShadow: this.aicpObserver?.health() || {
+        enabled: false,
+        mode: "shadow-read-only",
+        status: "unavailable",
       },
       jetstream,
       clickhouse,

@@ -1,0 +1,306 @@
+{
+  "schema": "athena.character.performance_plan",
+  "schema_version": "1.0",
+  "id": "chr_perf_plan_0123456789abcdef",
+  "session_id": "chr_perf_session_0123456789abcdef",
+  "response_id": "chr_resp_fixture_01",
+  "sequence_id": "sequence_fixture_01",
+  "pack_ref": {
+    "id": "athena.mock-anatomy.cold-tsundere",
+    "version": "1.0.0",
+    "sha256": "8b5282bdeea5432ba437a8d3f3c393b5bd2911c602add6ddfb7f40fc259bef18"
+  },
+  "status": "ready",
+  "created_at": 1786500000000,
+  "clock": { "unit": "ms", "origin": "plan_dispatch" },
+  "planned_duration_ms": 5200,
+  "resolved_duration_ms": 5400,
+  "commands": [
+    {
+      "command_id": "chr_cmd_0000000000000001",
+      "cue_id": "cue_face",
+      "track": "face",
+      "start_ms": 80,
+      "duration_ms": 420,
+      "timing": {
+        "planned_start_ms": 80,
+        "planned_duration_ms": 400,
+        "resolved_start_ms": 80,
+        "resolved_duration_ms": 420,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_out",
+      "intensity": 0.3,
+      "binding_id": "mock_face",
+      "primitive": "face.region_state",
+      "target": "face.eyelid.both",
+      "parameters": { "capability_id": "athena.core:face_eyelid/narrowed" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000002",
+      "cue_id": "cue_gaze",
+      "track": "gaze",
+      "start_ms": 80,
+      "duration_ms": 600,
+      "timing": {
+        "planned_start_ms": 80,
+        "planned_duration_ms": 600,
+        "resolved_start_ms": 80,
+        "resolved_duration_ms": 600,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_out",
+      "intensity": 0.4,
+      "binding_id": "mock_gaze",
+      "primitive": "gaze.target",
+      "target": "gaze.primary",
+      "parameters": { "capability_id": "athena.core:gaze/player" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000003",
+      "cue_id": "cue_head",
+      "track": "head_neck",
+      "start_ms": 260,
+      "duration_ms": 500,
+      "timing": {
+        "planned_start_ms": 260,
+        "planned_duration_ms": 500,
+        "resolved_start_ms": 260,
+        "resolved_duration_ms": 500,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_in_out",
+      "intensity": 0.25,
+      "binding_id": "mock_head_neck",
+      "primitive": "body.motion",
+      "target": "body.head_neck",
+      "parameters": {
+        "capability_id": "athena.core:head_neck_motion/turn_away"
+      }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000004",
+      "cue_id": "cue_shoulders",
+      "track": "shoulders",
+      "start_ms": 300,
+      "duration_ms": 620,
+      "timing": {
+        "planned_start_ms": 300,
+        "planned_duration_ms": 620,
+        "resolved_start_ms": 300,
+        "resolved_duration_ms": 620,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "blend",
+      "intensity": 0.2,
+      "binding_id": "mock_shoulders",
+      "primitive": "body.motion",
+      "target": "body.shoulders",
+      "parameters": { "capability_id": "athena.core:shoulders_motion/tense" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000005",
+      "cue_id": "cue_torso",
+      "track": "torso",
+      "start_ms": 320,
+      "duration_ms": 700,
+      "timing": {
+        "planned_start_ms": 320,
+        "planned_duration_ms": 700,
+        "resolved_start_ms": 320,
+        "resolved_duration_ms": 700,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_in_out",
+      "intensity": 0.22,
+      "binding_id": "mock_torso",
+      "primitive": "body.motion",
+      "target": "body.torso",
+      "parameters": { "capability_id": "athena.core:torso_motion/straighten" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000006",
+      "cue_id": "cue_left_arm",
+      "track": "left_arm",
+      "start_ms": 420,
+      "duration_ms": 800,
+      "timing": {
+        "planned_start_ms": 420,
+        "planned_duration_ms": 800,
+        "resolved_start_ms": 420,
+        "resolved_duration_ms": 800,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "blend",
+      "intensity": 0.25,
+      "binding_id": "mock_arm",
+      "primitive": "limb.motion",
+      "target": "body.left_arm",
+      "parameters": { "capability_id": "athena.core:arm_motion/fold" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000007",
+      "cue_id": "cue_right_arm",
+      "track": "right_arm",
+      "start_ms": 420,
+      "duration_ms": 800,
+      "timing": {
+        "planned_start_ms": 420,
+        "planned_duration_ms": 800,
+        "resolved_start_ms": 420,
+        "resolved_duration_ms": 800,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "blend",
+      "intensity": 0.25,
+      "binding_id": "mock_arm",
+      "primitive": "limb.motion",
+      "target": "body.right_arm",
+      "parameters": { "capability_id": "athena.core:arm_motion/fold" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000008",
+      "cue_id": "cue_left_hand",
+      "track": "left_hand",
+      "start_ms": 500,
+      "duration_ms": 720,
+      "timing": {
+        "planned_start_ms": 500,
+        "planned_duration_ms": 720,
+        "resolved_start_ms": 500,
+        "resolved_duration_ms": 720,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_out",
+      "intensity": 0.18,
+      "binding_id": "mock_hand",
+      "primitive": "limb.motion",
+      "target": "body.left_hand",
+      "parameters": { "capability_id": "athena.core:hand_motion/relaxed" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000009",
+      "cue_id": "cue_right_hand",
+      "track": "right_hand",
+      "start_ms": 500,
+      "duration_ms": 720,
+      "timing": {
+        "planned_start_ms": 500,
+        "planned_duration_ms": 720,
+        "resolved_start_ms": 500,
+        "resolved_duration_ms": 720,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_out",
+      "intensity": 0.2,
+      "binding_id": "mock_hand",
+      "primitive": "limb.motion",
+      "target": "body.right_hand",
+      "parameters": { "capability_id": "athena.core:hand_motion/grip_sleeve" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000010",
+      "cue_id": "cue_left_leg",
+      "track": "left_leg",
+      "start_ms": 600,
+      "duration_ms": 900,
+      "timing": {
+        "planned_start_ms": 600,
+        "planned_duration_ms": 900,
+        "resolved_start_ms": 600,
+        "resolved_duration_ms": 900,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_in_out",
+      "intensity": 0.16,
+      "binding_id": "mock_leg",
+      "primitive": "limb.motion",
+      "target": "body.left_leg",
+      "parameters": { "capability_id": "athena.core:leg_motion/weight_shift" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000011",
+      "cue_id": "cue_right_leg",
+      "track": "right_leg",
+      "start_ms": 600,
+      "duration_ms": 900,
+      "timing": {
+        "planned_start_ms": 600,
+        "planned_duration_ms": 900,
+        "resolved_start_ms": 600,
+        "resolved_duration_ms": 900,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "ease_in_out",
+      "intensity": 0.16,
+      "binding_id": "mock_leg",
+      "primitive": "limb.motion",
+      "target": "body.right_leg",
+      "parameters": { "capability_id": "athena.core:leg_motion/hold" }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000012",
+      "cue_id": "cue_action",
+      "track": "action",
+      "start_ms": 900,
+      "duration_ms": 500,
+      "timing": {
+        "planned_start_ms": 900,
+        "planned_duration_ms": 500,
+        "resolved_start_ms": 900,
+        "resolved_duration_ms": 500,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "linear",
+      "intensity": 0.2,
+      "binding_id": "mock_action",
+      "primitive": "world.action",
+      "target": "world.action",
+      "parameters": {
+        "capability_id": "athena.core:action/resume_activity",
+        "arguments": {}
+      }
+    },
+    {
+      "command_id": "chr_cmd_0000000000000013",
+      "cue_id": "cue_speech",
+      "track": "speech",
+      "start_ms": 760,
+      "duration_ms": 3100,
+      "timing": {
+        "planned_start_ms": 760,
+        "planned_duration_ms": 3000,
+        "resolved_start_ms": 760,
+        "resolved_duration_ms": 3100,
+        "actual_start_ms": null,
+        "actual_duration_ms": null
+      },
+      "easing": "linear",
+      "intensity": 0.42,
+      "binding_id": "mock_speech",
+      "primitive": "speech.text",
+      "target": "voice.primary",
+      "parameters": {
+        "capability_id": "athena.core:voice_style/cold_tsundere",
+        "text": "……知道了。路上小心，早点回来。"
+      }
+    }
+  ],
+  "suppressed_cues": [],
+  "warnings": [],
+  "integrity": {
+    "sha256": "ac28d358af626b95d316e36c0809962d48b8a21a2eb2babff00e855f68e7b300"
+  }
+}

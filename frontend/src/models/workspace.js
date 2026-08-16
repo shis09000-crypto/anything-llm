@@ -24,6 +24,7 @@ import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { dispatchWorkspacePatchVisual } from "@/utils/workspaceEvents";
 import { submitProjectedSyncMutation } from "@/utils/syncV2/syncV2ProjectedMutation";
+import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";
 
 const SYNC_V2_WORKSPACE_METADATA_FIELDS = [
   "name",
@@ -459,7 +460,21 @@ const Workspace = {
       task: options.task,
     })
       .then(({ data }) => data.workspaces || [])
-      .catch(() => []);
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        if (shouldPreserveLocalAuthOnFailure(error)) {
+          workspaceNavigationCache.markWorkspacesStale(
+            "workspace-list-temporarily-unavailable"
+          );
+          if (options.throwOnError === true) throw error;
+          const cached = workspaceNavigationCache.getWorkspaces({
+            allowStale: true,
+          });
+          if (Array.isArray(cached)) return cached;
+        }
+        if (options.throwOnError === true) throw error;
+        return [];
+      });
     if (Array.isArray(workspaces) && workspaces.length)
       workspaceNavigationCache.setWorkspaces(workspaces);
 
@@ -474,6 +489,15 @@ const Workspace = {
       .then(({ data }) => data.workspace)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
+        if (shouldPreserveLocalAuthOnFailure(error)) {
+          workspaceNavigationCache.markWorkspaceDetailStale(
+            slug,
+            "workspace-detail-temporarily-unavailable"
+          );
+          if (options.throwOnError === true) throw error;
+          return cachedWorkspace(slug);
+        }
+        if (options.throwOnError === true) throw error;
         return null;
       });
     if (workspace?.slug)
@@ -1053,7 +1077,12 @@ const Workspace = {
 
   generateQuiz: async function (
     slug,
-    { message, threadSlug = null, nodeContext = null } = {},
+    {
+      message,
+      threadSlug = null,
+      nodeContext = null,
+      clientTurnId = null,
+    } = {},
     options = {}
   ) {
     return await postJson(
@@ -1062,39 +1091,42 @@ const Workspace = {
         message,
         threadSlug,
         nodeContext,
+        clientTurnId,
       },
       {
         signal: options.signal,
+        timeoutMs: options.timeoutMs || 20_000,
         communicationScene: options.communicationScene || "workspace-chat",
-        task:
-          options.task === undefined
-            ? workspaceUserActionTask(
-                "workspace:quiz-generate",
-                slug,
-                "quiz",
-                threadSlug
-              )
-            : options.task,
+        // Quiz acceptance must not wait behind workspace bootstrap/prefetch
+        // requests. The Responses runtime persists the turn immediately and
+        // owns all later plan/RAG/model work.
+        task: options.task === undefined ? false : options.task,
       }
     )
       .then(({ data }) => data)
       .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
+  quizHistory: async function (slug, threadSlug = null, options = {}) {
+    const query = threadSlug
+      ? `?threadSlug=${encodeURIComponent(threadSlug)}`
+      : "";
+    return await getJson(`/workspace/${slug}/quiz-history${query}`, {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs || 15_000,
+      communicationScene: options.communicationScene || "workspace-chat",
+      task: options.task === undefined ? false : options.task,
+    })
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, history: [] }));
+  },
+
   quizStatus: async function (slug, quizId, options = {}) {
     return await getJson(`/workspace/${slug}/quiz/${quizId}/status`, {
       signal: options.signal,
+      timeoutMs: options.timeoutMs || 12_000,
       communicationScene: options.communicationScene || "workspace-chat",
-      task:
-        options.task === undefined
-          ? workspaceTask({
-              label: "workspace:quiz-status",
-              slug,
-              surface: "quiz-status",
-              priority: "P2",
-              policy: "background",
-            })
-          : options.task,
+      task: options.task === undefined ? false : options.task,
     })
       .then(({ data }) => data)
       .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
@@ -1193,6 +1225,27 @@ const Workspace = {
           options.task === undefined
             ? workspaceVisibleTask(
                 "workspace:quiz-save-wrong-questions",
+                slug,
+                "quiz"
+              )
+            : options.task,
+      }
+    )
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
+  },
+
+  dismissQuizWrongQuestions: async function (slug, quizId, options = {}) {
+    return await postJson(
+      `/workspace/${slug}/quiz/${quizId}/wrong-questions/dismiss`,
+      {},
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:quiz-wrong-questions-dismiss",
                 slug,
                 "quiz"
               )

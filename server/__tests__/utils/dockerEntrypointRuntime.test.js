@@ -21,4 +21,17 @@ describe("Docker entrypoint runtime safety", () => {
       "node scripts/auth-prisma-runtime.js migrate deploy"
     );
   });
+
+  it("migrates both authoritative SQLite databases in development", () => {
+    const launcher = fs.readFileSync(
+      path.resolve(__dirname, "../../../run-development"),
+      "utf8"
+    );
+
+    expect(launcher).toContain('local db_path="$ENV_STORAGE_ROOT/anythingllm.db"');
+    expect(launcher).toContain('local db_path="$STORAGE_BASE/shared/auth.db"');
+    expect(launcher).toMatch(
+      /ensure_env_database\s*\n\s*ensure_auth_database\s*\n\s*run_key_custody_preflight/
+    );
+  });
 });

@@ -1518,6 +1518,7 @@ type GateEquityHistory = {
   lastUpdatedDate?: string | null;
   freshness?: {
     latestSnapshotAt: number | null;
+    latestSampleAt?: number | null;
     lastError?: string | null;
   };
   points: CryptoTrendPoint[];
@@ -1769,26 +1770,17 @@ function mergeTrendPoints(
   });
 }
 
-function timestampFromTime(time: string) {
-  const [hour = "0", minute = "0", second = "0"] = time.split(":");
-  const date = new Date();
-  date.setHours(Number(hour), Number(minute), Number(second), 0);
-  return date.getTime();
-}
-
 function buildSpotDetailParams({
   response,
   error,
   preset,
   market,
-  currentTime,
   visual,
 }: {
   response: TradingPairDetailResponse | null;
   error: string | null;
   preset: TradingPairPreset;
   market: TradingPairMarketType;
-  currentTime: string;
   visual: typeof btcDetailVisual;
 }): TradingPairDetailCardProps {
   const real = Boolean(response?.success);
@@ -1808,34 +1800,24 @@ function buildSpotDetailParams({
     iconText: preset.iconText,
     iconImage: preset.iconImage,
     accentColor: preset.accentColor,
-    holdingValueQuote: real
-      ? response?.holdingValueQuote || preset.holdingValueQuote
-      : preset.holdingValueQuote,
-    holdingValueUsd: real
-      ? (response?.holdingValueUsd ?? preset.holdingValueUsd)
-      : preset.holdingValueUsd,
-    change24hPct: real ? (response?.change24hPct ?? null) : preset.change24hPct,
-    change24hQuote: real
-      ? (response?.change24hQuote ?? null)
-      : preset.change24hQuote,
+    holdingValueQuote: real ? (response?.holdingValueQuote ?? null) : null,
+    holdingValueUsd: real ? (response?.holdingValueUsd ?? null) : null,
+    change24hPct: real ? (response?.change24hPct ?? null) : null,
+    change24hQuote: real ? (response?.change24hQuote ?? null) : null,
     averageBuyPriceQuote: real
       ? (response?.averageBuyPriceQuote ?? null)
-      : preset.averageBuyPriceQuote || null,
+      : null,
     averageBuyPriceMethod: real
       ? response?.averageBuyPriceMethod || "unknown"
-      : preset.averageBuyPriceMethod,
+      : "unknown",
     averageBuyPriceScope: real
       ? response?.averageBuyPriceScope || "unknown"
-      : "full",
-    currentPriceQuote: real
-      ? response?.currentPriceQuote || preset.currentPriceQuote
-      : preset.currentPriceQuote,
-    holdingAmountBase: real
-      ? response?.holdingAmountBase || preset.holdingAmountBase
-      : preset.holdingAmountBase,
+      : "unknown",
+    currentPriceQuote: real ? (response?.currentPriceQuote ?? null) : null,
+    holdingAmountBase: real ? (response?.holdingAmountBase ?? null) : null,
     lastUpdatedAt: real
       ? response?.lastUpdatedAt || response?.asOf || null
-      : timestampFromTime(currentTime),
+      : null,
     connectionStatus: real
       ? response?.connectionStatus || "connected"
       : error
@@ -1879,13 +1861,11 @@ function TopSpotAssetDetailCard({
   asset,
   cardWidth,
   cardHeight,
-  currentTime,
   enabled,
 }: {
   asset: TopSpotAsset;
   cardWidth: number;
   cardHeight: number;
-  currentTime: string;
   enabled: boolean;
 }) {
   const preset = useMemo(() => presetForTopSpotAsset(asset), [asset]);
@@ -1909,10 +1889,9 @@ function TopSpotAssetDetailCard({
       error: detail.error,
       preset,
       market: "spot",
-      currentTime,
       visual,
     });
-  }, [currentTime, detail.error, detail.response, preset, visual]);
+  }, [detail.error, detail.response, preset, visual]);
 
   return (
     <React.Suspense
@@ -1931,12 +1910,10 @@ function TopSpotAssetDetailCard({
 function AnimatedTopSpotAssetGrid({
   assets,
   cardHeight = TOP_SPOT_CARD_HEIGHT,
-  currentTime,
   enabled,
 }: {
   assets: TopSpotAsset[];
   cardHeight?: number;
-  currentTime: string;
   enabled: boolean;
 }) {
   const { reducedMotion, requestMotion } = useMotion();
@@ -2072,7 +2049,6 @@ function AnimatedTopSpotAssetGrid({
             asset={asset}
             cardWidth={cardWidth}
             cardHeight={cardHeight}
-            currentTime={currentTime}
             enabled={enabled}
           />
         </div>
@@ -2428,6 +2404,7 @@ export default function CryptoCenterContent() {
       ),
       lastUpdatedAt: currentDateTime.time,
       lastUpdatedDate: currentDateTime.date,
+      latestSampleAt: gateHistory?.freshness?.latestSampleAt || null,
       connectionStatus:
         gateHistoryStatus === "connected"
           ? ("connected" as const)
@@ -2501,7 +2478,6 @@ export default function CryptoCenterContent() {
       error: btcDetail.error,
       preset: btcPreset,
       market: BTC_MARKET,
-      currentTime: currentDateTime.time,
       visual: responsiveDetailVisual,
     });
   }, [
@@ -2517,7 +2493,6 @@ export default function CryptoCenterContent() {
       error: ethDetail.error,
       preset: ethPreset,
       market: ETH_MARKET,
-      currentTime: currentDateTime.time,
       visual: responsiveDetailVisual,
     });
   }, [
@@ -2905,7 +2880,6 @@ export default function CryptoCenterContent() {
                     <AnimatedTopSpotAssetGrid
                       assets={topSpotAssets.assets}
                       cardHeight={responsiveLayout.topSpotCardHeight}
-                      currentTime={currentDateTime.time}
                       enabled={topAssetsEnabled}
                     />
                   ) : (

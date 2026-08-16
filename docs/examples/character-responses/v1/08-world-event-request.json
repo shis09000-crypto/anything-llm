@@ -1,0 +1,31 @@
+{
+  "protocol_version": "1.0",
+  "character": {
+    "character_id": "athena.default",
+    "instance_id": "char_inst_01",
+    "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  },
+  "conversation": { "id": "ath_conv_world", "previous_response_id": null },
+  "input": [
+    {
+      "id": "world_event_01",
+      "type": "world_event",
+      "name": "player.entered_room",
+      "occurred_at": 1786406470000,
+      "actor": { "type": "entity", "entity_id": "player.local", "kind": "actor" },
+      "target": { "type": "entity", "entity_id": "athena.default", "kind": "character" },
+      "data": { "entrance": "north_door", "distance_m": 4.2 }
+    }
+  ],
+  "context": {
+    "character_state_ref": { "id": "char_state_01", "revision": 17 },
+    "world_snapshot_ref": { "id": "world_snapshot_09", "revision": 93 }
+  },
+  "generation": {
+    "mode": "main_agent",
+    "channels": ["performance", "gaze", "gesture"],
+    "latency_class": "interactive",
+    "tool_profile": "character.default"
+  },
+  "metadata": { "source": "ue5_bridge" }
+}

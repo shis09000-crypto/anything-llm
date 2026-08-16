@@ -34,7 +34,7 @@ describe("quiz type generators", () => {
     });
   });
 
-  it("uses deepseek-v4-pro for question generation", async () => {
+  it("uses DeepSeek Flash for background question generation", async () => {
     const result = await singleChoiceGenerator({
       type: "single_choice",
       count: 1,
@@ -55,7 +55,7 @@ describe("quiz type generators", () => {
     expect(result.questions[0].difficulty).toBe("high");
     expect(mockCompleteJsonStreamWithRetry).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "deepseek-v4-pro",
+        model: "deepseek-v4-flash",
         label: "quiz_generate_single_choice",
       })
     );
@@ -82,6 +82,8 @@ describe("quiz type generators", () => {
     expect(prompt).toContain('"questions"');
     expect(prompt).toContain('"correctAnswer"');
     expect(prompt).toContain('"sourceRefs"');
+    expect(prompt).toContain("independently judge which evidence chunks");
+    expect(prompt).toContain("per-question evidence judgment");
     expect(prompt).not.toContain('"explanation"');
     expect(prompt).not.toContain('"difficulty"');
   });

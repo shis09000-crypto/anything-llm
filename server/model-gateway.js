@@ -25,10 +25,19 @@ const {
 } = require("./utils/agents/aibitat/providers/factory");
 const { TASK_REGISTRY } = require("./utils/llmTasks/taskRegistry");
 const {
+  deepSeekResponsesComplete,
+  deepSeekResponsesStream,
+  validateProviderRequest,
+} = require("./utils/modelGateway/deepSeekResponses");
+const {
   MicroModuleServiceHost,
   installStandaloneShutdown,
   secureDatabaseStart,
 } = require("./utils/microModules");
+const { startFastLaneServer } = require("./utils/athena3dCenter/fastLane");
+const {
+  ThreeDContextCache,
+} = require("./utils/modelGateway/threeDContextCache");
 
 const role = "model-gateway";
 const port = Number(process.env.MODEL_GATEWAY_PORT || 3018);
@@ -91,12 +100,28 @@ function agentCompletionRequest(body = {}) {
   };
 }
 
+function responsesCompletionRequest(body = {}, stream = false) {
+  const input = validateProviderRequest({ ...body, stream });
+  const serialized = JSON.stringify(input.input);
+  if (
+    Buffer.byteLength(serialized) >
+    Number(process.env.ATHENA_MODEL_GATEWAY_MAX_REQUEST_BYTES || 8_388_608)
+  ) {
+    const error = new Error("model_responses_input_too_large");
+    error.httpStatus = 413;
+    throw error;
+  }
+  return input;
+}
+
 const state = {
   accepting: true,
   activeCompletions: 0,
   completedCompletions: 0,
   failedCompletions: 0,
 };
+let threeDContextFastLane = null;
+const threeDContextCache = new ThreeDContextCache();
 
 async function withCompletion(
   request,
@@ -126,13 +151,99 @@ async function withCompletion(
   }
 }
 
+async function dispatchThreeDContext(operation, payload) {
+  switch (operation) {
+    case "context.install":
+      return threeDContextCache.install(payload);
+    case "context.complete": {
+      const prepared = threeDContextCache.completionInput(payload);
+      const input = responsesCompletionRequest(prepared.input, false);
+      const result = await withCompletion(input, () =>
+        deepSeekResponsesComplete(input, {
+          providerFactory: (requestInput) =>
+            getLLMProvider({
+              provider: requestInput.provider,
+              model: requestInput.model,
+            }),
+        })
+      );
+      threeDContextCache.recordCompletion(payload.context_ref, input, result);
+      return { result, slot_hit: true };
+    }
+    case "context.finalize": {
+      const prepared = threeDContextCache.finalizationInput(payload);
+      const input = responsesCompletionRequest(prepared.input, false);
+      const result = await withCompletion(input, () =>
+        deepSeekResponsesComplete(input, {
+          providerFactory: (requestInput) =>
+            getLLMProvider({
+              provider: requestInput.provider,
+              model: requestInput.model,
+            }),
+        })
+      );
+      return {
+        result,
+        cache_mode: "exact_prefix",
+        prefix_sha256: prepared.prefixSha256,
+      };
+    }
+    case "context.commit": {
+      const inactive = [
+        "soft_closed",
+        "suspended",
+        "ended",
+        "cancelled",
+      ].includes(String(payload.status || ""));
+      if (inactive && payload.retain_for_long_term !== true) {
+        threeDContextCache.invalidate({
+          session_id: payload.session_id,
+          context_ref: payload.previous_context_ref,
+        });
+        return { committed: true, retained: false };
+      }
+      return {
+        committed: true,
+        retained: true,
+        ...threeDContextCache.commit(payload),
+      };
+    }
+    case "context.status":
+      return threeDContextCache.status(payload);
+    case "context.invalidate":
+      return threeDContextCache.invalidate(payload);
+    default: {
+      const error = new Error("athena_3d_context_operation_unknown");
+      error.code = "athena_3d_context_operation_unknown";
+      error.httpStatus = 404;
+      throw error;
+    }
+  }
+}
+
 const host = new MicroModuleServiceHost({
   manifestId: "model-gateway",
   role,
   port,
-  jsonLimit: "2mb",
-  readiness: () => ({ ...state }),
-  onStart: () => secureDatabaseStart(role),
+  jsonLimit: process.env.ATHENA_MODEL_GATEWAY_JSON_LIMIT || "10mb",
+  readiness: () => ({
+    ...state,
+    threeDContext: threeDContextCache.status(),
+    threeDContextFastLane: threeDContextFastLane
+      ? { ready: true, port: threeDContextFastLane.port }
+      : { ready: false },
+  }),
+  onStart: async () => {
+    await secureDatabaseStart(role);
+    if (process.env.ATHENA_3D_CONTEXT_FAST_LANE_ENABLED !== "false")
+      threeDContextFastLane = await startFastLaneServer({
+        role,
+        port: Number(process.env.ATHENA_3D_CONTEXT_FAST_LANE_PORT || 3118),
+        host: process.env.ATHENA_3D_CONTEXT_FAST_LANE_HOST || "127.0.0.1",
+        jsonLimit: process.env.ATHENA_3D_CONTEXT_FAST_LANE_JSON_LIMIT || "48mb",
+        handler: dispatchThreeDContext,
+      });
+  },
   onDrain: async () => {
     state.accepting = false;
     const deadline =
@@ -140,8 +251,31 @@ const host = new MicroModuleServiceHost({
       Number(process.env.ATHENA_RUNTIME_DRAIN_TIMEOUT_MS || 120_000);
     while (state.activeCompletions > 0 && Date.now() < deadline)
       await new Promise((resolve) => setTimeout(resolve, 25));
+    await threeDContextFastLane?.close?.();
+    threeDContextFastLane = null;
+  },
+  onStop: async () => {
+    await threeDContextFastLane?.close?.();
+    threeDContextFastLane = null;
   },
   registerRoutes: (app) => {
+    app.get(
+      "/internal/v1/models/responses/capabilities",
+      (_request, response) => {
+        const models = ["deepseek-v4-flash", "deepseek-v4-pro"];
+        const ready = models.every((model) => {
+          const provider = getLLMProvider({ provider: "deepseek", model });
+          return typeof provider?.openai?.responses?.create === "function";
+        });
+        response.json({
+          success: true,
+          ready,
+          provider: "deepseek",
+          models,
+          protocols: ["responses"],
+        });
+      }
+    );
     app.get("/internal/v1/models/health", (_request, response) => {
       const provider = getLLMProvider({});
       const ready =
@@ -197,6 +331,47 @@ const host = new MicroModuleServiceHost({
       if (!response.destroyed)
         response.end(`${JSON.stringify({ end: true })}\n`);
     });
+    app.post(
+      "/internal/v1/models/responses/complete",
+      async (request, response) => {
+        const input = responsesCompletionRequest(request.body, false);
+        const result = await withCompletion(input, () =>
+          deepSeekResponsesComplete(input, {
+            providerFactory: (requestInput) =>
+              getLLMProvider({
+                provider: requestInput.provider,
+                model: requestInput.model,
+              }),
+          })
+        );
+        response.json({ success: true, result });
+      }
+    );
+    app.post(
+      "/internal/v1/models/responses/stream",
+      async (request, response) => {
+        const input = responsesCompletionRequest(request.body, true);
+        response.status(200);
+        response.setHeader("Content-Type", "application/x-ndjson");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.flushHeaders?.();
+        await withCompletion(input, async () => {
+          const stream = deepSeekResponsesStream(input, {
+            providerFactory: (requestInput) =>
+              getLLMProvider({
+                provider: requestInput.provider,
+                model: requestInput.model,
+              }),
+          });
+          for await (const event of stream) {
+            if (response.destroyed) break;
+            response.write(`${JSON.stringify({ event })}\n`);
+          }
+        });
+        if (!response.destroyed)
+          response.end(`${JSON.stringify({ end: true })}\n`);
+      }
+    );
     app.post(
       "/internal/v1/models/agent/complete",
       async (request, response) => {

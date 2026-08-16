@@ -105,6 +105,10 @@ SELECT format('CREATE ROLE athena_agent LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_agent')\gexec
 SELECT format('CREATE ROLE athena_model_runtime LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_model_runtime')\gexec
+SELECT format('CREATE ROLE athena_responses_runtime LOGIN PASSWORD %L', :'main_password')
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_responses_runtime')\gexec
+SELECT format('CREATE ROLE athena_character_performance LOGIN PASSWORD %L', :'main_password')
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_character_performance')\gexec
 SELECT format('CREATE ROLE athena_tools LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_tools')\gexec
 SELECT format('CREATE ROLE athena_crypto_market LOGIN PASSWORD %L', :'main_password')
@@ -115,6 +119,8 @@ SELECT format('CREATE ROLE athena_crypto_forecast LOGIN PASSWORD %L', :'main_pas
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_crypto_forecast')\gexec
 SELECT format('CREATE ROLE athena_browser_plane LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_browser_plane')\gexec
+SELECT format('CREATE ROLE athena_browser_egress LOGIN PASSWORD %L', :'main_password')
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_browser_egress')\gexec
 SELECT format('CREATE ROLE athena_knowledge_query LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_knowledge_query')\gexec
 SELECT format('CREATE ROLE athena_knowledge_ingest LOGIN PASSWORD %L', :'main_password')
@@ -125,6 +131,8 @@ SELECT format('CREATE ROLE athena_maintenance LOGIN PASSWORD %L', :'main_passwor
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_maintenance')\gexec
 SELECT format('CREATE ROLE athena_scheduler LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_scheduler')\gexec
+SELECT format('CREATE ROLE athena_coordination LOGIN PASSWORD %L', :'main_password')
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_coordination')\gexec
 SELECT format('CREATE ROLE athena_sync LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_sync')\gexec
 
@@ -134,16 +142,20 @@ ALTER ROLE athena_workspace PASSWORD :'main_password';
 ALTER ROLE athena_chat PASSWORD :'main_password';
 ALTER ROLE athena_agent PASSWORD :'main_password';
 ALTER ROLE athena_model_runtime PASSWORD :'main_password';
+ALTER ROLE athena_responses_runtime PASSWORD :'main_password';
+ALTER ROLE athena_character_performance PASSWORD :'main_password';
 ALTER ROLE athena_tools PASSWORD :'main_password';
 ALTER ROLE athena_crypto_market PASSWORD :'main_password';
 ALTER ROLE athena_crypto_account PASSWORD :'main_password';
 ALTER ROLE athena_crypto_forecast PASSWORD :'main_password';
 ALTER ROLE athena_browser_plane PASSWORD :'main_password';
+ALTER ROLE athena_browser_egress PASSWORD :'main_password';
 ALTER ROLE athena_knowledge_query PASSWORD :'main_password';
 ALTER ROLE athena_knowledge_ingest PASSWORD :'main_password';
 ALTER ROLE athena_knowledge_reader PASSWORD :'main_password';
 ALTER ROLE athena_maintenance PASSWORD :'main_password';
 ALTER ROLE athena_scheduler PASSWORD :'main_password';
+ALTER ROLE athena_coordination PASSWORD :'main_password';
 ALTER ROLE athena_sync PASSWORD :'main_password';
 
 GRANT CONNECT ON DATABASE athena_auth TO athena_identity, athena_key_custody;
@@ -153,16 +165,20 @@ GRANT CONNECT ON DATABASE athena_main TO
   athena_chat,
   athena_agent,
   athena_model_runtime,
+  athena_responses_runtime,
+  athena_character_performance,
   athena_tools,
   athena_crypto_market,
   athena_crypto_account,
   athena_crypto_forecast,
   athena_browser_plane,
+  athena_browser_egress,
   athena_knowledge_query,
   athena_knowledge_ingest,
   athena_knowledge_reader,
   athena_maintenance,
   athena_scheduler,
+  athena_coordination,
   athena_sync;
 SQL
 
@@ -221,16 +237,20 @@ CREATE SCHEMA IF NOT EXISTS identity AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS chat AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS agent AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS model_runtime AUTHORIZATION athena_main_owner;
+CREATE SCHEMA IF NOT EXISTS responses_runtime AUTHORIZATION athena_main_owner;
+CREATE SCHEMA IF NOT EXISTS character_performance AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS tools AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS crypto_market AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS crypto_account AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS crypto_forecast AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS browser_plane AUTHORIZATION athena_main_owner;
+CREATE SCHEMA IF NOT EXISTS browser_egress AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS knowledge_query AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS knowledge_ingest AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS knowledge_reader AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS maintenance AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS scheduler AUTHORIZATION athena_main_owner;
+CREATE SCHEMA IF NOT EXISTS coordination AUTHORIZATION athena_main_owner;
 CREATE SCHEMA IF NOT EXISTS sync AUTHORIZATION athena_main_owner;
 
 REVOKE ALL ON SCHEMA
@@ -239,16 +259,20 @@ REVOKE ALL ON SCHEMA
   chat,
   agent,
   model_runtime,
+  responses_runtime,
+  character_performance,
   tools,
   crypto_market,
   crypto_account,
   crypto_forecast,
   browser_plane,
+  browser_egress,
   knowledge_query,
   knowledge_ingest,
   knowledge_reader,
   maintenance,
   scheduler,
+  coordination,
   sync
 FROM PUBLIC;
 
@@ -257,16 +281,20 @@ GRANT USAGE, CREATE ON SCHEMA workspace TO athena_workspace;
 GRANT USAGE, CREATE ON SCHEMA chat TO athena_chat;
 GRANT USAGE, CREATE ON SCHEMA agent TO athena_agent;
 GRANT USAGE, CREATE ON SCHEMA model_runtime TO athena_model_runtime;
+GRANT USAGE, CREATE ON SCHEMA responses_runtime TO athena_responses_runtime;
+GRANT USAGE, CREATE ON SCHEMA character_performance TO athena_character_performance;
 GRANT USAGE, CREATE ON SCHEMA tools TO athena_tools;
 GRANT USAGE, CREATE ON SCHEMA crypto_market TO athena_crypto_market;
 GRANT USAGE, CREATE ON SCHEMA crypto_account TO athena_crypto_account;
 GRANT USAGE, CREATE ON SCHEMA crypto_forecast TO athena_crypto_forecast;
 GRANT USAGE, CREATE ON SCHEMA browser_plane TO athena_browser_plane;
+GRANT USAGE, CREATE ON SCHEMA browser_egress TO athena_browser_egress;
 GRANT USAGE, CREATE ON SCHEMA knowledge_query TO athena_knowledge_query;
 GRANT USAGE, CREATE ON SCHEMA knowledge_ingest TO athena_knowledge_ingest;
 GRANT USAGE, CREATE ON SCHEMA knowledge_reader TO athena_knowledge_reader;
 GRANT USAGE, CREATE ON SCHEMA maintenance TO athena_maintenance;
 GRANT USAGE, CREATE ON SCHEMA scheduler TO athena_scheduler;
+GRANT USAGE, CREATE ON SCHEMA coordination TO athena_coordination;
 GRANT USAGE, CREATE ON SCHEMA sync TO athena_sync;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_identity IN SCHEMA identity
@@ -279,6 +307,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_agent IN SCHEMA agent
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_agent;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_model_runtime IN SCHEMA model_runtime
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_model_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_responses_runtime IN SCHEMA responses_runtime
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_responses_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_character_performance IN SCHEMA character_performance
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_character_performance;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_tools IN SCHEMA tools
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_tools;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_crypto_market IN SCHEMA crypto_market
@@ -289,6 +321,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_crypto_forecast IN SCHEMA crypto_foreca
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_crypto_forecast;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_browser_plane IN SCHEMA browser_plane
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_browser_plane;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_browser_egress IN SCHEMA browser_egress
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_browser_egress;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_knowledge_query IN SCHEMA knowledge_query
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_knowledge_query;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_knowledge_ingest IN SCHEMA knowledge_ingest
@@ -299,6 +333,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_maintenance IN SCHEMA maintenance
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_maintenance;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_scheduler IN SCHEMA scheduler
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_scheduler;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_coordination IN SCHEMA coordination
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_coordination;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_sync IN SCHEMA sync
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO athena_sync;
 
@@ -312,6 +348,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_agent IN SCHEMA agent
   GRANT USAGE, SELECT ON SEQUENCES TO athena_agent;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_model_runtime IN SCHEMA model_runtime
   GRANT USAGE, SELECT ON SEQUENCES TO athena_model_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_responses_runtime IN SCHEMA responses_runtime
+  GRANT USAGE, SELECT ON SEQUENCES TO athena_responses_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_character_performance IN SCHEMA character_performance
+  GRANT USAGE, SELECT ON SEQUENCES TO athena_character_performance;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_tools IN SCHEMA tools
   GRANT USAGE, SELECT ON SEQUENCES TO athena_tools;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_crypto_market IN SCHEMA crypto_market
@@ -322,6 +362,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_crypto_forecast IN SCHEMA crypto_foreca
   GRANT USAGE, SELECT ON SEQUENCES TO athena_crypto_forecast;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_browser_plane IN SCHEMA browser_plane
   GRANT USAGE, SELECT ON SEQUENCES TO athena_browser_plane;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_browser_egress IN SCHEMA browser_egress
+  GRANT USAGE, SELECT ON SEQUENCES TO athena_browser_egress;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_knowledge_query IN SCHEMA knowledge_query
   GRANT USAGE, SELECT ON SEQUENCES TO athena_knowledge_query;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_knowledge_ingest IN SCHEMA knowledge_ingest
@@ -332,6 +374,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE athena_maintenance IN SCHEMA maintenance
   GRANT USAGE, SELECT ON SEQUENCES TO athena_maintenance;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_scheduler IN SCHEMA scheduler
   GRANT USAGE, SELECT ON SEQUENCES TO athena_scheduler;
+ALTER DEFAULT PRIVILEGES FOR ROLE athena_coordination IN SCHEMA coordination
+  GRANT USAGE, SELECT ON SEQUENCES TO athena_coordination;
 ALTER DEFAULT PRIVILEGES FOR ROLE athena_sync IN SCHEMA sync
   GRANT USAGE, SELECT ON SEQUENCES TO athena_sync;
 SQL

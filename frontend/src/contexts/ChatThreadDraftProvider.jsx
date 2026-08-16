@@ -13,9 +13,13 @@ import {
   buildChatStreamBody,
   streamWorkspaceChat,
   streamWorkspaceThreadChat,
+  submitResponseAction,
 } from "@/lib/communication/chatStreamClient";
 import { respondToChatToolApproval } from "@/lib/communication/chatControlClient";
-import { recordChatStreamPaint } from "@/lib/communication/chatStreamObservability";
+import {
+  recordChatStreamPaint,
+  recordChatStreamReconnect,
+} from "@/lib/communication/chatStreamObservability";
 import {
   AgentSessionState,
   canReuseAgentSessionForInvocation,
@@ -1243,6 +1247,23 @@ export function ChatThreadDraftProvider({ children }) {
         return event;
       }
 
+      if (event.type === "response_lifecycle") {
+        if (event.status !== "response.created" || !event.chatId) return event;
+        updateDraft(chatKey, (draft) => {
+          const turn = canApplyTurnEvent(draft, turnId);
+          if (!turn) return draft;
+          return {
+            ...draft,
+            items: updateAssistantTurnInItems(draft.items, turnId, {
+              chatId: event.chatId,
+              publicChatId: event.publicChatId || turn.publicChatId || null,
+              responseId: event.responseId || turn.responseId || null,
+            }),
+          };
+        });
+        return event;
+      }
+
       if (event.type === "timeline_event") {
         const turn = canApplyTurnEvent(draftsRef.current[chatKey], turnId);
         if (!turn) {
@@ -1680,6 +1701,26 @@ export function ChatThreadDraftProvider({ children }) {
         approved: !!approved,
       });
 
+      if (approval.responseId) {
+        const result = await submitResponseAction({
+          workspaceSlug: draft.workspaceSlug,
+          threadSlug: draft.threadSlug,
+          responseId: approval.responseId,
+          actionId: requestId,
+          body: { action: "approval", approved: !!approved },
+        });
+        if (!result?.success) {
+          appendTimelineEvent(chatKey, turnId, {
+            type: "tool_result",
+            uuid: `approval-response:${requestId}`,
+            toolName: approval.skillName,
+            result: { success: false, error: result?.error || "not_found" },
+            content: "工具确认响应失败，请重试。",
+          });
+        }
+        return result;
+      }
+
       const agentSession = agentSessionRefs.current[chatKey];
       const sendResult = await agentSession?.respondToApproval?.(
         requestId,
@@ -1729,6 +1770,33 @@ export function ChatThreadDraftProvider({ children }) {
           window.__lastClarificationSendFailure = debugPayload;
         }
         return { ok: false, reason: "clarification_not_pending" };
+      }
+
+      if (clarification.responseId && !payload.timedOut) {
+        const result = await submitResponseAction({
+          workspaceSlug: draft.workspaceSlug,
+          threadSlug: draft.threadSlug,
+          responseId: clarification.responseId,
+          actionId: requestId,
+          body: {
+            action: "clarification",
+            answers: Array.isArray(payload.answers) ? payload.answers : [],
+            skipped: !!payload.skipped,
+          },
+        });
+        if (!result?.success)
+          return {
+            ok: false,
+            reason: result?.error || "clarification_submit_failed",
+            transport: "responses_sse",
+          };
+        appendTimelineEvent(chatKey, turnId, {
+          type: "clarification_result",
+          requestId,
+          skipped: !!payload.skipped,
+          timedOut: false,
+        });
+        return { ok: true, transport: "responses_sse" };
       }
 
       let sendResult = { ok: true, transport: "local" };
@@ -1920,7 +1988,7 @@ export function ChatThreadDraftProvider({ children }) {
     (stateSnapshot = {}, extra = {}) => {
       const reconnectState = reconnectStateFromAgentState(stateSnapshot);
       return {
-        ...(reconnectState ? { reconnectState } : {}),
+        reconnectState,
         retryCount: stateSnapshot.retryCount || 0,
         websocketUUID: stateSnapshot.websocketUUID || null,
         agentProvider: stateSnapshot.agentProvider || null,
@@ -2025,15 +2093,51 @@ export function ChatThreadDraftProvider({ children }) {
         AgentSessionState.FAILED,
         AgentSessionState.STOPPING,
       ].includes(stateSnapshot.state);
+      const currentDraft = draftsRef.current[chatKey];
+      const currentTurn = findAssistantTurn(currentDraft?.items || [], turnId);
+      const pendingDelta = deltaFlushRefs.current[`${chatKey}:${turnId}`];
+      const hasAnswer = !!String(
+        pendingDelta?.content || currentTurn?.finalContent || ""
+      ).trim();
+      const waitingForUserInput =
+        stateSnapshot.state === AgentSessionState.WAITING_ON_INPUT &&
+        stateSnapshot.reason === "waiting_on_input" &&
+        !currentDraft?.pendingApproval &&
+        !currentDraft?.pendingClarification;
+      const responseTurnSettled =
+        !!currentTurn && currentTurn.status !== TURN_STATUSES.running;
+      const releaseResponseTurn =
+        terminal ||
+        waitingForUserInput ||
+        stateSnapshot.turnFinalized === true ||
+        responseTurnSettled;
+
+      if (
+        waitingForUserInput &&
+        hasAnswer &&
+        currentTurn?.status === TURN_STATUSES.running
+      ) {
+        completeAssistantTurn(chatKey, turnId, {
+          chatId: currentTurn.chatId || null,
+          publicChatId: currentTurn.publicChatId || null,
+          streamConnectionState: null,
+        });
+      }
 
       updateDraft(chatKey, (draft) => ({
         ...draft,
-        activeTurnId: terminal
+        activeTurnId: releaseResponseTurn
           ? draft.activeTurnId === turnId
             ? null
             : draft.activeTurnId
           : turnId,
-        isAgentRunning: !terminal,
+        // The Agent socket can stay open after assistant_final so that a later
+        // user message can reuse it. That session lifetime must never revive a
+        // response turn that has already settled or hold the composer in Stop.
+        isAgentRunning:
+          stateSnapshot.state === AgentSessionState.WAITING_ON_INPUT
+            ? true
+            : !terminal,
         isStreaming: false,
         persistError: null,
       }));
@@ -2053,7 +2157,12 @@ export function ChatThreadDraftProvider({ children }) {
         lastEventSeq: stateSnapshot.lastEventSeq || 0,
       });
     },
-    [agentTurnPatchFromState, updateAgentReconnectTurn, updateDraft]
+    [
+      agentTurnPatchFromState,
+      completeAssistantTurn,
+      updateAgentReconnectTurn,
+      updateDraft,
+    ]
   );
 
   const handleAgentSessionEvent = useCallback(
@@ -2165,6 +2274,13 @@ export function ChatThreadDraftProvider({ children }) {
           }
           handleAgentSessionState(chatKey, turnId, stateSnapshot);
         },
+        onReconnectPhase: (phase, detail = {}) => {
+          recordChatStreamReconnect(turnId, phase, detail.attempt || 0, {
+            runKind: "agent",
+            transport: detail.transport || "websocket",
+            invocationId: websocketUUID,
+          });
+        },
         onReconnectOffer: (reason, interruptedContext, stateSnapshot) =>
           offerAgentReconnect(
             chatKey,
@@ -2185,7 +2301,23 @@ export function ChatThreadDraftProvider({ children }) {
         },
         onFinal: (chatId) => {
           clearAgentStartupTimeout(chatKey, turnId);
-          markThreadCompleted(chatKey, turnId);
+          const currentTurn = findAssistantTurn(
+            draftsRef.current[chatKey]?.items || [],
+            turnId
+          );
+          // Some Responses/Agent providers close with a persisted chat id but
+          // do not emit a separate assistant_final event. The socket final is
+          // still authoritative: flush any queued deltas and settle the turn
+          // so the composer returns to Send only after the full response ends.
+          if (currentTurn?.status === TURN_STATUSES.running) {
+            completeAssistantTurn(chatKey, turnId, {
+              chatId: chatId || currentTurn.chatId || null,
+              publicChatId: currentTurn.publicChatId || null,
+              streamConnectionState: null,
+            });
+          } else {
+            markThreadCompleted(chatKey, turnId);
+          }
           setTimeout(() => {
             if (chatId) confirmPersisted(chatKey, turnId, chatId);
             const parsedChatKey = parseChatKey(chatKey);
@@ -2275,6 +2407,7 @@ export function ChatThreadDraftProvider({ children }) {
       buildInterruptedAgentContext,
       clearAgentStartupTimeout,
       clearThreadRunning,
+      completeAssistantTurn,
       confirmPersisted,
       debugRuntime,
       handleAgentSessionEvent,

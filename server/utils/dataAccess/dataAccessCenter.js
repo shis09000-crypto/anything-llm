@@ -39,10 +39,12 @@ const repositoryLoaders = {
   accountDeletion: () =>
     require("../../repositories/accountDeletionRepository"),
   authIdentity: () => require("../../repositories/authIdentityRepository"),
+  browserEgress: () => require("../../repositories/browserEgressRepository"),
   browserPlane: () => require("../../repositories/browserPlaneRepository"),
   clientIdentity: () => require("../../repositories/clientIdentityRepository"),
   communityHub: () => require("../../repositories/communityHubRepository"),
   contentObject: () => require("../../repositories/contentObjectRepository"),
+  coordination: () => require("../../repositories/coordinationRepository"),
   crypto: () => require("../../repositories/cryptoRepository"),
   document: () => require("../../repositories/documentRepository"),
   documentEmbeddingBatch: () =>
@@ -126,10 +128,12 @@ const repositoryExports = {
   agentSkillWhitelist: "AgentSkillWhitelistRepository",
   accountDeletion: "AccountDeletionRepository",
   authIdentity: "AuthIdentityRepository",
+  browserEgress: "BrowserEgressRepository",
   browserPlane: "BrowserPlaneRepository",
   clientIdentity: "ClientIdentityRepository",
   communityHub: "CommunityHubRepository",
   contentObject: "ContentObjectRepository",
+  coordination: "CoordinationRepository",
   crypto: "CryptoRepository",
   document: "DocumentRepository",
   documentEmbeddingBatch: "DocumentEmbeddingBatchRepository",
@@ -1165,6 +1169,7 @@ const syncV2 = makeRepositoryFacade(
     schemaReady: "read",
     enabled: "read",
     canAccessNode: "read",
+    nodeExists: "read",
     mutationReplay: "read",
     recordNodeChange: "write",
     recordAuthSessionChange: "write",
@@ -1239,6 +1244,7 @@ const chatStreamRun = makeRepositoryFacade(
   {
     claim: "write",
     getScoped: "read",
+    getScopedById: "read",
     checkpoint: "write",
     appendEvents: "write",
     eventsAfter: "read",
@@ -1284,6 +1290,7 @@ const browserPlane = makeRepositoryFacade(
   {
     ensureProfile: "write",
     getProfile: "read",
+    updateProfileRoute: "write",
     claimProfileLease: "write",
     releaseProfileLease: "write",
     updateProfileCheckpoint: "write",
@@ -1305,6 +1312,20 @@ const browserPlane = makeRepositoryFacade(
     listHistory: "read",
     addBookmark: "write",
     listBookmarks: "read",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
+const browserEgress = makeRepositoryFacade(
+  "browserEgress",
+  {
+    grant: "write",
+    activeGrant: "read",
+    grantById: "read",
+    activeGrants: "read",
+    renew: "write",
+    revoke: "write",
+    recordHealth: "write",
   },
   repositoryBoundaryScopeFromArgs
 );
@@ -2232,6 +2253,7 @@ const DataAccessCenter = {
   agentSkillWhitelist,
   accountDeletion,
   authIdentity,
+  browserEgress,
   browserPlane,
   agentRun,
   clientIdentity,

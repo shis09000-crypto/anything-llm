@@ -1,0 +1,21 @@
+{
+  "protocol_version": "2.0",
+  "character": {
+    "character_id": "athena.test.cold_tsundere",
+    "instance_id": "char_inst_continuous_01",
+    "capability_manifest": {
+      "id": "athena.cold_tsundere.expressive",
+      "version": "2.0.0",
+      "sha256": "1b82e27288c8e2b6d82d0cb7c4173dad44049944736c408851696445eb5dd252"
+    }
+  },
+  "generation": {
+    "mode": "main_agent",
+    "channels": ["performance", "face", "gaze", "body", "action", "speech"],
+    "latency_class": "interactive",
+    "performance_profile": "athena.cold_tsundere.expressive.v2"
+  },
+  "previous_activity": "reading",
+  "metadata": { "scenario": "continuous-dialogue" },
+  "athena": { "workspaceId": 1, "threadId": 2, "userId": 3 }
+}

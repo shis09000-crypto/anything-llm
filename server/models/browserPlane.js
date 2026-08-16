@@ -63,6 +63,46 @@ const BrowserPlane = {
     }
   },
 
+  async updateProfileRoute({
+    userId,
+    profileId,
+    networkRoute,
+    preferredDriver,
+    egressGrantId = undefined,
+    lastRouteHealth = undefined,
+  } = {}) {
+    const route = String(networkRoute || "");
+    if (!["direct", "system", "athena_egress"].includes(route))
+      throw new Error("browser_profile_network_route_invalid");
+    const driver = String(preferredDriver || "embedded");
+    if (!["embedded", "system_chrome"].includes(driver))
+      throw new Error("browser_profile_driver_invalid");
+    try {
+      return await prisma.browser_profiles.update({
+        where: {
+          ownerUserId_profileId: {
+            ownerUserId: Number(userId),
+            profileId: String(profileId),
+          },
+        },
+        data: {
+          networkRoute: route,
+          preferredDriver: driver,
+          routePolicyVersion: "browser-egress-route-v1",
+          ...(egressGrantId !== undefined
+            ? { egressGrantId: egressGrantId || null }
+            : {}),
+          ...(lastRouteHealth !== undefined
+            ? { lastRouteHealth: lastRouteHealth || null }
+            : {}),
+          lastUsedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      throwModelDataAccessError("browserPlane.updateProfileRoute", error);
+    }
+  },
+
   async claimProfileLease({
     userId,
     profileId,

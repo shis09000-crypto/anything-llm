@@ -64,7 +64,23 @@ async function loadApiClient({
   };
   globalThis.__apiClientTestTaskRequestMetadata = {
     runScheduledTaskRequest: (operation, request = {}) =>
-      operation({ signal: request.signal, handle: null }),
+      operation({
+        signal: request.signal,
+        handle: {
+          context: () => ({
+            id: "task:test",
+            priority: "P1",
+            coordinationContext: {
+              coordinationRunId: "coordination:test",
+              stepId: "step:test",
+              center: "task",
+              correlationId: "correlation:test",
+              causationId: "task:parent",
+              deadlineAt: "2099-01-01T00:00:00.000Z",
+            },
+          }),
+        },
+      }),
   };
   globalThis.__apiClientTestRecovery = {
     events: [],
@@ -126,6 +142,28 @@ async function loadApiClient({
     },
     ...sessionRecoveryOverrides,
   };
+  globalThis.__apiClientTestAuthLifecycle = {
+    redirects: [],
+    authReasonFrom({ raw } = {}, fallback = null) {
+      return raw?.reasonCode || raw?.reason || raw?.error || fallback;
+    },
+    isTerminalAuthReason(reason) {
+      return [
+        "session_expired",
+        "session_idle_expired",
+        "session_revoked",
+        "session_epoch_incompatible",
+        "account_disabled",
+        "account_suspended",
+        "client_revoked",
+        "device_identity_reauth",
+      ].includes(reason);
+    },
+    redirectToLogin(options = {}) {
+      globalThis.__apiClientTestAuthLifecycle.redirects.push(options);
+      return true;
+    },
+  };
 
   const transformed = source
     .replace(
@@ -172,6 +210,10 @@ async function loadApiClient({
       /import\s+\{\s*attemptSessionRecovery,\s*recoveryReplayAllowed,?\s*\}\s+from\s+"@\/utils\/authRecoveryCoordinator";/,
       "const { attemptSessionRecovery, recoveryReplayAllowed } = globalThis.__apiClientTestSessionRecovery;"
     )
+    .replace(
+      /import\s+\{\s*authReasonFrom,\s*isTerminalAuthReason,\s*redirectToLogin,?\s*\}\s+from\s+"@\/utils\/authLifecycleCoordinator";/,
+      "const { authReasonFrom, isTerminalAuthReason, redirectToLogin } = globalThis.__apiClientTestAuthLifecycle;"
+    )
     .replaceAll("import.meta.env.DEV", "globalThis.__apiClientTestDev");
 
   return import(
@@ -207,6 +249,20 @@ test("requestJson returns data, requestId, and DEV logs correlated metadata", as
     assert.equal(receivedInit.headers.Authorization, "Bearer test-token");
     assert.equal(receivedInit.headers["X-Athena-Client-Id"], "client-api-test");
     assert.equal(receivedInit.headers["X-Athena-Request-Id"], result.requestId);
+    assert.equal(receivedInit.headers["X-Athena-Task-Id"], "task:test");
+    assert.equal(
+      receivedInit.headers["X-Athena-Coordination-Run-Id"],
+      "coordination:test"
+    );
+    assert.equal(receivedInit.headers["X-Athena-Task-Priority"], "P1");
+    assert.equal(
+      receivedInit.headers["X-Athena-Coordination-Deadline-At"],
+      "2099-01-01T00:00:00.000Z"
+    );
+    assert.equal(
+      receivedInit.headers["X-Athena-Coordination-Causation-Id"],
+      "task:parent"
+    );
     assert.equal(receivedInit.body, JSON.stringify({ hello: "world" }));
     assert.deepEqual(result.data, { ok: true });
     assert.equal(typeof result.requestId, "string");
@@ -252,7 +308,33 @@ test("requestJson converts non-ok responses to HTTP_OPEN_ERROR with raw JSON", a
   }
 });
 
-test("requestJson maps CLIENT_REVOKED and clears volatile client session", async () => {
+test("requestJson preserves authentication state on Identity capability outage", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        success: false,
+        error: "identity_capability_unavailable",
+        retryable: true,
+      }),
+      { status: 503 }
+    );
+
+  try {
+    const { requestJson } = await loadApiClient();
+    await assert.rejects(
+      requestJson("/workspaces"),
+      (error) => error.status === 503 && error.raw?.retryable === true
+    );
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, []);
+    assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, []);
+    assert.deepEqual(globalThis.__apiClientTestSessionRecovery.attempts, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestJson maps CLIENT_REVOKED and delegates terminal cleanup", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ success: false, error: "CLIENT_REVOKED" }), {
@@ -276,18 +358,16 @@ test("requestJson maps CLIENT_REVOKED and clears volatile client session", async
         globalThis.__apiClientTestIdentity.resetCalls.length === 1 &&
         globalThis.__apiClientTestIdentity.resetCalls[0].rotateDeviceKey ===
           true &&
-        globalThis.__apiClientTestSensitiveState.cleared.length === 1 &&
-        globalThis.__apiClientTestSensitiveState.cleared[0].reason ===
-          "client_revoked" &&
-        globalThis.__apiClientTestSensitiveState.cleared[0]
-          .includeDurableCaches === false
+        globalThis.__apiClientTestAuthLifecycle.redirects.length === 1 &&
+        globalThis.__apiClientTestAuthLifecycle.redirects[0].reason ===
+          "client_revoked"
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("requestJson clears stale auth on session client mismatch without rotating device identity", async () => {
+test("requestJson preserves auth on an unstructured session mismatch", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ error: "Session client mismatch." }), {
@@ -305,12 +385,8 @@ test("requestJson clears stale auth on session client mismatch without rotating 
     assert.equal(globalThis.__apiClientTestSigning.cleared, 2);
     assert.equal(globalThis.__apiClientTestIdentity.resetCalls.length, 0);
     assert.equal(globalThis.__apiClientTestSessionRecovery.attempts.length, 1);
-    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, [
-      {
-        reason: "auth_error",
-        includeDurableCaches: false,
-      },
-    ]);
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, []);
+    assert.deepEqual(globalThis.__apiClientTestAuthLifecycle.redirects, []);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -454,16 +530,6 @@ test("requestJson does not replay an ordinary non-idempotent POST after recovery
 
 test("requestJson falls back to login only after terminal device mismatch", async () => {
   const originalFetch = globalThis.fetch;
-  const originalWindow = globalThis.window;
-  const assigned = [];
-  globalThis.window = {
-    location: {
-      pathname: "/workspace/operations",
-      assign(value) {
-        assigned.push(value);
-      },
-    },
-  };
   globalThis.fetch = async () =>
     new Response(
       JSON.stringify({
@@ -495,16 +561,12 @@ test("requestJson falls back to login only after terminal device mismatch", asyn
     });
     await assert.rejects(requestJson("/system/user"));
     assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, []);
-    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, [
-      {
-        reason: "client_identity_mismatch",
-        includeDurableCaches: false,
-      },
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, []);
+    assert.deepEqual(globalThis.__apiClientTestAuthLifecycle.redirects, [
+      { reason: "device_identity_reauth" },
     ]);
-    assert.deepEqual(assigned, ["/login?reason=device-identity-reauth"]);
   } finally {
     globalThis.fetch = originalFetch;
-    globalThis.window = originalWindow;
   }
 });
 

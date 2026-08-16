@@ -30,12 +30,14 @@ jest.mock("../../../utils/helpers/chat/LLMPerformanceMonitor", () => ({
 
 const {
   DeepSeekLLM,
+  resilientDeepSeekStream,
   deepSeekCacheDiagnosis,
   deepSeekPromptFingerprint,
   deepSeekPromptShape,
   deepSeekPromptCacheDiagnostics,
   withDeepSeekCacheDiagnosis,
 } = require("../../../utils/AiProviders/deepseek");
+const { getLLMProvider } = require("../../../utils/helpers");
 
 describe("DeepSeekLLM", () => {
   const originalEnv = { ...process.env };
@@ -58,6 +60,54 @@ describe("DeepSeekLLM", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+  });
+
+  it("builds a credentialless prompt contract for remote model execution", () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash", {
+      credentialMode: "remote",
+    });
+
+    expect(llm.openai).toBeNull();
+    expect(llm.credentialMode).toBe("remote");
+    expect(llm.promptWindowLimit()).toBe(1_000_000);
+    expect(
+      llm.constructPrompt({
+        systemPrompt: "system",
+        userPrompt: "hello",
+      })
+    ).toEqual([
+      { role: "system", content: "system" },
+      { role: "user", content: "hello" },
+    ]);
+  });
+
+  it("still requires a credential for direct provider execution", () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    expect(() => new DeepSeekLLM(null, "deepseek-v4-flash")).toThrow(
+      "No DeepSeek API key was set."
+    );
+  });
+
+  it("selects the Responses Runtime before constructing a local credentialed client", () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    process.env.ATHENA_RUNTIME_ROLE = "chat-runtime";
+    process.env.ATHENA_RESPONSES_RUNTIME_CUTOVER = "true";
+    process.env.ATHENA_RESPONSES_RUNTIME_URL =
+      "https://responses-runtime.internal:3034";
+    process.env.ATHENA_MODEL_GATEWAY_CUTOVER = "true";
+    process.env.ATHENA_MODEL_GATEWAY_URL =
+      "https://model-gateway.internal:3018";
+    process.env.EMBEDDING_ENGINE = "native";
+
+    const llm = getLLMProvider({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+
+    expect(llm.responsesRuntime).toBe(true);
+    expect(llm.credentialMode).toBe("remote");
+    expect(llm.openai).toBeNull();
   });
 
   it("forwards JSON response_format to DeepSeek chat completions", async () => {
@@ -335,6 +385,62 @@ describe("DeepSeekLLM", () => {
     );
   });
 
+  it("retries a Pro stream that ends before emitting visible content", async () => {
+    const emptyStream = {
+      metrics: {},
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: { content: "" }, finish_reason: null }] };
+        yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+      },
+    };
+    const recoveredStream = {
+      metrics: {},
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [{ delta: { content: "你好，小明。" }, finish_reason: null }],
+        };
+        yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+      },
+    };
+    const createStream = jest
+      .fn()
+      .mockResolvedValueOnce(emptyStream)
+      .mockResolvedValueOnce(recoveredStream);
+    const stream = await resilientDeepSeekStream(createStream, {
+      maxAttempts: 2,
+      retryDelayMs: 0,
+    });
+    let text = "";
+    for await (const chunk of stream)
+      text += chunk?.choices?.[0]?.delta?.content || "";
+
+    expect(text).toBe("你好，小明。");
+    expect(createStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces an empty Pro stream as an error after retry exhaustion", async () => {
+    const createStream = jest.fn(async () => ({
+      metrics: {},
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+      },
+    }));
+    const stream = await resilientDeepSeekStream(createStream, {
+      maxAttempts: 2,
+      retryDelayMs: 0,
+    });
+
+    await expect(
+      (async () => {
+        for await (const _chunk of stream) void _chunk;
+      })()
+    ).rejects.toMatchObject({ code: "DEEPSEEK_EMPTY_STREAM" });
+    expect(createStream).toHaveBeenCalledTimes(2);
+  });
+
   it("forwards stream tools and tool choice to DeepSeek chat completions", async () => {
     const {
       LLMPerformanceMonitor,
@@ -466,6 +572,49 @@ describe("DeepSeekLLM", () => {
     expect(written).toContain("visible");
     expect(written).not.toContain("private reasoning");
     expect(written).not.toContain("<think>");
+  });
+
+  it("does not turn a pre-content stream failure into an empty success", async () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-pro");
+    const response = {
+      write: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const stream = {
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        throw Object.assign(new Error("read ECONNRESET"), {
+          code: "ECONNRESET",
+        });
+      },
+    };
+
+    await expect(
+      llm.handleStream(response, stream, { sources: [] })
+    ).rejects.toMatchObject({ code: "ECONNRESET" });
+    expect(response.write).not.toHaveBeenCalled();
+  });
+
+  it("does not turn a cleanly ended empty remote stream into a success", async () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-pro");
+    const response = {
+      write: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const stream = {
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: {}, finish_reason: "stop" }] };
+      },
+    };
+
+    await expect(
+      llm.handleStream(response, stream, { sources: [] })
+    ).rejects.toMatchObject({ code: "DEEPSEEK_EMPTY_STREAM" });
+    expect(response.write).not.toHaveBeenCalled();
+    expect(stream.endMeasurement).toHaveBeenCalled();
   });
 
   it("diagnoses stable high-hit cache requests without leaking content", () => {

@@ -22,7 +22,10 @@ assertProductionSecurityConfig();
 const {
   agentRuntimeSnapshot,
   agentWebsocket,
+  cancelAgentInvocation,
   drainAgentRuntime,
+  submitAgentInvocationAction,
+  streamAgentInvocation,
 } = require("./endpoints/agentWebsocket");
 const {
   MicroModuleServiceHost,
@@ -31,6 +34,9 @@ const {
   secureDatabaseStart,
 } = require("./utils/microModules");
 const { DataAccessCenter } = require("./utils/dataAccess");
+const {
+  submitAgentInvocation,
+} = require("./utils/agents/invocationCapability");
 
 const role = "agent-runtime";
 const port = Number(process.env.AGENT_RUNTIME_PORT || 3017);
@@ -49,6 +55,23 @@ const host = new MicroModuleServiceHost({
   onDrain: () => drainAgentRuntime({ timeoutMs: drainTimeoutMs }),
   registerRoutes: (app) => {
     registerCompatibleApi(app, agentWebsocket);
+    app.post("/internal/v1/agent/invocations", async (request, response) => {
+      try {
+        const result = await submitAgentInvocation(request.body);
+        response.status(result.replayed ? 200 : 201).json({
+          success: true,
+          ...result,
+        });
+      } catch (error) {
+        const contractInvalid = error?.code === "AGENT_SUBMIT_CONTRACT_INVALID";
+        response.status(contractInvalid ? 400 : 503).json({
+          success: false,
+          error: contractInvalid
+            ? "agent_submit_contract_invalid"
+            : "agent_invocation_store_unavailable",
+        });
+      }
+    });
     app.get(
       "/internal/v1/agent/runs/:invocationId",
       async (request, response) => {
@@ -73,6 +96,81 @@ const host = new MicroModuleServiceHost({
         });
       }
     );
+    app.post(
+      "/internal/v1/agent/invocations/:invocationId/stream",
+      async (request, response) => {
+        response.status(200);
+        response.setHeader("Content-Type", "application/x-ndjson");
+        response.setHeader("Cache-Control", "no-cache, no-transform");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.flushHeaders?.();
+        try {
+          await streamAgentInvocation({
+            uuid: request.params.invocationId,
+            attachments: request.body?.attachments || [],
+            displayAttachments:
+              request.body?.displayAttachments ||
+              request.body?.attachments ||
+              [],
+            displayPrompt: request.body?.displayPrompt || null,
+            reservedPublicChatId: request.body?.reservedPublicChatId || null,
+            visionAnalysisContext: request.body?.visionAnalysisContext || null,
+            fileAccess: request.body?.fileAccess || {},
+            executionTarget: request.body?.executionTarget || null,
+            onEvent(event) {
+              if (response.destroyed || response.writableEnded) return;
+              response.write(`${JSON.stringify(event)}\n`);
+            },
+          });
+        } catch (error) {
+          if (!response.destroyed && !response.writableEnded) {
+            response.write(
+              `${JSON.stringify({
+                type: "response.failed",
+                response: {
+                  id: request.params.invocationId,
+                  object: "response",
+                  status: "failed",
+                  error: {
+                    code: error?.code || "agent_turn_failed",
+                    message: error?.message || "Agent turn failed.",
+                  },
+                },
+              })}\n`
+            );
+          }
+        } finally {
+          if (!response.destroyed && !response.writableEnded) response.end();
+        }
+      }
+    );
+    app.post(
+      "/internal/v1/agent/invocations/:invocationId/actions/:actionId",
+      async (request, response) => {
+        const result = submitAgentInvocationAction(
+          request.params.invocationId,
+          request.params.actionId,
+          request.body || {}
+        );
+        response.status(result.success ? 200 : 409).json(result);
+      }
+    );
+    app.post(
+      "/internal/v1/agent/invocations/:invocationId/cancel",
+      async (request, response) => {
+        response.json(await cancelAgentInvocation(request.params.invocationId));
+      }
+    );
+  },
+  internalRouteCapabilities: {
+    "POST /internal/v1/agent/invocations": "agent.submit",
+    "POST /internal/v1/agent/invocations/:invocationId/stream":
+      "agent.turn.stream",
+    "POST /internal/v1/agent/invocations/:invocationId/actions/:actionId":
+      "agent.turn.action",
+    "POST /internal/v1/agent/invocations/:invocationId/cancel":
+      "agent.turn.cancel",
+    "GET /internal/v1/agent/runs/:invocationId": "agent.status",
   },
 });
 

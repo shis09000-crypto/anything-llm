@@ -356,6 +356,12 @@ const SidebarOptions = ({ user = null, t }) => {
                 roles: ["developer", "admin"],
               },
               {
+                btnText: t("settings.athena-3d-center"),
+                href: paths.settings.athena3dCenter(),
+                flex: true,
+                roles: ["developer", "admin"],
+              },
+              {
                 btnText: t("settings.crypto-component-experiment"),
                 href: paths.settings.cryptoComponentExperiment(),
                 flex: true,

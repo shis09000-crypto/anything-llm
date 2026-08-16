@@ -91,9 +91,11 @@ import {
   USERNAME_PATTERN,
 } from "@/utils/username";
 import {
+  AUTH_CAPABILITY_STATUS,
   detectAuthCapability,
   passkeyCapabilityDescription,
 } from "@/utils/authCapability";
+import useAuthCapability from "@/hooks/useAuthCapability";
 import "@/pages/UserSettings/AccountSettings/styles.css";
 import "./styles.css";
 import { GlassCard } from "@developer-hub/liquid-glass";
@@ -5161,6 +5163,7 @@ export function MobileLoginScreen({
   onQuickLogin,
   onPasswordLogin,
   onPasskeyLogin,
+  authBootstrap = null,
   allowPublicRegistration = false,
   onRegistrationSuccess,
 }) {
@@ -5173,13 +5176,7 @@ export function MobileLoginScreen({
   const [submitting, setSubmitting] = useState(false);
   const [passkeySubmitting, setPasskeySubmitting] = useState(false);
   const [error, setError] = useState(null);
-  const [authCapability, setAuthCapability] = useState(() =>
-    detectAuthCapability()
-  );
-
-  useEffect(() => {
-    setAuthCapability(detectAuthCapability());
-  }, [mode]);
+  const authCapability = useAuthCapability(authBootstrap?.methods?.passkey);
 
   useEffect(() => {
     setMode(initialMode);
@@ -5409,32 +5406,38 @@ export function MobileLoginScreen({
                   登录
                 </AppButton>
               </div>
-              <div
-                className="mobile-login-item mt-3 flex justify-center"
-                style={{ "--mobile-login-item-delay": "245ms" }}
-              >
-                <AppButton
-                  type="button"
-                  variant="secondary"
-                  size="md"
-                  loading={passkeySubmitting}
-                  disabled={
-                    submitting ||
-                    passkeySubmitting ||
-                    quickSubmitting ||
-                    !authCapability.showPasskey
-                  }
-                  leftIcon={<Fingerprint size={17} weight="bold" />}
-                  className="w-[164px]"
-                  title={passkeyCapabilityDescription(authCapability)}
-                  onClick={handlePasskeySubmit}
+              {authCapability.status !== AUTH_CAPABILITY_STATUS.UNAVAILABLE ? (
+                <div
+                  className="mobile-login-item mt-3 flex justify-center"
+                  style={{ "--mobile-login-item-delay": "245ms" }}
                 >
-                  {authCapability.showPasskey
-                    ? "通行密钥登录"
-                    : "通行密钥不可用"}
-                </AppButton>
-              </div>
-              {!authCapability.showPasskey && (
+                  <AppButton
+                    type="button"
+                    variant="secondary"
+                    size="md"
+                    loading={passkeySubmitting}
+                    disabled={
+                      submitting ||
+                      passkeySubmitting ||
+                      quickSubmitting ||
+                      !authCapability.showPasskey
+                    }
+                    leftIcon={<Fingerprint size={17} weight="bold" />}
+                    className="w-[164px]"
+                    title={passkeyCapabilityDescription(authCapability)}
+                    onClick={handlePasskeySubmit}
+                  >
+                    {authCapability.status === AUTH_CAPABILITY_STATUS.CHECKING
+                      ? "检测通行密钥…"
+                      : authCapability.status ===
+                          AUTH_CAPABILITY_STATUS.LOCAL_READY
+                        ? "通行密钥登录"
+                        : "其他设备或安全密钥"}
+                  </AppButton>
+                </div>
+              ) : null}
+              {authCapability.status ===
+                AUTH_CAPABILITY_STATUS.CROSS_DEVICE_ONLY && (
                 <p
                   className="mobile-login-item mt-2 text-center text-[11px] font-semibold leading-4 text-slate-400"
                   style={{ "--mobile-login-item-delay": "260ms" }}

@@ -194,7 +194,7 @@ class AIbitat {
    */
   registerChatId(chatId = null, publicChatId = null) {
     if (!chatId) return;
-    this._trackedChatId = Number(chatId);
+    this._trackedChatId = chatId;
     this._trackedPublicChatId = publicChatId || this._trackedPublicChatId;
   }
 
@@ -224,7 +224,7 @@ class AIbitat {
    * @param {string} [uuid] - The message UUID to associate with this chatId
    */
   emitChatId(uuid = null) {
-    if (!this.trackedChatId || !uuid) return null;
+    if (!Number.isSafeInteger(Number(this.trackedChatId)) || !uuid) return null;
     this.socket?.send?.("reportStreamEvent", {
       type: "chatId",
       uuid,
@@ -232,6 +232,53 @@ class AIbitat {
       publicChatId: this.trackedPublicChatId,
       clientTurnId: this.handlerProps?.invocation?.clientTurnId || null,
     });
+  }
+
+  /**
+   * Emit the canonical Responses API terminal event after all answer, usage,
+   * citation, and persistence patches for the current turn have been sent.
+   * The Agent websocket may remain reusable, but this response turn is done.
+   */
+  emitResponseCompleted(uuid = null, usage = {}) {
+    if (!uuid) return null;
+    const completedAt = Math.floor(Date.now() / 1000);
+    this.socket?.send?.("response.completed", {
+      response: {
+        id: uuid,
+        object: "response",
+        status: "completed",
+        completed_at: completedAt,
+        error: null,
+        incomplete_details: null,
+        output: [],
+        usage: usage || {},
+        metadata: {
+          clientTurnId: this.handlerProps?.invocation?.clientTurnId || null,
+          chatId: this.trackedChatId,
+          publicChatId: this.trackedPublicChatId,
+        },
+      },
+    });
+  }
+
+  stageResponseCompletion(uuid = null, usage = {}) {
+    if (!uuid) return null;
+    this._pendingResponseCompletion = { uuid, usage: usage || {} };
+  }
+
+  async finalizeResponseTurn() {
+    const pending = this._pendingResponseCompletion;
+    if (!pending?.uuid) return null;
+    if (typeof this.persistCompletedTurn !== "function")
+      throw new Error("agent_final_persistence_unavailable");
+    const persistedChatId = await this.persistCompletedTurn();
+    if (!persistedChatId || !this.trackedChatId)
+      throw new Error("agent_final_chat_persistence_failed");
+    this.emitChatId(pending.uuid);
+    this.emitResponseCompleted(pending.uuid, pending.usage);
+    this._pendingResponseCompletion = null;
+    this.cleanupCompletedTurn?.();
+    return pending.uuid;
   }
 
   /**
@@ -586,13 +633,6 @@ class AIbitat {
   async start(message) {
     // register the message in the chat history
     this.newMessage(message);
-
-    // Some plugins pre-register backing records from the initial user message.
-    // Await them before provider execution so final stream metadata (chatId) is
-    // available even when tools and the model return very quickly.
-    if (typeof this.ensureTrackedChatId === "function") {
-      await this.ensureTrackedChatId(message);
-    }
 
     this.emitter.emit("start", message, this);
 
@@ -988,6 +1028,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     // Store the active provider so plugins can access usage metrics
     this.provider = provider;
     this.newMessage({ ...route, content });
+    await this.finalizeResponseTurn();
     return content;
   }
 
@@ -1445,7 +1486,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           metrics: provider.getUsage(),
         });
         this?.flushCitations?.(directOutputUUID);
-        this?.emitChatId?.(directOutputUUID);
+        this?.stageResponseCompletion?.(directOutputUUID, provider.getUsage());
         return modelResult;
       }
 
@@ -1513,7 +1554,10 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           metrics: continuationProvider.getUsage(),
         });
         this?.flushCitations?.(responseUuid);
-        this?.emitChatId?.(responseUuid);
+        this?.stageResponseCompletion?.(
+          responseUuid,
+          continuationProvider.getUsage()
+        );
         return validatedContinuation.text;
       }
       return await this.handleAsyncExecution(
@@ -1539,7 +1583,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       metrics: provider.getUsage(),
     });
     this?.flushCitations?.(responseUuid);
-    this?.emitChatId?.(responseUuid);
+    this?.stageResponseCompletion?.(responseUuid, provider.getUsage());
     return completionStream?.textResponse;
   }
 
@@ -1673,6 +1717,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           metrics: provider.getUsage(),
         });
         this?.flushCitations?.(msgUUID);
+        this?.stageResponseCompletion?.(msgUUID, provider.getUsage());
         return modelResult;
       }
 
@@ -1734,7 +1779,10 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           metrics: continuationProvider.getUsage(),
         });
         this?.flushCitations?.(msgUUID);
-        this?.emitChatId?.(msgUUID);
+        this?.stageResponseCompletion?.(
+          msgUUID,
+          continuationProvider.getUsage()
+        );
         return validatedContinuation.text;
       }
       return await this.handleExecution(
@@ -1753,7 +1801,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       metrics: provider.getUsage(),
     });
     this?.flushCitations?.(msgUUID);
-    this?.emitChatId?.(msgUUID);
+    this?.stageResponseCompletion?.(msgUUID, provider.getUsage());
     return completion?.textResponse;
   }
 
@@ -1857,6 +1905,22 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
    */
   getProviderForConfig(config) {
     if (typeof config.provider === "object") return config.provider;
+    const {
+      agentEnabled,
+      createResponsesAgentProvider,
+    } = require("../../responsesRuntime/agentAdapter");
+    if (
+      agentEnabled({
+        provider: config.provider,
+        model: config.model,
+        env: process.env,
+      })
+    )
+      return createResponsesAgentProvider({
+        provider: config.provider,
+        model: config.model,
+        env: process.env,
+      });
     const {
       agentGatewayEnabled,
       createRemoteAgentProvider,

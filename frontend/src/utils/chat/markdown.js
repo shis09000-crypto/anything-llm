@@ -11,6 +11,7 @@ import {
   normalizeMarkdownStrongDelimiters,
   stripMarkdownStrongSentinel,
 } from "./markdownNormalizer";
+import { unwrapMarkdownDocumentFence } from "./markdownDocument.js";
 
 // Register custom lanaguages
 import hljsDefineSvelte from "./hljs-libraries/svelte";
@@ -87,4 +88,8 @@ export default function renderMarkdown(text = "") {
   setEventDelegatorForCodeSnippets();
   const normalizedText = normalizeMarkdownStrongDelimiters(text);
   return stripMarkdownStrongSentinel(markdown.render(normalizedText));
+}
+
+export function renderAssistantMarkdown(text = "") {
+  return renderMarkdown(unwrapMarkdownDocumentFence(text));
 }

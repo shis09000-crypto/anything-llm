@@ -4,6 +4,7 @@ const { websocket } = require("./websocket.js");
 const { docSummarizer } = require("./summarize.js");
 const { chatHistory } = require("./chat-history.js");
 const { memory } = require("./memory.js");
+const { workspaceSearch } = require("./workspace-search.js");
 const { saveMemory } = require("./save-memory.js");
 const { documentIngestAgent } = require("./document-ingest-agent.js");
 const { rechart } = require("./rechart.js");
@@ -32,6 +33,7 @@ module.exports = {
   docSummarizer,
   chatHistory,
   memory,
+  workspaceSearch,
   saveMemory,
   documentIngestAgent,
   rechart,
@@ -60,6 +62,7 @@ module.exports = {
   [docSummarizer.name]: docSummarizer,
   [chatHistory.name]: chatHistory,
   [memory.name]: memory,
+  [workspaceSearch.name]: workspaceSearch,
   [saveMemory.name]: saveMemory,
   [documentIngestAgent.name]: documentIngestAgent,
   [rechart.name]: rechart,

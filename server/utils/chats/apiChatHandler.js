@@ -584,6 +584,10 @@ async function chatSync({
     historyWindow,
     compaction
   );
+  const lockedExecution = {
+    model: workspace?.chatModel || LLMConnector?.model || null,
+    provider: workspace?.chatProvider || "deepseek",
+  };
 
   // Reserve policy budget before provider execution. Observe mode records the
   // same reservation without denying; enforce mode can fail closed here.
@@ -638,6 +642,10 @@ async function chatSync({
       attachments: historyAttachments,
       type: chatMode,
       metrics,
+      execution: require("./executionMetadata").executionMetadata({
+        metrics,
+        ...lockedExecution,
+      }),
       ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
     },
     threadId: thread?.id || null,
@@ -1118,6 +1126,10 @@ async function streamChat({
     historyWindow,
     compaction
   );
+  const lockedExecution = {
+    model: workspace?.chatModel || LLMConnector?.model || null,
+    provider: workspace?.chatProvider || "deepseek",
+  };
   const modelExecution = await beginModelExecution(
     {
       ownerType: "workspace",
@@ -1157,6 +1169,10 @@ async function streamChat({
         close: true,
         error: false,
         metrics,
+        execution: require("./executionMetadata").executionMetadata({
+          metrics,
+          ...lockedExecution,
+        }),
       });
     } else {
       const stream = await LLMConnector.streamGetChatCompletion(messages, {

@@ -33,6 +33,7 @@ export interface CryptoTotalAssetCardProps {
   connectionStatus: CryptoConnectionStatus;
   lastUpdatedAt: string;
   lastUpdatedDate?: string;
+  latestSampleAt?: number | null;
   cardHeight: number;
   borderRadius: number;
   backgroundMode: CryptoBackgroundMode;

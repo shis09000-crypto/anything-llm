@@ -10,13 +10,17 @@
   "runtimeRole": "model-gateway",
   "sourcePaths": [
     "server/utils/llmTasks/",
+    "server/utils/modelGateway/",
     "server/utils/agents/aibitat/providers/"
   ],
   "capabilities": [
     "provider-routing",
     "streaming",
     "rate-limits",
-    "retries"
+    "retries",
+    "3d-context-hot-slots",
+    "3d-character-memory-exact-prefix-finalization",
+    "deepseek-flash-character-reflection-v2-json"
   ],
   "routes": {
     "public": [],
@@ -106,7 +110,9 @@
     "provider-routing",
     "streaming",
     "rate-limits",
-    "retries"
+    "retries",
+    "ephemeral-3d-context-cache",
+    "deepseek-flash-character-memory-finalization"
   ],
   "nonResponsibilities": [
     "foreign-schema-writes",

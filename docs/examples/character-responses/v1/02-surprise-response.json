@@ -1,0 +1,104 @@
+{
+  "id": "chr_resp_surprise",
+  "object": "character.response",
+  "protocol_version": "1.0",
+  "status": "completed",
+  "created_at": 1786406410000,
+  "completed_at": 1786406411300,
+  "character": {
+    "character_id": "athena.default",
+    "instance_id": "char_inst_01",
+    "capability_manifest": {
+      "id": "athena.default",
+      "version": "1.0.0",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "conversation": {
+    "id": "ath_conv_01",
+    "previous_response_id": "chr_resp_language_expression"
+  },
+  "capability_manifest": {
+    "id": "athena.default",
+    "version": "1.0.0",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "output": [
+    {
+      "id": "perf_surprise",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "timing": {
+        "start": "immediate",
+        "after_item_id": null,
+        "offset_ms": 0,
+        "duration_hint_ms": 2200
+      },
+      "interruptibility": "blend_out",
+      "affect": {
+        "primary": "athena.core:emotion/surprised",
+        "secondary": "athena.core:emotion/concerned",
+        "intensity": 0.7,
+        "valence": -0.1,
+        "arousal": 0.82
+      },
+      "source": "main_agent",
+      "transition": { "style": "cut", "duration_ms": 80 },
+      "persistence": "response_lifetime",
+      "revision": 1
+    },
+    {
+      "id": "exp_surprise",
+      "type": "expression",
+      "status": "completed",
+      "intent_id": "perf_surprise",
+      "required": true,
+      "timing": {
+        "start": "immediate",
+        "after_item_id": null,
+        "offset_ms": 0,
+        "duration_hint_ms": 900
+      },
+      "interruptibility": "blend_out",
+      "expression": "athena.core:expression/surprised",
+      "intensity": 0.7
+    },
+    {
+      "id": "speech_surprise",
+      "type": "speech",
+      "status": "completed",
+      "intent_id": "perf_surprise",
+      "required": true,
+      "timing": {
+        "start": "at_offset",
+        "after_item_id": null,
+        "offset_ms": 260,
+        "duration_hint_ms": 1800
+      },
+      "interruptibility": "immediate",
+      "text": "明天？你怎么现在才告诉我？",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/surprised",
+        "emotion_source": "performance_intent",
+        "intensity": 0.7,
+        "rate": 1.05,
+        "volume": 0.9,
+        "style": "athena.core:voice_style/startled",
+        "pause_before_ms": 220,
+        "pause_after_ms": 120
+      }
+    }
+  ],
+  "warnings": [],
+  "usage": {
+    "input_tokens": 18,
+    "output_tokens": 41,
+    "total_tokens": 59,
+    "latency_ms": 1300,
+    "first_semantic_item_ms": 140,
+    "first_speech_delta_ms": 390
+  },
+  "error": null
+}

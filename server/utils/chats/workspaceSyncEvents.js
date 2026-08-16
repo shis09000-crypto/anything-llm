@@ -108,7 +108,16 @@ function workspaceEventFromSyncEvent(event = {}) {
     userId: event.scope?.userId ?? null,
     threadId: event.scope?.threadId ?? null,
     threadSlug: payload.threadSlug || null,
-    threadName: payload.threadName || payload.title || null,
+    threadName: payload.threadName || payload.name || null,
+    title: Object.prototype.hasOwnProperty.call(payload, "title")
+      ? payload.title
+      : undefined,
+    isUntitled: Object.prototype.hasOwnProperty.call(payload, "isUntitled")
+      ? payload.isUntitled === true
+      : undefined,
+    titleSource: payload.titleSource ?? undefined,
+    titleGenerationStatus: payload.titleGenerationStatus ?? undefined,
+    titleVersion: payload.titleVersion ?? undefined,
     threadType: payload.threadType || null,
     chatModel: payload.chatModel || null,
     deleteIntentId: payload.deleteIntentId || null,
@@ -165,8 +174,24 @@ function publishWorkspaceSyncEvent(event = {}, options = {}) {
         workspaceSlug: String(event.workspaceSlug),
         workspaceName: event.workspaceName || null,
         threadSlug: event.threadSlug || null,
-        threadName: event.threadName || null,
-        title: event.title || event.threadName || null,
+        ...(Object.prototype.hasOwnProperty.call(event, "threadName")
+          ? { threadName: event.threadName }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(event, "title")
+          ? { title: event.title }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(event, "isUntitled")
+          ? { isUntitled: event.isUntitled === true }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(event, "titleSource")
+          ? { titleSource: event.titleSource }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(event, "titleGenerationStatus")
+          ? { titleGenerationStatus: event.titleGenerationStatus }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(event, "titleVersion")
+          ? { titleVersion: Number(event.titleVersion || 0) }
+          : {}),
         threadType: event.threadType || null,
         chatModel: event.chatModel || null,
         deleteIntentId: event.deleteIntentId || null,

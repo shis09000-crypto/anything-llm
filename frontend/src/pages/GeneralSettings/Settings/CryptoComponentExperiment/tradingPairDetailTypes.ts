@@ -35,15 +35,15 @@ export interface TradingPairDetailCardProps {
   iconCropX: number;
   iconCropY: number;
   accentColor?: string;
-  holdingValueQuote: string;
+  holdingValueQuote: string | null;
   holdingValueUsd?: string | null;
   change24hPct: string | null;
   change24hQuote: string | null;
   averageBuyPriceQuote: string | null;
   averageBuyPriceMethod: AverageBuyPriceMethod;
   averageBuyPriceScope?: AverageBuyPriceScope;
-  currentPriceQuote: string;
-  holdingAmountBase: string;
+  currentPriceQuote: string | null;
+  holdingAmountBase: string | null;
   lastUpdatedAt: number | null;
   connectionStatus: TradingPairConnectionStatus;
   showUsdEstimate: boolean;

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "athena-browser-egress-core-lock:v1",
+  "version": "1.13.12",
+  "assets": {
+    "darwin-arm64": {
+      "archive": "sing-box-1.13.12-darwin-arm64.tar.gz",
+      "sha256": "43eef86f0ea4a79c3696974f397a963c46a457ee46d1ffac9aa913944a5fc986"
+    },
+    "darwin-x64": {
+      "archive": "sing-box-1.13.12-darwin-amd64.tar.gz",
+      "sha256": "f3275316451bf1983bc059599c69c8ed0232d53a619d15cfd535f95cc9a4477a"
+    },
+    "win32-x64": {
+      "archive": "sing-box-1.13.12-windows-amd64.zip",
+      "sha256": "e93fc531134eb1beb4efa3c74990a24e48456098a31c03b60d5ddf17f223cf98"
+    }
+  }
+}

@@ -240,7 +240,11 @@ async function registerClientHybridKEMKey({
     bindingChanged &&
     (!allowRotation || normalizedKeyGeneration !== currentGeneration + 1)
   )
-    return { ok: false, reasonCode: "hybrid_kem_key_rotation_required" };
+    return {
+      ok: false,
+      reasonCode: "hybrid_kem_key_rotation_required",
+      keyGeneration: currentGeneration,
+    };
   if (
     existingBinding.every(
       (value, index) => value === requestedBinding[index]
@@ -1590,6 +1594,178 @@ async function verifySignedRequest(request) {
   });
 }
 
+function identityCapabilityDescriptor(
+  request,
+  { transport = "http", signed = null, computedBodySha256 = null } = {}
+) {
+  const context = getClientContext(request);
+  return {
+    transport,
+    method: transport === "websocket" ? "WS" : request.method,
+    originalUrl: request?.originalUrl || request?.url || "/",
+    computedBodySha256:
+      computedBodySha256 ||
+      request?.rawBodySha256 ||
+      sha256Base64Url(request?.rawBody || ""),
+    signed: signed || requestSigningHeaders(request),
+    client: {
+      clientId: context.clientId,
+      platform: context.platform,
+      appVersion: context.appVersion,
+      requestId: context.requestId,
+      trustLevel: context.trustLevel,
+      capabilitySource: context.capabilitySource,
+      capabilities: context.capabilities,
+      surface: context.surface,
+    },
+  };
+}
+
+async function requireIdentityOwnedSignedHighRiskRequest(
+  request,
+  response,
+  next
+) {
+  const canonicalPath = canonicalPathForRequest(request);
+  if (
+    !isHighRiskSignedRequest({ method: request.method, path: canonicalPath })
+  ) {
+    return next();
+  }
+  const identity = require("../authz/identityOperationsClient");
+  const descriptor = identityCapabilityDescriptor(request);
+  let result;
+  try {
+    const verified = await identity.verifyRequestSigningViaIdentity({
+      request,
+      descriptor,
+      idempotencyKey: descriptor.signed?.nonce
+        ? `identity-signature:${descriptor.signed.nonce}`
+        : null,
+    });
+    result = verified?.result || signingFailure("identity_verification_failed");
+  } catch {
+    return response.status(503).json({
+      success: false,
+      error: "identity_capability_unavailable",
+      retryable: true,
+    });
+  }
+
+  if (
+    result.ok &&
+    deviceSignatureRequired() &&
+    !isDeviceSignatureVersion(result.signatureVersion)
+  ) {
+    result = {
+      ok: false,
+      reasonCode: "device_signature_required",
+      signatureVersion: result.signatureVersion,
+    };
+  }
+  if (result.ok || signingWarnOnly()) {
+    if (result.ok) request.signedRequest = result;
+    return next();
+  }
+  const errorCode = signingErrorCode(result.reasonCode);
+  if (errorCode === CLIENT_REVOKED_ERROR) {
+    return response
+      .status(403)
+      .json({ success: false, error: CLIENT_REVOKED_ERROR });
+  }
+  const reauthenticationRequired = [
+    "device_key_mismatch",
+    "post_quantum_device_key_mismatch",
+  ].includes(result.reasonCode);
+  return response.status(401).json({
+    success: false,
+    error: errorCode,
+    reason: result.reasonCode,
+    ...(reauthenticationRequired
+      ? { recovery: CLIENT_IDENTITY_REAUTH_RECOVERY }
+      : {}),
+  });
+}
+
+function ownerRequestFromDescriptor({ principal = {}, descriptor = {} } = {}) {
+  const originalUrl = compactString(descriptor.originalUrl, 2048) || "/";
+  const client = descriptor.client || {};
+  const clientContext = {
+    clientId: compactString(principal.clientId || client.clientId, 256),
+    userId: principal.userId ? Number(principal.userId) : null,
+    platform: compactString(client.platform, 32) || "web",
+    appVersion: compactString(client.appVersion, 128),
+    requestId: compactString(client.requestId, 256),
+    trustLevel: compactString(client.trustLevel, 32) || "low",
+    capabilitySource: compactString(client.capabilitySource, 32) || "unknown",
+    capabilities:
+      client.capabilities && typeof client.capabilities === "object"
+        ? client.capabilities
+        : null,
+    surface: compactString(client.surface, 64),
+    legacy: false,
+  };
+  return {
+    method: compactString(descriptor.method, 16) || "POST",
+    originalUrl,
+    url: originalUrl,
+    path: originalUrl.split("?")[0],
+    clientContext,
+  };
+}
+
+async function verifySignedDescriptorAsOwner({
+  principal,
+  descriptor = {},
+} = {}) {
+  if (!principal?.userId || !principal?.clientId) {
+    return signingFailure("missing_authenticated_client");
+  }
+  const request = ownerRequestFromDescriptor({ principal, descriptor });
+  const signed =
+    descriptor.signed && typeof descriptor.signed === "object"
+      ? { ...descriptor.signed }
+      : {};
+  const bodySha256Override = compactString(descriptor.computedBodySha256, 256);
+  if (!bodySha256Override) return signingFailure("body_hash_missing");
+
+  if (descriptor.transport === "websocket") {
+    const candidates = canonicalWebSocketPathCandidates(request);
+    let result;
+    let canonicalPathMode = candidates[0].mode;
+    for (const candidate of candidates) {
+      result = await verifySignatureParts({
+        request,
+        method: "WS",
+        canonicalPath: candidate.path,
+        bodySha256Override,
+        signed,
+      });
+      canonicalPathMode = candidate.mode;
+      if (result.ok || result.reasonCode !== "signature_mismatch") break;
+    }
+    return { ...result, canonicalPathMode };
+  }
+
+  return verifySignatureParts({
+    request,
+    method: request.method,
+    canonicalPath: canonicalPathForRequest(request),
+    bodySha256Override,
+    signed,
+  });
+}
+
+async function appendSigningAuditAsOwner({
+  principal,
+  descriptor = {},
+  result = {},
+  metadata = {},
+} = {}) {
+  const request = ownerRequestFromDescriptor({ principal, descriptor });
+  return recordSigningAudit(request, result, metadata);
+}
+
 async function requireSignedHighRiskRequest(request, response, next) {
   const canonicalPath = canonicalPathForRequest(request);
   if (
@@ -1772,13 +1948,18 @@ module.exports = {
   hmacBase64Url,
   isHighRiskSignedRequest,
   isDeviceSignatureVersion,
+  identityCapabilityDescriptor,
   normalizeDeviceKeyAlgorithm,
   registerClientHybridKEMKey,
   requireSignedHighRiskRequest,
+  requireIdentityOwnedSignedHighRiskRequest,
   rotateAllSigningSecrets,
   rotateSigningSecret,
   sha256Base64Url,
   signingWarnOnly,
+  appendSigningAuditAsOwner,
+  verifySignedDescriptorAsOwner,
+  verifyDeviceSignature,
   verifySignedRequest,
   verifySignedWebSocketMessage,
   _hybridInternals: {

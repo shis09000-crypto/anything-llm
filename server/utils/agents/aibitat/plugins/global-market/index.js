@@ -13,7 +13,7 @@ const { readManagedSecret } = require("../market-data/secrets");
 const STOOQ_BASE_URL = "https://stooq.com/q/l/";
 const JUHE_FOREX_URL = "https://op.juhe.cn/onebox/exchange/currency";
 const JUHE_STOCK_BASE_URL = "https://web.juhe.cn/finance/stock";
-const FRANKFURTER_URL = "https://api.frankfurter.app/latest";
+const FRANKFURTER_URL = "https://api.frankfurter.dev/v1/latest";
 const NASDAQ_QUOTE_BASE_URL = "https://api.nasdaq.com/api/quote";
 const GOLD_API_BASE_URL = "https://api.gold-api.com/price";
 
@@ -564,7 +564,7 @@ async function executeGlobalStockQuote(input, dependencies = {}) {
 }
 
 async function frankfurter(base, quote, dependencies = {}) {
-  const query = new URLSearchParams({ from: base, to: quote });
+  const query = new URLSearchParams({ base, symbols: quote });
   const body = await fetchJson(
     `${FRANKFURTER_URL}?${query.toString()}`,
     { headers: { Accept: "application/json" } },

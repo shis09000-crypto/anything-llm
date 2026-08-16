@@ -102,23 +102,37 @@ async function streamChat({
   let terminalSeen = false;
   let lastRevision = 0;
   let reconnectAttempt = 0;
+  let responseId = null;
   const clientTurnId = String(body?.clientTurnId || "").trim();
   const encodedTurnId = encodeURIComponent(clientTurnId);
-  const runPath = threadSlug
+  const legacyRunPath = threadSlug
     ? `/workspace/${workspaceSlug}/thread/${threadSlug}/chat-runs/${encodedTurnId}`
     : `/workspace/${workspaceSlug}/chat-runs/${encodedTurnId}`;
+  const responsePath = () =>
+    threadSlug
+      ? `/workspace/${workspaceSlug}/thread/${threadSlug}/responses/${encodeURIComponent(responseId)}`
+      : `/workspace/${workspaceSlug}/responses/${encodeURIComponent(responseId)}`;
   beginChatStreamObservation(clientTurnId);
 
   const emitRaw = (raw) => {
-    if (Number.isFinite(Number(raw?.runRevision))) {
-      lastRevision = Math.max(lastRevision, Number(raw.runRevision));
-      if (["textResponseChunk", "fullTextResponse"].includes(raw?.type)) {
+    const revision = Number(raw?.sequence_number ?? raw?.runRevision);
+    if (Number.isFinite(revision)) {
+      lastRevision = Math.max(lastRevision, revision);
+      if (
+        [
+          "textResponseChunk",
+          "fullTextResponse",
+          "response.output_text.delta",
+        ].includes(raw?.type)
+      ) {
         recordChatStreamRevision(clientTurnId, lastRevision);
       }
     }
+    if (raw?.response_id) responseId = raw.response_id;
     if (
-      raw?.close === true ||
-      ["abort", "stopGeneration"].includes(raw?.type)
+      ["response.completed", "response.failed", "response.incomplete"].includes(
+        raw?.type
+      )
     ) {
       terminalSeen = true;
     }
@@ -145,16 +159,24 @@ async function streamChat({
 
   const abortStream = () => {
     stopped = true;
-    if (clientTurnId) {
+    if (responseId) {
       void postJson(
-        `${runPath}/cancel`,
+        `${responsePath()}/cancel`,
         {},
         {
           communicationScene: "workspace-chat",
           task: false,
         }
       ).catch(() => {});
-    }
+    } else if (clientTurnId)
+      void postJson(
+        `${legacyRunPath}/cancel`,
+        {},
+        {
+          communicationScene: "workspace-chat",
+          task: false,
+        }
+      ).catch(() => {});
     ctrl.abort();
     emitStop();
   };
@@ -192,7 +214,7 @@ async function streamChat({
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
       if (stopped || ctrl.signal.aborted) return "unknown";
       try {
-        await getJson(`${runPath}/state`, {
+        const { data } = await getJson(`${legacyRunPath}/state`, {
           signal: ctrl.signal,
           communicationScene: "workspace-chat",
           task: {
@@ -205,6 +227,7 @@ async function streamChat({
             abortable: false,
           },
         });
+        responseId = data?.run?.responseId || responseId;
         return "claimed";
       } catch (error) {
         const result = chatRunClaimProbeResult(error);
@@ -235,6 +258,8 @@ async function streamChat({
       },
     },
     onOpen(response) {
+      responseId =
+        response.headers?.get?.("X-Athena-Response-Id") || responseId;
       updateChatStreamObservationRequestId(
         clientTurnId,
         response.headers?.get?.("X-Request-Id") ||
@@ -307,12 +332,26 @@ async function streamChat({
       recordChatStreamReconnect(clientTurnId, "started", reconnectAttempt + 1);
       await waitForReconnect(reconnectAttempt++);
       if (stopped || ctrl.signal.aborted || terminalSeen) break;
+      if (!responseId) {
+        const claimState = await confirmRunClaim();
+        if (claimState === "missing") {
+          emitError(
+            Object.assign(new Error("Responses turn was not found."), {
+              code: "response_not_found",
+              status: 404,
+            })
+          );
+          break;
+        }
+        if (!responseId) continue;
+      }
       try {
         await getJsonSse({
           ...streamOptions(
-            `${runPath}/stream?afterRevision=${encodeURIComponent(lastRevision)}`,
+            `${responsePath()}/stream?afterSequence=${encodeURIComponent(lastRevision)}`,
             true
           ),
+          headers: { "Last-Event-ID": String(lastRevision) },
         });
       } catch {
         emitRaw(connectionRawEvent("reconnecting"));
@@ -344,7 +383,7 @@ export async function streamWorkspaceChat({
   onClose,
 }) {
   return streamChat({
-    path: `/workspace/${workspaceSlug}/stream-chat`,
+    path: `/workspace/${workspaceSlug}/responses`,
     body,
     signal,
     workspaceSlug,
@@ -370,7 +409,7 @@ export async function streamWorkspaceThreadChat({
   onClose,
 }) {
   return streamChat({
-    path: `/workspace/${workspaceSlug}/thread/${threadSlug}/stream-chat`,
+    path: `/workspace/${workspaceSlug}/thread/${threadSlug}/responses`,
     body,
     signal,
     workspaceSlug,
@@ -404,4 +443,23 @@ export function buildChatStreamBody({
     editContext,
     regenerateContext,
   });
+}
+
+export async function submitResponseAction({
+  workspaceSlug,
+  threadSlug = null,
+  responseId,
+  actionId,
+  body = {},
+}) {
+  const base = threadSlug
+    ? `/workspace/${workspaceSlug}/thread/${threadSlug}`
+    : `/workspace/${workspaceSlug}`;
+  return postJson(
+    `${base}/responses/${encodeURIComponent(responseId)}/actions/${encodeURIComponent(actionId)}`,
+    body,
+    { communicationScene: "workspace-chat", task: false }
+  )
+    .then(({ data }) => data)
+    .catch((error) => ({ success: false, error: error?.message }));
 }

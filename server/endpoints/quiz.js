@@ -9,8 +9,10 @@ const { writeResponseChunk } = require("../utils/helpers/chat/responses");
 const {
   abandonQuiz,
   deleteFavoriteQuestion,
+  dismissQuizWrongQuestions,
   generateQuiz,
   quizStatus,
+  quizHistory,
   saveFavoriteQuestion,
   saveQuizProgress,
   saveQuizWrongQuestions,
@@ -24,6 +26,28 @@ const {
 function quizEndpoints(app) {
   if (!app) return;
 
+  app.get(
+    "/workspace/:slug/quiz-history",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        response.status(200).json(
+          await quizHistory({
+            workspace: response.locals.workspace,
+            user,
+            threadSlug: request.query.threadSlug || null,
+          })
+        );
+      } catch (error) {
+        console.error("[Quiz] history endpoint failed", error);
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
   app.post(
     "/workspace/:slug/quiz/generate",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
@@ -35,6 +59,7 @@ function quizEndpoints(app) {
           message = "",
           threadSlug = null,
           nodeContext = null,
+          clientTurnId = null,
         } = reqBody(request);
         if (typeof message !== "string" || message.trim().length === 0) {
           response
@@ -48,6 +73,7 @@ function quizEndpoints(app) {
           message: message.trim(),
           threadSlug,
           nodeContext,
+          clientTurnId,
         });
         response.status(200).json(result);
       } catch (error) {
@@ -196,6 +222,26 @@ function quizEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error("[Quiz] wrong questions endpoint failed", error);
+        response.status(409).json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/quiz/:quizId/wrong-questions/dismiss",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const workspace = response.locals.workspace;
+        const result = await dismissQuizWrongQuestions({
+          workspace,
+          user,
+          quizId: request.params.quizId,
+        });
+        response.status(200).json(result);
+      } catch (error) {
+        console.error("[Quiz] dismiss wrong questions endpoint failed", error);
         response.status(409).json({ success: false, error: error.message });
       }
     }

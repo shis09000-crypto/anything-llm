@@ -3,6 +3,9 @@ const Workspace = lazyDataAccessFacade("workspace");
 const WorkspaceAgentInvocation = lazyDataAccessFacade(
   "workspaceAgentInvocation"
 );
+const {
+  shouldBypassAutomaticAgentRouting,
+} = require("../chats/automaticAgentRouting");
 const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
 const User = lazyDataAccessFacade("user");
 const AIbitat = require("./aibitat");
@@ -25,10 +28,28 @@ const MCPCompatibilityLayer = require("../MCP");
 const {
   getAndClearInvocationAttachments,
   getInvocationFileAccess,
+  getInvocationExecutionTarget,
 } = require("../chats/agents");
 const { DocumentManager } = require("../DocumentManager");
 const { resolveEffectivePolicy } = require("../fileAccessPolicy");
 const { resolveTaskProviderModel } = require("../llmTasks");
+const {
+  agentEnabled: responsesAgentEnabled,
+} = require("../responsesRuntime/agentAdapter");
+const { agentGatewayEnabled } = require("../modelGateway/agentRemoteProvider");
+
+function deepSeekAgentExecutionAvailable({
+  provider,
+  model,
+  env = process.env,
+} = {}) {
+  if (provider !== "deepseek") return false;
+  return (
+    responsesAgentEnabled({ provider, model, env }) ||
+    agentGatewayEnabled(env) ||
+    Boolean(env.DEEPSEEK_API_KEY)
+  );
+}
 
 function agentCacheStableHistoryStrategyFor({
   provider = null,
@@ -39,6 +60,13 @@ function agentCacheStableHistoryStrategyFor({
     llm: { cacheStableHistory: true },
     messageLimit: limit,
   });
+}
+
+function requestedAgentExecutionTarget(invocation = null) {
+  const provider = String(invocation?.requestedProvider || "").trim();
+  const model = String(invocation?.requestedModel || "").trim();
+  if (!provider || !model) return null;
+  return { provider, model };
 }
 
 class AgentHandler {
@@ -52,6 +80,7 @@ class AgentHandler {
   attachments = [];
   displayAttachments = [];
   displayPrompt = null;
+  reservedPublicChatId = null;
   visionAnalysisContext = null;
   fileAccessContext = {};
   historyWindow = null;
@@ -85,6 +114,7 @@ class AgentHandler {
   }) {
     if (this.#isAgentCommandInvocation({ message })) return true;
     if (chatMode === "automatic") {
+      if (shouldBypassAutomaticAgentRouting(message)) return false;
       if (!workspace) return false;
       if (await Workspace.supportsNativeToolCalling(workspace)) return true;
       return false;
@@ -230,7 +260,12 @@ class AgentHandler {
           );
         break;
       case "deepseek":
-        if (!process.env.DEEPSEEK_API_KEY)
+        if (
+          !deepSeekAgentExecutionAvailable({
+            provider: this.provider,
+            model: this.model,
+          })
+        )
           throw new Error("DeepSeek API Key must be provided to use agents.");
         break;
       case "litellm":
@@ -475,8 +510,14 @@ class AgentHandler {
   }
 
   #providerSetupAndCheck() {
-    this.provider = this.invocation.workspace.agentProvider ?? null; // set provider to workspace agent provider if it exists
-    this.model = this.#fetchModel();
+    const requestedTarget = requestedAgentExecutionTarget(this.invocation);
+    if (requestedTarget) {
+      this.provider = requestedTarget.provider;
+      this.model = requestedTarget.model;
+    } else {
+      this.provider = this.invocation.workspace.agentProvider ?? null; // set provider to workspace agent provider if it exists
+      this.model = this.#fetchModel();
+    }
     const resolved = resolveTaskProviderModel("agent_task", {
       workspace: this.invocation.workspace,
       provider: this.provider,
@@ -680,6 +721,14 @@ class AgentHandler {
       this.invocation.workspace,
       user
     );
+    if (
+      !workspaceAgentDef.functions.includes(AgentPlugins.workspaceSearch.name)
+    )
+      workspaceAgentDef.functions.push(AgentPlugins.workspaceSearch.name);
+    workspaceAgentDef.role = `${workspaceAgentDef.role}
+
+Workspace search guidance:
+Use workspace_search when workspace evidence would materially improve the answer. In ordinary chat, an empty search result is not an error: continue with model knowledge and do not invent citations. When the workspace is in Query mode, you MUST call workspace_search before answering. If Query mode returns found=false, reply with exactly the instruction returned by the tool and do not use model knowledge.`;
     if (this.invocation.workspace?.id) {
       const {
         TOOL_NAME: WORKSPACE_SUPPLEMENT_TOOL_NAME,
@@ -723,6 +772,11 @@ If the user asks about book structure, reading order, timeline, person relations
 
   async init() {
     await this.#validInvocation();
+    const requestedTarget = getInvocationExecutionTarget(this.#invocationUUID);
+    if (requestedTarget) {
+      this.invocation.requestedProvider = requestedTarget.provider;
+      this.invocation.requestedModel = requestedTarget.model;
+    }
     this.#providerSetupAndCheck();
 
     // Retrieve cached attachments (images, etc.) from the HTTP request
@@ -733,6 +787,8 @@ If the user asks about book structure, reading order, timeline, person relations
     this.displayAttachments =
       invocationAttachmentPayload.displayAttachments || this.attachments;
     this.displayPrompt = invocationAttachmentPayload.displayPrompt || null;
+    this.reservedPublicChatId =
+      invocationAttachmentPayload.reservedPublicChatId || null;
     this.visionAnalysisContext =
       invocationAttachmentPayload.visionAnalysisContext || null;
     const cachedFileAccess = getInvocationFileAccess(this.#invocationUUID);
@@ -838,6 +894,7 @@ If the user asks about book structure, reading order, timeline, person relations
         log: this.log,
         displayAttachments: this.displayAttachments,
         displayPrompt: this.displayPrompt,
+        reservedPublicChatId: this.reservedPublicChatId,
         visionAnalysisContext: this.visionAnalysisContext,
         fileAccessContext: this.fileAccessContext,
         compactedThreadMemory,
@@ -869,6 +926,11 @@ If the user asks about book structure, reading order, timeline, person relations
         userId: this.invocation.user_id || null,
       })
     );
+    this.aibitat.reportProgress?.("routing", "completed", {
+      routeKind: this.invocation?.prompt?.trim?.().startsWith("@agent")
+        ? "explicit"
+        : "automatic",
+    });
 
     // Attach standard chat-history plugin for message storage.
     this.log(
@@ -912,3 +974,6 @@ If the user asks about book structure, reading order, timeline, person relations
 module.exports.AgentHandler = AgentHandler;
 module.exports.agentCacheStableHistoryStrategyFor =
   agentCacheStableHistoryStrategyFor;
+module.exports.deepSeekAgentExecutionAvailable =
+  deepSeekAgentExecutionAvailable;
+module.exports.requestedAgentExecutionTarget = requestedAgentExecutionTarget;

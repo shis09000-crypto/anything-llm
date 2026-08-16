@@ -1,8 +1,20 @@
-import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import {
+  deleteJson,
+  getJson,
+  postJson,
+  putJson,
+} from "@/lib/communication/apiClient";
 
 function result(response) {
   return response?.data?.result ?? response?.data ?? null;
 }
+
+const browserTask = (priority, label, extra = {}) => ({
+  priority,
+  label,
+  scope: { route: "browser-plane" },
+  ...extra,
+});
 
 const BrowserPlane = {
   status: () =>
@@ -16,11 +28,15 @@ const BrowserPlane = {
   heartbeatNode: (payload) =>
     postJson("/browser/nodes/heartbeat", payload, {
       communicationScene: "browser-plane",
+      task: browserTask("P3", "Browser node lease heartbeat", {
+        protected: false,
+      }),
     }).then(result),
   createSession: (payload) =>
     postJson("/browser/sessions", payload, {
       communicationScene: "browser-plane",
       timeoutMs: 45_000,
+      task: browserTask("P0", "Open browser session"),
     }).then(result),
   session: (sessionId) =>
     getJson(`/browser/sessions/${encodeURIComponent(sessionId)}`, {
@@ -88,6 +104,68 @@ const BrowserPlane = {
     postJson("/browser/bookmarks", payload, {
       communicationScene: "browser-plane",
     }).then(result),
+  egressStatus: () =>
+    getJson("/browser/egress/status", {
+      communicationScene: "browser-plane",
+    }).then(result),
+  profileRoute: (profileId = "default") =>
+    getJson(
+      `/browser/profiles/${encodeURIComponent(profileId)}/network-route`,
+      { communicationScene: "browser-plane" }
+    ).then(result),
+  setProfileRoute: (profileId = "default", payload = {}) =>
+    putJson(
+      `/browser/profiles/${encodeURIComponent(profileId)}/network-route`,
+      payload,
+      {
+        communicationScene: "browser-plane",
+        task: browserTask("P0", "Switch browser profile network route"),
+      }
+    ).then(result),
+  enrollEgress: (profileId = "default", payload = {}) =>
+    postJson(
+      `/browser/profiles/${encodeURIComponent(profileId)}/egress/enroll`,
+      payload,
+      {
+        communicationScene: "browser-plane",
+        headers: { "Idempotency-Key": crypto.randomUUID() },
+        task: browserTask("P0", "Enroll browser egress"),
+      }
+    ).then(result),
+  confirmProfileRoute: (profileId = "default", payload = {}) =>
+    postJson(
+      `/browser/profiles/${encodeURIComponent(profileId)}/network-health`,
+      payload,
+      {
+        communicationScene: "browser-plane",
+        task: browserTask("P0", "Confirm browser egress route"),
+      }
+    ).then(result),
+  renewEgress: (grantId) =>
+    postJson(
+      `/browser/egress/grants/${encodeURIComponent(grantId)}/renew`,
+      {},
+      {
+        communicationScene: "browser-plane",
+        task: browserTask("P3", "Renew browser egress lease", {
+          protected: false,
+        }),
+      }
+    ).then(result),
+  revokeEgress: (grantId) =>
+    deleteJson(`/browser/egress/grants/${encodeURIComponent(grantId)}`, {
+      communicationScene: "browser-plane",
+      task: browserTask("P0", "Revoke browser egress grant"),
+    }).then(result),
+  openSystemChrome: (sessionId, url) =>
+    postJson(
+      `/browser/sessions/${encodeURIComponent(sessionId)}/open-system-chrome`,
+      { url },
+      {
+        communicationScene: "browser-plane",
+        task: browserTask("P0", "Open managed system Chrome"),
+      }
+    ).then(result),
 };
 
 export default BrowserPlane;

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CircleNotch, Star, XCircle } from "@phosphor-icons/react";
+import { CircleNotch, LinkSimple, Star, XCircle } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import showToast from "@/utils/toast";
 import AppButton from "@/components/lib/AppButton";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import { useSourcesSidebar } from "../../SourcesSidebar/context";
 
 function mergeQuestions(existing = [], incoming = []) {
   const byId = new Map();
@@ -228,16 +229,22 @@ export default function QuizCard({
   onQuizUpdate = null,
 }) {
   const [quiz, setQuiz] = useState(initialQuiz || {});
+  const { openSidebar } = useSourcesSidebar();
   const [answers, setAnswers] = useState(initialQuiz?.answers || {});
   const [currentIndex, setCurrentIndex] = useState(
     initialQuiz?.currentIndex || 0
   );
   const [submitting, setSubmitting] = useState(false);
+  const [submissionLocked, setSubmissionLocked] = useState(
+    !!initialQuiz?.submitted
+  );
   const [waitingForMore, setWaitingForMore] = useState(false);
   const [favoriteSaving, setFavoriteSaving] = useState(null);
   const [wrongSaving, setWrongSaving] = useState(false);
+  const [wrongDismissing, setWrongDismissing] = useState(false);
   const pollingRef = useRef(null);
   const progressTimerRef = useRef(null);
+  const submissionLockRef = useRef(!!initialQuiz?.submitted);
   const { updateAssistantTurn } = useChatThreadDrafts();
 
   function publishQuiz(nextQuiz, finalContent) {
@@ -274,6 +281,10 @@ export default function QuizCard({
         setAnswers(merged.answers || {});
         setCurrentIndex(merged.currentIndex || 0);
       }
+      if (merged.submitted) {
+        submissionLockRef.current = true;
+        setSubmissionLocked(true);
+      }
       return merged;
     });
   }, [initialQuiz]);
@@ -283,13 +294,21 @@ export default function QuizCard({
   const currentQuestion = questions[safeIndex] || null;
   const expectedTotal = quiz.expectedTotalQuestions || questions.length;
   const generating = isGenerating(quiz);
-  const submitted = !!quiz.submitted;
+  const submitted = !!quiz.submitted || submissionLocked;
   const abandoned = !!quiz.abandoned;
   const isLastGenerated = safeIndex >= questions.length - 1;
-  const canSubmit = !generating && isLastGenerated && questions.length > 0;
+  const canSubmit =
+    !submitted &&
+    !submissionLocked &&
+    !generating &&
+    isLastGenerated &&
+    questions.length > 0;
+  const analysisPending =
+    submitted && String(quiz.analysisStatus || "") === "running";
 
   useEffect(() => {
-    if (!workspace?.slug || !quiz?.id || !generating || submitted) return;
+    if (!workspace?.slug || !quiz?.id || (!generating && !analysisPending))
+      return;
 
     pollingRef.current = setInterval(async () => {
       const status = await Workspace.quizStatus(workspace.slug, quiz.id);
@@ -299,10 +318,15 @@ export default function QuizCard({
         if ((next.questions || []).length > (previous.questions || []).length) {
           setWaitingForMore(false);
         }
-        publishQuiz(next);
+        publishQuiz(
+          next,
+          next.analysisStatus === "completed" ? next.analysis || "" : undefined
+        );
         return next;
       });
-      if (!status.pendingTypes?.length || status.status === "abandoned") {
+      const generationDone = !status.pendingTypes?.length;
+      const analysisDone = status.quiz.analysisStatus !== "running";
+      if ((generationDone && analysisDone) || status.status === "abandoned") {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
         setWaitingForMore(false);
@@ -313,7 +337,7 @@ export default function QuizCard({
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     };
-  }, [workspace?.slug, quiz?.id, generating, submitted, chatKey, turnId]);
+  }, [workspace?.slug, quiz?.id, generating, analysisPending, chatKey, turnId]);
 
   function persistProgress(nextAnswers = answers, nextIndex = currentIndex) {
     if (!workspace?.slug || !quiz?.id || submitted || abandoned) return;
@@ -340,29 +364,27 @@ export default function QuizCard({
     }));
   }
 
-  async function refreshQuiz() {
-    const status = await Workspace.quizStatus(workspace.slug, quiz.id);
-    if (!status?.quiz) return null;
-    const nextQuiz = mergeQuiz(quiz, status.quiz, {
-      preserveLocalProgress: false,
-    });
-    setQuiz(nextQuiz);
-    setAnswers(nextQuiz.answers || answers);
-    setCurrentIndex(nextQuiz.currentIndex ?? currentIndex);
-    publishQuiz(nextQuiz, nextQuiz.analysis || undefined);
-    return nextQuiz;
-  }
-
   async function submit(nextAnswers = answers) {
-    if (!workspace?.slug || !quiz?.id || submitting || abandoned) return;
+    if (
+      !workspace?.slug ||
+      !quiz?.id ||
+      submitting ||
+      abandoned ||
+      submissionLockRef.current
+    )
+      return;
     if (isGenerating(quiz)) {
       setWaitingForMore(true);
       return;
     }
+    clearTimeout(progressTimerRef.current);
+    submissionLockRef.current = true;
+    setSubmissionLocked(true);
     setSubmitting(true);
-    let streamedAnalysis = "";
     const runningQuiz = {
       ...quiz,
+      submitted: true,
+      submittedAt: new Date().toISOString(),
       answers: nextAnswers,
       analysisStatus: "running",
       analysisError: null,
@@ -370,40 +392,55 @@ export default function QuizCard({
     };
     setAndPublishQuiz(runningQuiz, "");
     try {
-      await Workspace.submitQuizStream(
+      const result = await Workspace.submitQuiz(
         workspace.slug,
         quiz.id,
-        nextAnswers,
-        (event) => {
-          if (event.type === "abort") {
-            throw new Error(event.error || "分析中断");
-          }
-          if (event.type !== "textResponseChunk" || event.close) return;
-          streamedAnalysis += event.textResponse || "";
-          setAndPublishQuiz(
-            (previous) => ({
-              ...previous,
-              analysis: streamedAnalysis,
-              analysisStatus: "running",
-            }),
-            streamedAnalysis
-          );
-        }
+        nextAnswers
       );
-      await refreshQuiz();
+      if (!result?.success || !result.quiz)
+        throw new Error(result?.error || "提交测试失败");
+      const sealedQuiz = mergeQuiz(runningQuiz, result.quiz, {
+        preserveLocalProgress: false,
+      });
+      setAnswers(sealedQuiz.answers || nextAnswers);
+      setAndPublishQuiz(sealedQuiz, sealedQuiz.analysis || "");
     } catch (error) {
-      const failedQuiz = {
-        ...quiz,
-        answers: nextAnswers,
-        analysis: streamedAnalysis,
-        analysisStatus: "failed",
-        analysisError: error.message || "分析中断",
-      };
-      setAndPublishQuiz(failedQuiz, streamedAnalysis);
-      showToast("分析中断，可以重新分析。", "error");
+      const status = await Workspace.quizStatus(workspace.slug, quiz.id);
+      if (status?.quiz?.submitted) {
+        const recoveredQuiz = mergeQuiz(runningQuiz, status.quiz, {
+          preserveLocalProgress: false,
+        });
+        setAndPublishQuiz(recoveredQuiz, recoveredQuiz.analysis || "");
+      } else {
+        submissionLockRef.current = false;
+        setSubmissionLocked(false);
+        setAndPublishQuiz({
+          ...quiz,
+          submitted: false,
+          answers: nextAnswers,
+          analysisStatus: "failed",
+          analysisError: error.message || "提交失败",
+        });
+        showToast("提交失败，请重试。", "error");
+      }
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function retryAnalysis() {
+    if (!workspace?.slug || !quiz?.id || submitting) return;
+    setSubmitting(true);
+    const result = await Workspace.submitQuiz(workspace.slug, quiz.id, answers);
+    setSubmitting(false);
+    if (!result?.success || !result.quiz) {
+      showToast(result?.error || "重新分析失败。", "error");
+      return;
+    }
+    setAndPublishQuiz(
+      mergeQuiz(quiz, result.quiz, { preserveLocalProgress: false }),
+      ""
+    );
   }
 
   function goNext(nextAnswers = answers) {
@@ -506,6 +543,24 @@ export default function QuizCard({
     showToast(`已保存 ${result.count || 0} 道错题。`, "success");
   }
 
+  async function dismissWrongQuestions() {
+    setWrongDismissing(true);
+    const result = await Workspace.dismissQuizWrongQuestions(
+      workspace.slug,
+      quiz.id
+    );
+    setWrongDismissing(false);
+    if (!result?.success) {
+      showToast(result?.error || "取消保存失败。", "error");
+      return;
+    }
+    const nextQuiz = {
+      ...mergeQuiz(quiz, result.quiz),
+      currentIndex: safeIndex,
+    };
+    setAndPublishQuiz(nextQuiz, nextQuiz.analysis || undefined);
+  }
+
   async function toggleFavorite(questionId) {
     const favorited =
       quiz.favoritedQuestionIds?.includes(questionId) ||
@@ -542,14 +597,21 @@ export default function QuizCard({
       ),
     [quiz.questionResults, currentQuestion]
   );
-  const sourceTitles = useMemo(() => {
+  const questionSources = useMemo(() => {
     const refs = new Map((quiz.sourceRefs || []).map((ref) => [ref.id, ref]));
     return (questionResult?.sourceRefs || currentQuestion?.sourceRefs || [])
       .map((ref) => {
-        const title = refs.get(ref)?.title || ref?.title || ref;
-        return /^evidence-\d+$/i.test(String(title || "")) ? null : title;
+        const refId = typeof ref === "string" ? ref : ref?.id;
+        const source =
+          refs.get(refId) || (typeof ref === "object" ? ref : null);
+        return source ? { ...source, text: String(source.text || "") } : null;
       })
-      .filter(Boolean);
+      .filter(
+        (source) =>
+          source &&
+          source.id !== "general-knowledge" &&
+          source.sourceType !== "general_knowledge"
+      );
   }, [quiz.sourceRefs, currentQuestion, questionResult]);
 
   if (abandoned) {
@@ -565,7 +627,36 @@ export default function QuizCard({
     );
   }
 
-  if (!currentQuestion) return null;
+  if (!currentQuestion && generating) {
+    return (
+      <div className={quizSurfaceClass} style={quizSurfaceStyle}>
+        <div className="flex items-center gap-3">
+          <CircleNotch size={20} className="animate-spin text-sky-500" />
+          <div>
+            <p className="m-0 text-sm font-semibold text-slate-900">
+              {quiz.title || "正在准备测试题"}
+            </p>
+            <p className="m-0 mt-1 text-xs text-slate-500">
+              请求已保存，正在解析计划、检索资料并生成首批题目。
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentQuestion) {
+    return (
+      <div className={quizSurfaceClass} style={quizSurfaceStyle}>
+        <p className="m-0 text-sm font-semibold text-slate-900">
+          {quiz.title || "测试题生成失败"}
+        </p>
+        <p className="m-0 mt-2 text-xs text-red-600">
+          本次生成没有得到可用题目，请重新发送。
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className={quizSurfaceClass} style={quizSurfaceStyle}>
@@ -614,7 +705,8 @@ export default function QuizCard({
         question={currentQuestion}
         index={safeIndex}
         total={expectedTotal}
-        sourceTitles={sourceTitles}
+        sources={questionSources}
+        onOpenSources={() => openSidebar(questionSources)}
       />
 
       {submitted ? (
@@ -646,15 +738,27 @@ export default function QuizCard({
           variant="primary"
           onClick={() => goNext()}
           disabled={
+            submitting ||
             (isLastGenerated && generating) ||
             (submitted && safeIndex >= questions.length - 1)
           }
           loading={submitting || (waitingForMore && generating)}
           className="px-5"
         >
-          {canSubmit ? "提交" : "下一题"}
+          {submitted && isLastGenerated
+            ? "已提交"
+            : canSubmit
+              ? "提交"
+              : "下一题"}
         </AppButton>
       </div>
+
+      {submitted && quiz.quickGrade && (
+        <QuickGradeSummary
+          quickGrade={quiz.quickGrade}
+          analysisStatus={quiz.analysisStatus}
+        />
+      )}
 
       {quiz.analysisStatus === "failed" && (
         <div
@@ -663,7 +767,7 @@ export default function QuizCard({
           <p className="m-0">分析中断，可以重新分析。</p>
           <button
             type="button"
-            onClick={() => submit(answers)}
+            onClick={retryAnalysis}
             className={`${quizButtonPrimaryClass} mt-2 bg-red-500 hover:bg-red-400`}
           >
             重新分析
@@ -675,7 +779,9 @@ export default function QuizCard({
         <WrongQuestionSave
           quiz={quiz}
           saving={wrongSaving}
+          dismissing={wrongDismissing}
           onSave={saveWrongQuestions}
+          onDismiss={dismissWrongQuestions}
         />
       )}
     </div>
@@ -700,7 +806,13 @@ function FavoriteButton({ favorited, saving, onClick }) {
   );
 }
 
-function QuestionPromptCard({ question, index, total, sourceTitles = [] }) {
+function QuestionPromptCard({
+  question,
+  index,
+  total,
+  sources = [],
+  onOpenSources,
+}) {
   return (
     <section className={`${quizPanelClass} mt-4 px-4 py-3`}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -713,20 +825,21 @@ function QuestionPromptCard({ question, index, total, sourceTitles = [] }) {
         <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs text-slate-600 shadow-[0_6px_14px_rgba(15,23,42,0.06)]">
           第 {index + 1} / {total} 题
         </span>
-        {sourceTitles.length > 0 && (
-          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 shadow-[0_6px_14px_rgba(16,185,129,0.10)]">
-            {sourceTitles.length} 个知识来源
-          </span>
-        )}
       </div>
       <p className="m-0 text-base font-semibold leading-7 text-slate-950">
         {question.question}
+        {sources.length > 0 && (
+          <button
+            type="button"
+            onClick={onOpenSources}
+            aria-label="查看本题资料来源"
+            title="查看本题资料来源"
+            className="ml-1.5 inline-flex translate-y-[2px] items-center justify-center rounded-md p-0.5 text-sky-600 transition-colors hover:bg-sky-50 hover:text-sky-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+          >
+            <LinkSimple size={17} weight="bold" />
+          </button>
+        )}
       </p>
-      {sourceTitles.length > 0 && (
-        <p className="m-0 mt-3 text-xs leading-5 text-slate-500">
-          来源：{sourceTitles.join("、")}
-        </p>
-      )}
     </section>
   );
 }
@@ -734,7 +847,19 @@ function QuestionPromptCard({ question, index, total, sourceTitles = [] }) {
 function QuestionResult({ question, result, answer }) {
   if (question.type !== "fill_blank") {
     return (
-      <GradedOptions question={question} result={result} answer={answer} />
+      <>
+        {result?.isCorrect === true && (
+          <p className="m-0 mt-4 text-sm font-semibold text-emerald-700">
+            回答正确
+          </p>
+        )}
+        {result?.isCorrect === false && (
+          <p className="m-0 mt-4 text-sm font-semibold text-red-700">
+            回答错误
+          </p>
+        )}
+        <GradedOptions question={question} result={result} answer={answer} />
+      </>
     );
   }
 
@@ -799,7 +924,35 @@ function ResultLine({ label, value }) {
   );
 }
 
-function WrongQuestionSave({ quiz, saving, onSave }) {
+function QuickGradeSummary({ quickGrade, analysisStatus }) {
+  return (
+    <div className={`${quizPanelClass} mt-4 p-3`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="m-0 text-sm font-semibold text-slate-900">
+          客观题判分已完成
+        </p>
+        {analysisStatus === "running" && (
+          <span className="inline-flex items-center gap-1 text-xs text-sky-600">
+            <CircleNotch size={14} className="animate-spin" />
+            正在生成综合分析
+          </span>
+        )}
+      </div>
+      <p className="m-0 mt-2 text-sm text-slate-600">
+        单选与多选共 {quickGrade.gradedQuestionCount || 0} 题：
+        <span className="font-semibold text-emerald-700">
+          {quickGrade.correctCount || 0} 题正确
+        </span>
+        <span className="mx-1 text-slate-300">·</span>
+        <span className="font-semibold text-red-700">
+          {quickGrade.incorrectCount || 0} 题错误
+        </span>
+      </p>
+    </div>
+  );
+}
+
+function WrongQuestionSave({ quiz, saving, dismissing, onSave, onDismiss }) {
   if (quiz.questionResultsReliable === false) {
     return (
       <p className={`${quizPanelClass} m-0 mt-4 p-3 text-sm text-amber-700`}>
@@ -815,18 +968,34 @@ function WrongQuestionSave({ quiz, saving, onSave }) {
       </p>
     );
   }
+  if (quiz.wrongQuestionsDismissed) {
+    return (
+      <p className={`${quizPanelClass} m-0 mt-4 p-3 text-sm text-slate-600`}>
+        已取消保存本次错题
+      </p>
+    );
+  }
   return (
     <div className={`${quizPanelClass} mt-4 p-3`}>
       <p className="m-0 text-sm">是否保存本次错题到错题库？</p>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={saving}
-        className={`${quizButtonPrimaryClass} mt-2 inline-flex items-center gap-2 disabled:opacity-60`}
-      >
-        {saving && <CircleNotch size={14} className="animate-spin" />}
-        保存错题
-      </button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <AppButton
+          variant="primary"
+          onClick={onSave}
+          disabled={saving || dismissing}
+          loading={saving}
+        >
+          保存
+        </AppButton>
+        <AppButton
+          variant="secondary"
+          onClick={onDismiss}
+          disabled={saving || dismissing}
+          loading={dismissing}
+        >
+          取消
+        </AppButton>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,84 @@
+diff --git a/server/utils/cryptoAccount/accountHub.js b/server/utils/cryptoAccount/accountHub.js
+index 78b88a7..8e6b0f1 100644
+--- a/server/utils/cryptoAccount/accountHub.js
++++ b/server/utils/cryptoAccount/accountHub.js
+@@ -1,9 +1,11 @@
+ const {
++  GateBtcSpotSummaryService,
+   GateOpenFuturesPositionsService,
+   GateRestClient,
+   GateTopSpotAssetsService,
+   GateTradeRecordsFeeSummaryService,
+   GateTradeRecordsService,
++  GateTradingPairDetailService,
+ } = require("../cryptoGate");
+ const {
+   AllocationHubService,
+@@ -125,6 +127,12 @@ class AccountCryptoHub {
+     this.topAssets = new GateTopSpotAssetsService({
+       restClientFactory: this.clientFactory,
+     });
++    this.tradingPairDetails = new GateTradingPairDetailService({
++      restClientFactory: this.clientFactory,
++    });
++    this.btcSummary = new GateBtcSpotSummaryService({
++      restClientFactory: this.clientFactory,
++    });
+     this.tradeRecords = new GateTradeRecordsService({
+       restClientFactory: this.clientFactory,
+       wsManager: {
+@@ -251,6 +259,8 @@ class AccountCryptoHub {
+         allocation: "ready",
+         openFuturesPositions: "ready",
+         topAssets: "ready",
++        tradingPairDetail: "ready",
++        btcSummary: "ready",
+         tradeRecords: "ready",
+       },
+       rateLimits: this.rateLimitState.snapshot(),
+@@ -266,6 +276,8 @@ class AccountCryptoHub {
+       items: {
+         privateAccount: { status: "ready" },
+         allocation: { status: "ready" },
++        tradingPairDetail: { status: "ready" },
++        btcSummary: { status: "ready" },
+         openFutures: { status: "ready" },
+         tradeRecords: { status: "ready" },
+       },
+@@ -327,6 +339,14 @@ class AccountCryptoHub {
+     return this.topAssets.topAssets(params);
+   }
+ 
++  getTradingPairDetail(params = {}) {
++    return this.tradingPairDetails.detail(params);
++  }
++
++  getBtcSummary(params = {}) {
++    return this.btcSummary.summary(params);
++  }
++
+   getTradeRecords(params = {}) {
+     return this.activity({
+       days: params.days || 30,
+diff --git a/server/modules/crypto/httpHubHandlers.js b/server/modules/crypto/httpHubHandlers.js
+index 30a3319..db76f87 100644
+--- a/server/modules/crypto/httpHubHandlers.js
++++ b/server/modules/crypto/httpHubHandlers.js
+@@ -355,7 +355,7 @@ function cryptoHubEndpoints(app) {
+     async (request, response) => {
+       try {
+         response.status(200).json(
+-          await cryptoDataHub.getTradingPairDetail({
++          await response.locals.cryptoDataHub.getTradingPairDetail({
+             pair: request.query?.pair || "BTC_USDT",
+             market: request.query?.market || "spot",
+           })
+@@ -391,7 +391,7 @@ function cryptoHubEndpoints(app) {
+     async (request, response) => {
+       try {
+         response.status(200).json(
+-          await cryptoDataHub.getBtcSummary({
++          await response.locals.cryptoDataHub.getBtcSummary({
+             range: request.query?.range || "1d",
+           })
+         );

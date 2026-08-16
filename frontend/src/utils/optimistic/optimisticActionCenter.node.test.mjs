@@ -34,6 +34,30 @@ test("optimistic action confirms successful scheduled work", async () => {
   );
 });
 
+test("immediate optimistic action bypasses a paused scheduler lane", async () => {
+  taskScheduler.setPaused("P0", true);
+  try {
+    let called = false;
+    const action = optimisticActionCenter.run({
+      type: "test.immediate",
+      scope: { surface: "optimistic-test-immediate" },
+      priority: "P0",
+      immediate: true,
+      serverCall: async () => {
+        called = true;
+        return { saved: true };
+      },
+    });
+
+    const outcome = await action.promise;
+    assert.equal(called, true);
+    assert.equal(outcome.ok, true);
+    assert.deepEqual(outcome.result, { saved: true });
+  } finally {
+    taskScheduler.setPaused("P0", false);
+  }
+});
+
 test("optimistic action rolls back failed cache mutation", async () => {
   serverStateCache.clear();
   serverStateCache.set("optimistic.item", { title: "old" });

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "athena.browser.research-inventory.v1",
+  "auditedAt": "2026-07-31T00:00:00+08:00",
+  "repository": {
+    "path": "/Users/shijie/Desktop/anything-llm",
+    "branch": "codex/v2.5",
+    "commit": "fdd856475da4128942902ea93e8482082917a441",
+    "microModuleManifestCount": 20
+  },
+  "desktop": {
+    "status": "partial-foundation",
+    "electron": {
+      "declared": "^35.2.1",
+      "locked": "35.7.5",
+      "chromium": "134.0.6998.205",
+      "node": "22.16.0",
+      "supportState": "electron-35-end-of-support"
+    },
+    "windowModel": "single-athena-application-window",
+    "remoteContentPolicy": "external-https-opens-in-system-browser",
+    "rendererPolicy": {
+      "contextIsolation": true,
+      "nodeIntegration": false,
+      "sandbox": true,
+      "webSecurity": true,
+      "webviewTag": false
+    },
+    "capabilities": {
+      "chromiumEngine": "available",
+      "browserWindow": "application-shell-only",
+      "webContents": "application-shell-only",
+      "webContentsView": "missing",
+      "browserView": "missing-and-deprecated-upstream",
+      "webview": "explicitly-disabled",
+      "tabs": "missing",
+      "browserProfiles": "missing",
+      "persistentBrowserSession": "missing",
+      "cookieManager": "electron-api-available-not-productized",
+      "historyManager": "missing",
+      "bookmarkManager": "missing",
+      "downloadManager": "missing",
+      "uploadManager": "native-dialog-only-for-storage-selection",
+      "storageManager": "desktop-runtime-storage-only",
+      "permissionManager": "trusted-athena-renderer-allowlist-only",
+      "cacheManager": "missing",
+      "devToolsManager": "missing",
+      "browserWorkspace": "missing",
+      "browserMemory": "missing"
+    },
+    "evidence": [
+      "desktop/main.cjs",
+      "desktop/security-policy.cjs",
+      "desktop/preload.cjs",
+      "desktop/runtime.cjs",
+      "desktop/package.json",
+      "desktop/package-lock.json"
+    ]
+  },
+  "automation": {
+    "puppeteer": {
+      "version": "21.5.2",
+      "location": "collector",
+      "use": "ephemeral-headless-url-to-html-or-markdown",
+      "persistentSession": false,
+      "agentInteractiveControl": false,
+      "security": [
+        "destination-validation",
+        "request-interception",
+        "production-sandbox-self-test",
+        "25MiB-page-limit"
+      ]
+    },
+    "playwright": {
+      "productRuntime": false,
+      "use": "optional-local-audit-and-performance-scripts",
+      "locations": [
+        "frontend/scripts/audit-runtime-client-storage.mjs",
+        "frontend/scripts/local-production-perf-check.mjs"
+      ]
+    },
+    "cdpProductAdapter": false,
+    "selenium": false,
+    "webdriver": false
+  },
+  "agentAndTools": {
+    "webBrowsing": "search-model-query-not-browser-control",
+    "webScraping": "collector-url-content-fetch-not-browser-control",
+    "browserTool": false,
+    "browserSkill": false,
+    "browserWorkflow": false,
+    "browserAgent": false,
+    "browserPlugin": false,
+    "browserMcp": false,
+    "reusablePlatform": [
+      "agent-runtime",
+      "tool-runtime",
+      "scheduler",
+      "capability-broker",
+      "tool-invocation-approval-ledger",
+      "mcp-hypervisor",
+      "operations-plane"
+    ]
+  },
+  "browserExtension": {
+    "gitlinkCommit": "385d36c0807221e6674d1325ef06505746c49ceb",
+    "purpose": "page-text-and-selection-ingestion-to-workspaces",
+    "browserControl": false,
+    "sessionSharing": false,
+    "currentCredential": "long-lived-browser-extension-api-key",
+    "reuseDecision": "retain-as-knowledge-ingest-compatibility-adapter-then-migrate-to-device-identity-and-scoped-capabilities"
+  },
+  "microModulePlatform": {
+    "manifestSchema": "docs/schemas/athena-module-manifest-v1.schema.json",
+    "serviceHost": "server/utils/microModules/serviceHost.js",
+    "internalClient": "server/utils/microModules/internalClient.js",
+    "readiness": "server/utils/modulePlatform/readiness.js",
+    "serviceCatalog": "server/utils/operations/serviceCatalog.js",
+    "deploymentRenderer": "scripts/production/render-micro-module-compose.py",
+    "topologyVerifier": "scripts/verify-independent-module-topology.mjs",
+    "currentState": "contracts-complete-but-production-physical-cutover-not-complete"
+  },
+  "conclusions": [
+    "Athena already ships a Chromium engine through Electron but does not yet ship a Browser Plane.",
+    "Collector Puppeteer is a reusable hardened fetch provider, not a shared browser runtime.",
+    "Existing Agent web tools are search and extraction tools, not interactive browser automation.",
+    "Browser Plane must extend the current micro-module, capability, approval, scheduler and Operations contracts rather than bypass them.",
+    "Adding a manifest before a standalone runtime, health contract, mTLS identity and deployment role exist would create a false topology claim."
+  ]
+}

@@ -49,6 +49,7 @@ function aicpRequestHeaders({
   approvalId = null,
   env = process.env,
 } = {}) {
+  const hasExplicitCoordinationContext = Boolean(coordinationContext);
   coordinationContext = inheritedCoordinationContext(coordinationContext);
   const mode =
     capability && targetModule
@@ -80,10 +81,16 @@ function aicpRequestHeaders({
       required: true,
     });
     if (!validation.valid) {
-      const error = new Error("aicp_coordination_context_invalid");
-      error.code = "AICP_COORDINATION_CONTEXT_INVALID";
-      error.findings = validation.findings;
-      throw error;
+      if (hasExplicitCoordinationContext) {
+        const error = new Error("aicp_coordination_context_invalid");
+        error.code = "AICP_COORDINATION_CONTEXT_INVALID";
+        error.findings = validation.findings;
+        throw error;
+      }
+      // A normal request may outlive the optional coordination deadline while
+      // it waits on other services. Do not fail an unrelated RPC because an
+      // inherited context became stale; explicit contexts remain fail-closed.
+      coordinationContext = null;
     }
   }
   return {

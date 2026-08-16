@@ -1,6 +1,9 @@
 /* eslint-env jest */
 
 const crypto = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const {
   createEventEnvelope,
   issuePrincipalAssertion,
@@ -29,6 +32,30 @@ describe("micro-module platform contracts", () => {
         failureMode: "isolated-degraded",
       }),
     });
+  });
+
+  test("ignores hidden filesystem metadata next to signed manifests", () => {
+    const directory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "athena-manifests-")
+    );
+    try {
+      const source = path.resolve(__dirname, "../../module-manifests");
+      fs.cpSync(source, directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, "._browser-egress.json"), "junk");
+      expect(loadManifests({ directory })).toHaveLength(
+        loadManifests({ cache: false }).length
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("caches the immutable manifest catalog for production callers", () => {
+    const first = loadManifests({ cache: true, refresh: true });
+    const second = loadManifests({ cache: true });
+
+    expect(second).toBe(first);
+    expect(Object.isFrozen(second)).toBe(true);
   });
 
   test("creates a hashed metadata-only event envelope", () => {

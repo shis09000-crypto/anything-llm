@@ -347,7 +347,7 @@ function analyzeTimeframe(id, bars) {
           : "range_or_mixed";
   return {
     timeframe: id,
-    source: "twelve_data",
+    source: latest?.source || "unavailable",
     status: bars.length >= 30 ? "complete" : "insufficient",
     closedBarsUsed: bars.length,
     latestClosedAtMs: latest?.closeTimeMs || null,
@@ -669,7 +669,7 @@ function currentMarket({ xauBars, dailyBars = [], crosscheck, now }) {
       0,
       now - (primary?.closeTimeMs || crosscheck?.observedAtMs || now)
     ),
-    primarySource: primary ? "twelve_data" : "gold_api",
+    primarySource: primary?.source || "gold_api",
     primaryInterval: latest ? "5min" : daily ? "1day" : "reference_price",
     crosscheck: {
       source: "gold_api",
@@ -845,7 +845,8 @@ function buildGoldAnalysis({
   );
   const sourceStatuses = data.sourceStatuses || {};
   const requiredAvailable = ["twelve_data", "gold_api", "fred", "cftc"].filter(
-    (source) => sourceStatuses[source] === "available"
+    (source) =>
+      ["available", "fallback_available"].includes(sourceStatuses[source])
   ).length;
   const supportingEvidenceAvailable =
     market.status !== "unavailable" ||

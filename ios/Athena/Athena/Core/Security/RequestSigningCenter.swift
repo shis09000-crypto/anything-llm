@@ -43,6 +43,26 @@ private struct DeviceKeyRotationResponse: Decodable {
     let deviceKeyAlgorithm: String
 }
 
+struct DeviceBindingP256Proof: Codable, Equatable {
+    let publicKey: String
+    let keyAlgorithm: String
+    let signature: String
+}
+
+struct DeviceBindingPostQuantumProof: Codable, Equatable {
+    let publicKey: String
+    let keyAlgorithm: String
+    let hybridSignatureVersion: String
+    let signature: String
+}
+
+struct DeviceBindingAssertion: Codable, Equatable {
+    let challengeId: String
+    let challenge: String
+    let p256: DeviceBindingP256Proof
+    let postQuantum: DeviceBindingPostQuantumProof
+}
+
 private enum AthenaDeviceSigningKey {
     case software(P256.Signing.PrivateKey)
     case secureEnclave(SecureEnclave.P256.Signing.PrivateKey)
@@ -232,6 +252,53 @@ final class RequestSigningCenter {
             signingSecretVersion = String(data: data, encoding: .utf8)
         }
         updateStatus()
+    }
+
+    func deviceBindingAssertion(
+        challengeId: String,
+        challenge: String,
+        clientID: String
+    ) throws -> DeviceBindingAssertion {
+        guard let privateKey else { throw APIClientError.signingUnavailable }
+        guard postQuantumContractReady else {
+            throw APIClientError.postQuantumSigningUnavailable
+        }
+        let proof = [
+            "athena-device-binding-preflight:v1",
+            challengeId,
+            challenge,
+            clientID,
+        ].joined(separator: "\n")
+        let payload = Data(proof.utf8)
+        let p256Signature = try privateKey.signature(for: payload)
+        let pqMaterial: (signature: Data, publicKey: Data)
+        if let postQuantumTestSignatureProvider {
+            pqMaterial = try postQuantumTestSignatureProvider(payload)
+        } else {
+            guard #available(iOS 26.0, *), SecureEnclave.isAvailable else {
+                throw APIClientError.postQuantumSigningUnavailable
+            }
+            let signer = try highRiskSigner()
+            pqMaterial = (
+                signature: try signer.signature(for: payload),
+                publicKey: signer.publicKey
+            )
+        }
+        return DeviceBindingAssertion(
+            challengeId: challengeId,
+            challenge: challenge,
+            p256: DeviceBindingP256Proof(
+                publicKey: try publicJWK(for: privateKey.publicKey),
+                keyAlgorithm: privateKey.algorithm,
+                signature: p256Signature.rawRepresentation.base64URLEncodedString()
+            ),
+            postQuantum: DeviceBindingPostQuantumProof(
+                publicKey: pqMaterial.publicKey.base64URLEncodedString(),
+                keyAlgorithm: AthenaCryptoSuiteRegistry.requestDeviceMLDSA65V1,
+                hybridSignatureVersion: AthenaCryptoSuiteRegistry.deviceHybridP256MLDSA65V1,
+                signature: pqMaterial.signature.base64URLEncodedString()
+            )
+        )
     }
 
     func migrateDeviceKeyToSecureEnclave(using apiClient: APIClient) async throws -> Bool {

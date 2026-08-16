@@ -15,7 +15,7 @@ const {
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
 const { getClientContext } = require("../utils/clientIdentity");
-const { readSecret, saveSecret } = require("../utils/security");
+const { readSecretAsync, saveSecretAsync } = require("../utils/security");
 const { verifyPassword } = require("../utils/security/passwordCredential");
 const {
   DEFAULT_REAUTH_TTL_MS,
@@ -32,6 +32,11 @@ const OPAQUE_ATTEMPT_TTL_MS = 5 * 60 * 1000;
 const LOCK_FAILURE_LIMIT = 5;
 const LOCK_MS = 10 * 60 * 1000;
 const OPAQUE_SERVER_SETUP_SETTING = "opaque_server_setup";
+const OPAQUE_SERVER_SETUP_SECRET_CONTEXT = Object.freeze({
+  purpose: "secret-store",
+  domain: "authentication",
+  resource: OPAQUE_SERVER_SETUP_SETTING,
+});
 const TRUSTED_DEVICE_SCHEMA_ERROR =
   "可信设备数据库未初始化，请应用迁移后重启服务。";
 const PASSKEY_REAUTH_PURPOSES = new Set([
@@ -810,6 +815,20 @@ function authZkLoginEndpoints(app) {
           });
         }
 
+        if (process.env.ATHENA_BROWSER_EGRESS_ENABLED === "true") {
+          const {
+            dispatchBrowserEgress,
+          } = require("../utils/browserEgress/client");
+          await dispatchBrowserEgress(
+            "revokeDevice",
+            { userId: user.id, deviceId: device.deviceId },
+            {
+              callerRole: "authentication",
+              callerModule: "authentication",
+              idempotencyKey: `identity-device-revoke:${device.id}`,
+            }
+          );
+        }
         await authPrisma.trustedLoginDevice.update({
           where: { id: device.id },
           data: { revokedAt: new Date() },
@@ -852,6 +871,11 @@ function setOpaqueModuleOverrideForTest(module = null) {
   opaqueModuleOverride = module;
 }
 
+function resetOpaqueServerSetupCacheForTest() {
+  if (process.env.NODE_ENV !== "test" && !process.env.JEST_WORKER_ID) return;
+  cachedOpaqueServerSetup = null;
+}
+
 async function opaqueServerSetup() {
   if (process.env.OPAQUE_SERVER_SETUP) return process.env.OPAQUE_SERVER_SETUP;
   if (cachedOpaqueServerSetup) return cachedOpaqueServerSetup;
@@ -860,7 +884,10 @@ async function opaqueServerSetup() {
     where: { label: OPAQUE_SERVER_SETUP_SETTING },
   });
   if (storedSetup?.value) {
-    cachedOpaqueServerSetup = readSecret(storedSetup.value);
+    cachedOpaqueServerSetup = await readSecretAsync(storedSetup.value, {
+      ...OPAQUE_SERVER_SETUP_SECRET_CONTEXT,
+      operation: "opaque-server-setup-read",
+    });
     return cachedOpaqueServerSetup;
   }
 
@@ -870,12 +897,16 @@ async function opaqueServerSetup() {
 
   const opaque = await opaqueApi();
   cachedOpaqueServerSetup = opaque.server.createSetup();
+  const encryptedSetup = await saveSecretAsync(cachedOpaqueServerSetup, {
+    ...OPAQUE_SERVER_SETUP_SECRET_CONTEXT,
+    operation: "opaque-server-setup-write",
+  });
   await AuthIdentityDb.systemSettings.upsert({
     where: { label: OPAQUE_SERVER_SETUP_SETTING },
-    update: { value: saveSecret(cachedOpaqueServerSetup) },
+    update: { value: encryptedSetup },
     create: {
       label: OPAQUE_SERVER_SETUP_SETTING,
-      value: saveSecret(cachedOpaqueServerSetup),
+      value: encryptedSetup,
     },
   });
   console.warn(
@@ -1219,6 +1250,7 @@ module.exports = {
     OPAQUE_SERVER_SETUP_SETTING,
     passkeyChallengeType,
     sanitizeTrustedDevice,
+    resetOpaqueServerSetupCacheForTest,
     setOpaqueModuleOverrideForTest,
     zkUserIdentifier,
   },

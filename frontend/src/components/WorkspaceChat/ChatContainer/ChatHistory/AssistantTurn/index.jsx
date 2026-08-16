@@ -21,6 +21,7 @@ import { debugChatTurn } from "@/utils/chat/debug";
 import DocumentSourceChips from "@/modules/reader/DocumentSourceChips";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
+import { completedAssistantTurnReadyForActions } from "@/utils/chat/turnActivity";
 
 function AssistantTurn({
   turn,
@@ -142,6 +143,7 @@ function AssistantTurn({
   );
   const isLightPlaceholder =
     turn.hydrationStatus === "light" && !turn.finalContent && !isRunning;
+  const showCompletedActions = completedAssistantTurnReadyForActions(turn);
 
   useEffect(() => {
     debugChatTurn("AssistantTurn:renderState", {
@@ -336,7 +338,7 @@ function AssistantTurn({
             </div>
           </div>
         )}
-        {!readOnly && !isLightPlaceholder && (
+        {!readOnly && !isLightPlaceholder && showCompletedActions && (
           <div className="flex items-start gap-x-1">
             <TTSMessage
               slug={workspace?.slug}
@@ -356,6 +358,7 @@ function AssistantTurn({
               role="assistant"
               forkThread={forkThread}
               metrics={turn.metrics}
+              execution={turn.execution}
               onGenerateMindMap={onGenerateMindMap}
             />
           </div>

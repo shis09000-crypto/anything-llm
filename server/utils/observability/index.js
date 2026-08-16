@@ -17,11 +17,16 @@ function startOpenTelemetry() {
     operationsEventForwarder,
   } = require("../operations/remoteEventForwarder");
   const forwarding = operationsEventForwarder.start();
+  const {
+    lifecycleEventForwarder,
+  } = require("../coordination/remoteLifecycleForwarder");
+  const lifecycleForwarding = lifecycleEventForwarder.start();
   if (started || !otelEnabled())
     return {
       enabled: otelEnabled(),
       started,
       operationsForwarding: forwarding,
+      lifecycleForwarding,
     };
   const { NodeTracerProvider } = require("@opentelemetry/sdk-trace-node");
   const { BatchSpanProcessor } = require("@opentelemetry/sdk-trace-base");
@@ -49,6 +54,7 @@ function startOpenTelemetry() {
     enabled: true,
     started: true,
     operationsForwarding: forwarding,
+    lifecycleForwarding,
   };
 }
 
@@ -57,6 +63,10 @@ async function shutdownOpenTelemetry() {
   const {
     operationsEventForwarder,
   } = require("../operations/remoteEventForwarder");
+  const {
+    lifecycleEventForwarder,
+  } = require("../coordination/remoteLifecycleForwarder");
+  await lifecycleEventForwarder.stop();
   await operationsEventForwarder.stop();
   await flushSemanticEvents();
   if (!provider) return { stopped: true, skipped: true };

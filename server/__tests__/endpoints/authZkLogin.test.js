@@ -5,13 +5,21 @@ const mockTrustedLoginDeviceUpdate = jest.fn();
 const mockZkLoginAttemptCreate = jest.fn();
 const mockZkLoginAttemptDeleteMany = jest.fn();
 const mockOpaqueStartLogin = jest.fn();
+const mockSystemSettingsFindFirst = jest.fn();
+const mockSystemSettingsUpsert = jest.fn();
+const mockReadSecretAsync = jest.fn();
+const mockSaveSecretAsync = jest.fn();
 
 jest.mock("../../utils/prisma", () => ({
   users: { findUnique: mockPrismaUsersFindUnique },
   system_settings: {
-    findFirst: jest.fn(),
-    upsert: jest.fn(),
+    findFirst: mockSystemSettingsFindFirst,
+    upsert: mockSystemSettingsUpsert,
   },
+}));
+jest.mock("../../utils/security", () => ({
+  readSecretAsync: mockReadSecretAsync,
+  saveSecretAsync: mockSaveSecretAsync,
 }));
 jest.mock("../../utils/authPrisma", () => ({
   passkeyChallenge: {
@@ -69,6 +77,7 @@ const {
     normalizePasskeyReauthPurpose,
     opaqueIdentifiers,
     passkeyChallengeType,
+    resetOpaqueServerSetupCacheForTest,
     sanitizeTrustedDevice,
     setOpaqueModuleOverrideForTest,
     zkUserIdentifier,
@@ -80,6 +89,7 @@ describe("ZK login endpoints", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetOpaqueServerSetupCacheForTest();
     process.env.OPAQUE_SERVER_SETUP = "test-opaque-server-setup";
     mockZkLoginAttemptDeleteMany.mockResolvedValue({ count: 0 });
     mockTrustedLoginDeviceUpdate.mockResolvedValue({});
@@ -96,6 +106,8 @@ describe("ZK login endpoints", () => {
     });
     SystemSettings.isMultiUserMode.mockResolvedValue(true);
     AuthIdentity.canLoginInCurrentEnvAsync.mockResolvedValue(true);
+    mockReadSecretAsync.mockImplementation(async (value) => value);
+    mockSaveSecretAsync.mockImplementation(async (value) => value);
   });
 
   afterAll(() => {
@@ -161,6 +173,47 @@ describe("ZK login endpoints", () => {
       loginAttemptId: expect.any(String),
       loginResponse: "login-response",
     });
+  });
+
+  it("loads the stored OPAQUE setup through remote-capable secret decryption", async () => {
+    delete process.env.OPAQUE_SERVER_SETUP;
+    const deviceId = "device_1234567890abcdef";
+    const encryptedSetup = "enc:v2:key:secret-store:iv:tag:ciphertext";
+    mockSystemSettingsFindFirst.mockResolvedValue({ value: encryptedSetup });
+    mockReadSecretAsync.mockResolvedValue("remote-opaque-server-setup");
+    mockTrustedLoginDeviceFindFirst.mockResolvedValue({
+      id: 4,
+      userId: 91,
+      deviceId,
+      opaqueRegistrationRecord: "opaque-registration-record",
+      lockedUntil: null,
+      user: { id: 91, username: "shijie", suspended: 0 },
+    });
+
+    const handler = routeHandlerFor("/auth/zk-login/login/start");
+    const { request, response } = fakeJsonRequest({
+      body: {
+        userId: 91,
+        deviceId,
+        startLoginRequest: "opaque-start-login-request",
+      },
+    });
+
+    await handler(request, response);
+
+    expect(mockReadSecretAsync).toHaveBeenCalledWith(
+      encryptedSetup,
+      expect.objectContaining({
+        purpose: "secret-store",
+        domain: "authentication",
+        resource: "opaque_server_setup",
+        operation: "opaque-server-setup-read",
+      })
+    );
+    expect(mockOpaqueStartLogin).toHaveBeenCalledWith(
+      expect.objectContaining({ serverSetup: "remote-opaque-server-setup" })
+    );
+    expect(response.status).toHaveBeenCalledWith(200);
   });
 });
 

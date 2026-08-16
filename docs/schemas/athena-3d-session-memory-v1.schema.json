@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-3d-session-memory-v1.schema.json",
+  "title": "Athena 3D Center Session Memory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "conversation_id", "memory_revision", "state_revision", "memory_point"],
+  "properties": {
+    "protocol_version": { "const": "1.0" },
+    "conversation_id": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "memory_revision": { "type": "integer", "minimum": 0 },
+    "state_revision": { "type": "integer", "minimum": 0 },
+    "memory_point": { "$ref": "#/$defs/memoryPoint" },
+    "projected_context_tokens": { "type": "integer", "minimum": 0 },
+    "context_budget_tokens": { "type": "integer", "minimum": 1 },
+    "compression_trigger_tokens": { "type": "integer", "minimum": 1 },
+    "hard_gate_tokens": { "type": "integer", "minimum": 1 },
+    "hard_gate": { "type": "boolean" },
+    "compaction": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "status"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "status": { "enum": ["queued", "running"] }
+          }
+        },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "memoryPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layout", "dialogue", "performance_state"],
+      "properties": {
+        "layout": { "const": "dialogue_then_performance_state" },
+        "dialogue": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checkpoint", "turns"],
+          "properties": {
+            "checkpoint": { "anyOf": [{ "$ref": "#/$defs/checkpoint" }, { "type": "null" }] },
+            "turns": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/languageTurn" }
+            }
+          }
+        },
+        "performance_state": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state_window"],
+          "properties": {
+            "state_window": { "$ref": "#/$defs/stateWindow" }
+          }
+        }
+      }
+    },
+    "capability": {
+      "anyOf": [
+        { "type": "string", "pattern": "^[A-Za-z0-9.-]+:[a-z0-9_]+/[A-Za-z0-9._-]+$" },
+        { "type": "null" }
+      ]
+    },
+    "persistence": {
+      "enum": ["until_replaced", "conversation_lifetime", "until_action_complete", "ambient_decay"]
+    },
+    "affect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "secondary", "intensity", "valence", "arousal"],
+      "properties": {
+        "primary": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "secondary": { "type": ["string", "null"], "maxLength": 160 },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "valence": { "type": "number", "minimum": -1, "maximum": 1 },
+        "arousal": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "faceState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["region", "side", "state", "intensity", "persistence"],
+      "properties": {
+        "region": { "enum": ["brow", "eyelid", "eye_shape", "pupil", "cheek", "nose", "lip", "jaw"] },
+        "side": { "enum": ["left", "right", "both", "center"] },
+        "state": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "persistence": { "$ref": "#/$defs/persistence" }
+      }
+    },
+    "bodyState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "capability", "direction", "intensity", "amplitude", "tension", "contact", "persistence"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "capability": { "$ref": "#/$defs/capability" },
+        "direction": { "type": ["string", "null"], "maxLength": 160 },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "amplitude": { "enum": ["micro", "small", "medium", "large"] },
+        "tension": { "type": "number", "minimum": 0, "maximum": 1 },
+        "contact": { "type": ["string", "null"], "maxLength": 160 },
+        "persistence": { "$ref": "#/$defs/persistence" }
+      }
+    },
+    "stateChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changed", "from", "to"],
+      "properties": {
+        "changed": { "type": "boolean" },
+        "from": {},
+        "to": {}
+      }
+    },
+    "persistentState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision", "performance_intent", "attention", "face", "gaze",
+        "head_neck", "shoulders", "torso", "left_arm", "right_arm",
+        "left_hand", "right_hand", "left_leg", "right_leg", "posture",
+        "locomotion", "action", "voice_delivery", "activity",
+        "performance_state", "decay", "source_turn_id", "source_response_id",
+        "source_sequence_id", "updated_at"
+      ],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 0 },
+        "performance_intent": {
+          "type": "object",
+          "required": ["affect", "source", "channel_modulation", "persistence", "interruptibility"],
+          "properties": {
+            "affect": { "$ref": "#/$defs/affect" },
+            "source": { "enum": ["runtime_default", "local_reaction", "main_agent", "high_priority_event"] },
+            "channel_modulation": { "type": "object" },
+            "persistence": { "$ref": "#/$defs/persistence" },
+            "interruptibility": { "enum": ["immediate", "blend_out", "at_boundary", "finish"] }
+          },
+          "additionalProperties": false
+        },
+        "attention": { "type": "object" },
+        "face": { "type": "array", "minItems": 8, "maxItems": 16, "items": { "$ref": "#/$defs/faceState" } },
+        "gaze": { "type": "object" },
+        "head_neck": { "$ref": "#/$defs/bodyState" },
+        "shoulders": { "$ref": "#/$defs/bodyState" },
+        "torso": { "$ref": "#/$defs/bodyState" },
+        "left_arm": { "$ref": "#/$defs/bodyState" },
+        "right_arm": { "$ref": "#/$defs/bodyState" },
+        "left_hand": { "$ref": "#/$defs/bodyState" },
+        "right_hand": { "$ref": "#/$defs/bodyState" },
+        "left_leg": { "$ref": "#/$defs/bodyState" },
+        "right_leg": { "$ref": "#/$defs/bodyState" },
+        "posture": { "type": "object" },
+        "locomotion": { "type": "object" },
+        "action": { "type": "object" },
+        "voice_delivery": { "type": "object" },
+        "activity": { "type": "object" },
+        "performance_state": { "type": "string", "minLength": 1 },
+        "decay": { "type": "object" },
+        "source_turn_id": { "type": ["string", "null"] },
+        "source_response_id": { "type": ["string", "null"] },
+        "source_sequence_id": { "type": ["string", "null"] },
+        "updated_at": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "stateTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from_revision", "to_revision", "style", "duration_ms", "changes", "source_turn_id", "source_response_id", "source_sequence_id", "created_at"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from_revision": { "type": "integer", "minimum": 0 },
+        "to_revision": { "type": "integer", "minimum": 1 },
+        "style": { "enum": ["cut", "linear", "ease_in", "ease_out", "ease_in_out", "blend"] },
+        "duration_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "changes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "performance_intent", "attention", "face", "gaze", "head_neck",
+            "shoulders", "torso", "left_arm", "right_arm", "left_hand",
+            "right_hand", "left_leg", "right_leg", "posture", "locomotion",
+            "action", "voice_delivery", "activity", "performance_state", "decay"
+          ],
+          "properties": {
+            "performance_intent": { "$ref": "#/$defs/stateChange" },
+            "attention": { "$ref": "#/$defs/stateChange" },
+            "face": { "$ref": "#/$defs/stateChange" },
+            "gaze": { "$ref": "#/$defs/stateChange" },
+            "head_neck": { "$ref": "#/$defs/stateChange" },
+            "shoulders": { "$ref": "#/$defs/stateChange" },
+            "torso": { "$ref": "#/$defs/stateChange" },
+            "left_arm": { "$ref": "#/$defs/stateChange" },
+            "right_arm": { "$ref": "#/$defs/stateChange" },
+            "left_hand": { "$ref": "#/$defs/stateChange" },
+            "right_hand": { "$ref": "#/$defs/stateChange" },
+            "left_leg": { "$ref": "#/$defs/stateChange" },
+            "right_leg": { "$ref": "#/$defs/stateChange" },
+            "posture": { "$ref": "#/$defs/stateChange" },
+            "locomotion": { "$ref": "#/$defs/stateChange" },
+            "action": { "$ref": "#/$defs/stateChange" },
+            "voice_delivery": { "$ref": "#/$defs/stateChange" },
+            "activity": { "$ref": "#/$defs/stateChange" },
+            "performance_state": { "$ref": "#/$defs/stateChange" },
+            "decay": { "$ref": "#/$defs/stateChange" }
+          }
+        },
+        "source_turn_id": { "type": ["string", "null"] },
+        "source_response_id": { "type": ["string", "null"] },
+        "source_sequence_id": { "type": ["string", "null"] },
+        "created_at": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "stateWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["previous_state", "transition", "current_state"],
+      "properties": {
+        "previous_state": { "$ref": "#/$defs/persistentState" },
+        "transition": { "anyOf": [{ "$ref": "#/$defs/stateTransition" }, { "type": "null" }] },
+        "current_state": { "$ref": "#/$defs/persistentState" }
+      }
+    },
+    "languageTurn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_id", "ordinal", "user", "assistant"],
+      "properties": {
+        "turn_id": { "type": "string", "minLength": 1 },
+        "ordinal": { "type": "integer", "minimum": 1 },
+        "response_id": { "type": ["string", "null"] },
+        "user": { "type": "string" },
+        "assistant": { "type": "string" }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "covered_from_ordinal", "covered_to_ordinal", "content", "compression_version"],
+      "properties": {
+        "id": { "type": "string" },
+        "previous_checkpoint_id": { "type": ["string", "null"] },
+        "covered_from_ordinal": { "type": "integer", "minimum": 1 },
+        "covered_to_ordinal": { "type": "integer", "minimum": 1 },
+        "content": { "type": "object" },
+        "compression_version": { "const": "athena.3d-session-memory.compaction.v1" }
+      }
+    }
+  }
+}

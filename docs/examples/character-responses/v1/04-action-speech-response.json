@@ -1,0 +1,66 @@
+{
+  "id": "chr_resp_action_speech",
+  "object": "character.response",
+  "protocol_version": "1.0",
+  "status": "completed",
+  "created_at": 1786406430000,
+  "completed_at": 1786406431800,
+  "character": {
+    "character_id": "athena.default",
+    "instance_id": "char_inst_01",
+    "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  },
+  "conversation": { "id": "ath_conv_01", "previous_response_id": null },
+  "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+  "output": [
+    {
+      "id": "perf_action",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 2600 },
+      "interruptibility": "blend_out",
+      "affect": { "primary": "athena.core:emotion/neutral", "secondary": null, "intensity": 0.2, "valence": 0.1, "arousal": 0.25 },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 220 },
+      "persistence": "response_lifetime",
+      "revision": 1
+    },
+    {
+      "id": "action_sit",
+      "type": "action",
+      "status": "completed",
+      "intent_id": "perf_action",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1200 },
+      "interruptibility": "at_boundary",
+      "action": "athena.core:action/sit",
+      "target": { "type": "entity", "entity_id": "world.sofa.01", "kind": "object" },
+      "arguments": { "seat": "left" }
+    },
+    {
+      "id": "speech_action",
+      "type": "speech",
+      "status": "completed",
+      "intent_id": "perf_action",
+      "required": true,
+      "timing": { "start": "with_item", "after_item_id": "action_sit", "offset_ms": 300, "duration_hint_ms": 1500 },
+      "interruptibility": "immediate",
+      "text": "好，我坐这里。",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/neutral",
+        "emotion_source": "performance_intent",
+        "intensity": 0.2,
+        "rate": 0.95,
+        "volume": 0.8,
+        "style": "athena.core:voice_style/calm",
+        "pause_before_ms": 160,
+        "pause_after_ms": 60
+      }
+    }
+  ],
+  "warnings": [],
+  "usage": { "input_tokens": 16, "output_tokens": 38, "total_tokens": 54, "latency_ms": 1800 },
+  "error": null
+}

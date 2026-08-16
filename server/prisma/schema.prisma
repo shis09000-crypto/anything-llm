@@ -361,6 +361,119 @@ model operations_action_approvals {
   @@index([approverUserId, createdAt])
 }
 
+model module_instances {
+  id                  String    @id
+  moduleId            String
+  runtimeRole         String
+  version             String
+  manifestFingerprint String
+  state               String    @default("registered")
+  sequence            Int       @default(0)
+  heartbeatAt         DateTime?
+  leaseExpiresAt      DateTime?
+  lastReasonCode      String?
+  metadataJson        String    @default("{}")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([moduleId, state])
+  @@index([leaseExpiresAt])
+  @@index([runtimeRole, state])
+}
+
+model module_lifecycle_events {
+  id           String   @id
+  moduleId     String
+  instanceId   String
+  sequence     Int
+  fromState    String
+  toState      String
+  reasonCode   String
+  metadataJson String   @default("{}")
+  occurredAt   DateTime
+  createdAt    DateTime @default(now())
+
+  @@unique([instanceId, sequence])
+  @@index([moduleId, occurredAt])
+  @@index([instanceId, occurredAt])
+}
+
+model coordination_runs {
+  id                  String               @id
+  idempotencyKey      String?              @unique
+  center              String
+  type                String
+  status              String               @default("proposed")
+  priority            String               @default("P2")
+  correlationId       String
+  causationId         String?
+  ownerUserId         Int?
+  ownerAuthUserId     String?
+  resourceType        String?
+  resourceId          String?
+  escalationLevel     Int                  @default(0)
+  lowerLevelExhausted Boolean              @default(false)
+  evidenceJson        String               @default("[]")
+  policyJson          String               @default("{}")
+  deadlineAt          DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  steps               coordination_steps[]
+
+  @@index([center, status, createdAt])
+  @@index([correlationId])
+  @@index([ownerUserId, status])
+  @@index([deadlineAt, status])
+}
+
+model coordination_steps {
+  id             String            @id
+  runId          String
+  moduleId       String
+  capability     String
+  status         String            @default("pending")
+  dependsOnJson  String            @default("[]")
+  attempt        Int               @default(0)
+  maxAttempts    Int               @default(1)
+  checkpointJson String            @default("{}")
+  resultHash     String?
+  errorCode      String?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  run            coordination_runs @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, moduleId, capability])
+  @@index([runId, status])
+  @@index([moduleId, status])
+}
+
+model optimistic_mutation_receipts {
+  id                String    @id
+  mutationId        String    @unique
+  coordinationRunId String?
+  ownerUserId       Int?
+  ownerAuthUserId   String?
+  resourceType      String
+  resourceId        String
+  status            String    @default("pending")
+  revision          Int       @default(0)
+  patchHash         String
+  authoritativeHash String?
+  reasonCode        String?
+  expiresAt         DateTime
+  confirmedAt       DateTime?
+  rolledBackAt      DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([ownerUserId, status, createdAt])
+  @@index([resourceType, resourceId, status])
+  @@index([expiresAt, status])
+}
+
 model users {
   id                             Int                              @id @default(autoincrement())
   authUserId                     Int?                             @unique
@@ -462,6 +575,25 @@ model auth_sessions {
   @@index([clientId, revokedAt])
   @@index([idleExpiresAt])
   @@index([absoluteExpiresAt])
+}
+
+model auth_device_recovery_challenges {
+  id                 String    @id
+  challengeHash      String    @unique
+  recoveryTicketHash String?   @unique
+  clientId           String
+  authUserId         Int?
+  shadowUserId       Int?
+  status             String    @default("issued")
+  failureCount       Int       @default(0)
+  expiresAt          DateTime
+  consumedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([clientId, status, expiresAt])
+  @@index([authUserId, status])
+  @@index([expiresAt])
 }
 
 model auth_realtime_tickets {
@@ -2024,6 +2156,642 @@ model agent_run_events {
   @@index([runId, createdAt])
 }
 
+model responses_conversations {
+  id                    String    @id
+  scopeKey              String    @unique
+  workspaceId           Int?
+  threadId              Int?
+  agentRunId            String?
+  ownerUserId           Int?
+  currentHeadResponseId String?
+  status                String    @default("active")
+  conversationType      String    @default("responses")
+  characterId           String?
+  characterInstanceId   String?
+  currentTurnId         String?
+  stateRevision         Int       @default(0)
+  stateJson             String?
+  stateHash             String?
+  previousActivity      String?
+  softCloseDueAt        DateTime?
+  suspensionReason      String?
+  suspendedAt           DateTime?
+  endedAt               DateTime?
+  createdAt             DateTime  @default(now())
+  lastUpdatedAt         DateTime  @updatedAt
+  deletedAt             DateTime?
+
+  @@index([workspaceId, threadId])
+  @@index([agentRunId])
+  @@index([status, lastUpdatedAt])
+  @@index([conversationType, status, softCloseDueAt])
+}
+
+model responses {
+  id                 String    @id
+  conversationId     String?
+  previousResponseId String?
+  chatRunId          String?
+  agentRunId         String?
+  ownerUserId        Int?
+  idempotencyKey     String?   @unique
+  taskPriority       String    @default("P2")
+  taskIntent         String?
+  provider           String
+  model              String
+  requestedProtocol  String    @default("responses")
+  effectiveProtocol  String?
+  degradedReason     String?
+  status             String    @default("queued")
+  background         Boolean   @default(false)
+  store              Boolean   @default(true)
+  storageMode        String    @default("encrypted")
+  inputHash          String
+  branchReason       String?
+  usageJson          String?
+  resultSha256       String?
+  errorCode          String?
+  leaseOwner         String?
+  leaseExpiresAt     DateTime?
+  cancelRequestedAt  DateTime?
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+  expiresAt          DateTime?
+  contentPrunedAt    DateTime?
+  lastUpdatedAt      DateTime  @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([previousResponseId])
+  @@index([chatRunId])
+  @@index([agentRunId])
+  @@index([status, background, leaseExpiresAt])
+  @@index([expiresAt])
+  @@index([contentPrunedAt])
+}
+
+model response_items {
+  id                String   @id
+  responseId        String
+  sequence          Int
+  itemType          String
+  role              String?
+  callId            String?
+  status            String?
+  payloadCiphertext String
+  payloadHash       String
+  createdAt         DateTime @default(now())
+
+  @@unique([responseId, sequence])
+  @@index([responseId, createdAt])
+  @@index([callId])
+}
+
+model response_events {
+  id                Int      @id @default(autoincrement())
+  responseId        String
+  sequence          Int
+  eventType         String
+  payloadCiphertext String
+  payloadHash       String
+  createdAt         DateTime @default(now())
+
+  @@unique([responseId, sequence])
+  @@index([responseId, createdAt])
+}
+
+model response_checkpoints {
+  id              Int      @id @default(autoincrement())
+  responseId      String   @unique
+  stateCiphertext String
+  stateHash       String
+  createdAt       DateTime @default(now())
+  lastUpdatedAt   DateTime @updatedAt
+}
+
+model response_compactions {
+  id                String   @id
+  conversationId    String
+  throughResponseId String
+  sourceCapsuleId   String?
+  payloadCiphertext String
+  payloadHash       String
+  createdAt         DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([throughResponseId])
+}
+
+model character_conversation_turns {
+  id                      String    @id
+  conversationId          String
+  ordinal                 Int
+  previousTurnId          String?
+  responseId              String?
+  idempotencyKey          String?   @unique
+  status                  String    @default("created")
+  expectedStateRevision   Int       @default(0)
+  expectedMemoryRevision  Int       @default(0)
+  memoryStatus            String    @default("preparing")
+  memoryCommitAttempts    Int       @default(0)
+  memoryErrorCode         String?
+  memoryCommittedAt       DateTime?
+  inputJson               String
+  inputHash               String
+  controlJson             String?
+  controlHash             String?
+  modelWaitMs             Int?
+  effectiveWaitMs         Int?
+  timingSource            String?
+  endReason               String?
+  previousContextJson     String?
+  contextJson             String?
+  contextMode             String?
+  gatewaySlotHit          Boolean?
+  contextRebuildReason    String?
+  providerCacheHitTokens  Int?
+  providerCacheMissTokens Int?
+  providerCacheHitRate    Float?
+  createdAt               DateTime  @default(now())
+  completedAt             DateTime?
+  lastUpdatedAt           DateTime  @updatedAt
+
+  @@unique([conversationId, ordinal])
+  @@index([conversationId, createdAt])
+  @@index([responseId])
+  @@index([status, lastUpdatedAt])
+}
+
+model character_conversation_events {
+  id             Int      @id @default(autoincrement())
+  conversationId String
+  sequence       Int
+  eventType      String
+  turnId         String?
+  responseId     String?
+  payloadJson    String
+  payloadHash    String
+  createdAt      DateTime @default(now())
+
+  @@unique([conversationId, sequence])
+  @@index([conversationId, createdAt])
+  @@index([turnId])
+  @@index([responseId])
+}
+
+model athena_3d_session_memories {
+  conversationId           String   @id
+  workspaceId              Int?
+  threadId                 Int?
+  ownerUserId              Int?
+  agentRunId               String?
+  characterId              String
+  characterInstanceId      String?
+  status                   String   @default("active")
+  activeCheckpointId       String?
+  lastCommittedTurnOrdinal Int      @default(0)
+  memoryRevision           Int      @default(0)
+  stateRevision            Int      @default(0)
+  checkpointRevision       Int      @default(0)
+  contextCursorId          String
+  contextUpdatedAt         DateTime @default(now())
+  uncompactedTokens        Int      @default(0)
+  uncompactedTurns         Int      @default(0)
+  projectedContextTokens   Int      @default(0)
+  memoryMode               String   @default("ephemeral")
+  longTermProfileId        String?
+  longTermProfileRevision  Int      @default(0)
+  longTermContextJson      String?
+  createdAt                DateTime @default(now())
+  lastUpdatedAt            DateTime @updatedAt
+
+  @@index([workspaceId, threadId, status])
+  @@index([contextCursorId])
+  @@index([ownerUserId, status])
+  @@index([status, lastUpdatedAt])
+}
+
+model athena_3d_character_memory_profiles {
+  id                   String   @id
+  ownerUserId          Int
+  characterId          String
+  characterInstanceId  String
+  revision             Int      @default(0)
+  schemaVersion        Int      @default(2)
+  coreId               String?
+  coreVersion          String?
+  coreSha256           String?
+  coreSnapshotJson     String?
+  adaptiveSelfJson     String?
+  relationshipV2Json   String?
+  userModelSummaryJson String?
+  reflectionVersion    String   @default("2.0")
+  policyVersion        String   @default("2.0")
+  relationshipJson     String
+  emotionJson          String
+  latestSessionId      String?
+  createdAt            DateTime @default(now())
+  lastUpdatedAt        DateTime @updatedAt
+
+  @@unique([ownerUserId, characterId, characterInstanceId])
+  @@index([ownerUserId, lastUpdatedAt])
+}
+
+model athena_3d_character_memory_sessions {
+  id                      String    @id
+  conversationId          String    @unique
+  profileId               String
+  workspaceId             Int?
+  threadId                Int?
+  ownerUserId             Int
+  characterId             String
+  characterInstanceId     String
+  status                  String    @default("archived")
+  finalizationEpoch       Int       @default(0)
+  archivedThroughOrdinal  Int       @default(0)
+  finalizedThroughOrdinal Int       @default(0)
+  summaryJson             String?
+  reflectionJson          String?
+  formationStatus         String    @default("pending")
+  legacyReflectionPending Boolean   @default(false)
+  finalStateSnapshotJson  String
+  finalStateHash          String
+  sourceStateRevision     Int       @default(0)
+  sourceTurnId            String?
+  sourceResponseId        String?
+  sourceContextRefJson    String?
+  prefixSha256            String?
+  cacheMode               String?
+  providerCacheHitTokens  Int?
+  providerCacheMissTokens Int?
+  providerCacheHitRate    Float?
+  finalizedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  lastUpdatedAt           DateTime  @updatedAt
+
+  @@index([profileId, createdAt])
+  @@index([ownerUserId, characterInstanceId, createdAt])
+  @@index([status, lastUpdatedAt])
+}
+
+model athena_3d_character_memory_turns {
+  id              String   @id
+  memorySessionId String
+  conversationId  String
+  ordinal         Int
+  sourceTurnId    String
+  responseId      String?
+  userJson        String
+  assistantJson   String
+  languageHash    String
+  createdAt       DateTime @default(now())
+
+  @@unique([conversationId, ordinal])
+  @@index([memorySessionId, ordinal])
+  @@index([responseId])
+}
+
+model athena_3d_character_memory_revisions {
+  id                       String   @id
+  profileId                String
+  memorySessionId          String
+  finalizationEpoch        Int
+  fromRevision             Int
+  toRevision               Int
+  relationshipBeforeJson   String
+  relationshipDeltaJson    String
+  relationshipAfterJson    String
+  relationshipV2BeforeJson String?
+  relationshipV2DeltaJson  String?
+  relationshipV2AfterJson  String?
+  adaptiveBeforeJson       String?
+  adaptiveDeltaJson        String?
+  adaptiveAfterJson        String?
+  narrative                String
+  confidence               Float
+  createdAt                DateTime @default(now())
+
+  @@unique([memorySessionId, finalizationEpoch])
+  @@index([profileId, toRevision])
+}
+
+model athena_3d_character_memory_jobs {
+  id                      String    @id
+  memorySessionId         String
+  finalizationEpoch       Int
+  status                  String    @default("queued")
+  schemaVersion           Int       @default(2)
+  taskKind                String    @default("reflection")
+  sourceHash              String
+  expectedProfileRevision Int
+  contextRefJson          String?
+  cacheMode               String?
+  prefixSha256            String?
+  provider                String?
+  model                   String?
+  providerCacheHitTokens  Int?
+  providerCacheMissTokens Int?
+  providerCacheHitRate    Float?
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  attempts                Int       @default(0)
+  errorCode               String?
+  createdAt               DateTime  @default(now())
+  lastUpdatedAt           DateTime  @updatedAt
+  completedAt             DateTime?
+
+  @@unique([memorySessionId, finalizationEpoch])
+  @@index([status, leaseExpiresAt])
+}
+
+model athena_3d_character_memory_candidates {
+  id                  String   @id
+  profileId           String
+  memorySessionId     String
+  finalizationEpoch   Int
+  candidateKey        String
+  type                String
+  firstPersonMemory   String
+  eventSummary        String
+  valuesJson          String
+  confidence          Float
+  tagsJson            String
+  proposedPersistence String
+  decision            String   @default("pending")
+  decisionReason      String?
+  createdAt           DateTime @default(now())
+  lastUpdatedAt       DateTime @updatedAt
+
+  @@unique([memorySessionId, finalizationEpoch, candidateKey])
+  @@index([profileId, decision, createdAt])
+}
+
+model athena_3d_character_user_model_entries {
+  id                        String    @id
+  profileId                 String
+  observation               String
+  firstPersonInterpretation String
+  confidence                Float
+  status                    String    @default("active")
+  occurrenceCount           Int       @default(1)
+  sourceSessionCount        Int       @default(1)
+  fingerprint               String
+  indexStatus               String    @default("pending")
+  indexAttempts             Int       @default(0)
+  indexLeaseOwner           String?
+  indexLeaseExpiresAt       DateTime?
+  embeddingModel            String?
+  embeddingVersion          String?
+  indexedAt                 DateTime?
+  indexError                String?
+  createdAt                 DateTime  @default(now())
+  lastUpdatedAt             DateTime  @updatedAt
+
+  @@unique([profileId, fingerprint])
+  @@index([profileId, status, lastUpdatedAt])
+  @@index([indexStatus, indexLeaseExpiresAt])
+}
+
+model athena_3d_character_memories {
+  id                  String    @id
+  profileId           String
+  type                String
+  firstPersonMemory   String
+  eventSummary        String
+  importance          Float
+  relationshipValue   Float
+  emotionalValue      Float
+  futureRelevance     Float
+  characterImpact     Float
+  confidence          Float
+  persistence         String
+  tagsJson            String
+  fingerprint         String
+  status              String    @default("active")
+  indexStatus         String    @default("pending")
+  indexAttempts       Int       @default(0)
+  indexLeaseOwner     String?
+  indexLeaseExpiresAt DateTime?
+  embeddingModel      String?
+  embeddingVersion    String?
+  indexedAt           DateTime?
+  indexError          String?
+  createdAt           DateTime  @default(now())
+  lastUpdatedAt       DateTime  @updatedAt
+
+  @@unique([profileId, fingerprint])
+  @@index([profileId, type, status, createdAt])
+  @@index([indexStatus, indexLeaseExpiresAt])
+}
+
+model athena_3d_character_memory_evidence {
+  id                String   @id
+  profileId         String
+  subjectType       String
+  subjectId         String
+  memorySessionId   String
+  conversationId    String
+  sourceTurnId      String
+  sourceTurnOrdinal Int
+  sourceResponseId  String?
+  evidenceHash      String
+  createdAt         DateTime @default(now())
+
+  @@unique([subjectType, subjectId, memorySessionId, sourceTurnOrdinal])
+  @@index([profileId, subjectType, subjectId])
+  @@index([memorySessionId, sourceTurnOrdinal])
+}
+
+model athena_3d_character_growth_nodes {
+  id                  String    @id
+  profileId           String
+  type                String
+  firstPersonSummary  String
+  changesJson         String
+  confidence          Float
+  fingerprint         String
+  status              String    @default("active")
+  indexStatus         String    @default("pending")
+  indexAttempts       Int       @default(0)
+  indexLeaseOwner     String?
+  indexLeaseExpiresAt DateTime?
+  embeddingModel      String?
+  embeddingVersion    String?
+  indexedAt           DateTime?
+  indexError          String?
+  createdAt           DateTime  @default(now())
+  lastUpdatedAt       DateTime  @updatedAt
+
+  @@unique([profileId, fingerprint])
+  @@index([profileId, status, createdAt])
+  @@index([indexStatus, indexLeaseExpiresAt])
+}
+
+model athena_3d_character_emotional_milestones {
+  id                  String    @id
+  profileId           String
+  type                String
+  firstPersonMemory   String
+  confidence          Float
+  fingerprint         String
+  status              String    @default("active")
+  indexStatus         String    @default("pending")
+  indexAttempts       Int       @default(0)
+  indexLeaseOwner     String?
+  indexLeaseExpiresAt DateTime?
+  embeddingModel      String?
+  embeddingVersion    String?
+  indexedAt           DateTime?
+  indexError          String?
+  createdAt           DateTime  @default(now())
+  lastUpdatedAt       DateTime  @updatedAt
+
+  @@unique([profileId, fingerprint])
+  @@index([profileId, status, createdAt])
+  @@index([indexStatus, indexLeaseExpiresAt])
+}
+
+model athena_3d_session_memory_turns {
+  id                      String   @id
+  conversationId          String
+  ordinal                 Int
+  responseId              String?
+  userJson                String
+  assistantJson           String
+  languageHash            String
+  tokenCount              Int      @default(0)
+  previousContextCursorId String?
+  contextCursorId         String?
+  createdAt               DateTime @default(now())
+
+  @@unique([conversationId, ordinal])
+  @@index([conversationId, createdAt])
+  @@index([responseId])
+}
+
+model athena_3d_session_memory_checkpoints {
+  id                   String    @id
+  rangeKey             String    @unique
+  conversationId       String
+  previousCheckpointId String?
+  coveredFromOrdinal   Int
+  coveredToOrdinal     Int
+  summaryJson          String?
+  sourceHash           String
+  summaryHash          String?
+  provider             String?
+  model                String?
+  compressionVersion   String
+  tokenBefore          Int       @default(0)
+  tokenAfter           Int       @default(0)
+  status               String    @default("queued")
+  leaseOwner           String?
+  leaseExpiresAt       DateTime?
+  attempts             Int       @default(0)
+  errorCode            String?
+  createdAt            DateTime  @default(now())
+  lastUpdatedAt        DateTime  @updatedAt
+  completedAt          DateTime?
+
+  @@index([conversationId, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([previousCheckpointId])
+}
+
+model athena_3d_character_state_windows {
+  conversationId    String   @id
+  stateRevision     Int      @default(0)
+  previousStateJson String
+  transitionJson    String?
+  currentStateJson  String
+  windowHash        String
+  tokenCount        Int      @default(0)
+  sourceTurnId      String?
+  sourceResponseId  String?
+  sourceSequenceId  String?
+  createdAt         DateTime @default(now())
+  lastUpdatedAt     DateTime @updatedAt
+
+  @@index([stateRevision, lastUpdatedAt])
+  @@index([sourceTurnId])
+}
+
+model character_performance_sessions {
+  id                  String    @id
+  workspaceId         Int
+  threadId            Int?
+  ownerUserId         Int?
+  conversationId      String?
+  characterId         String
+  characterInstanceId String
+  status              String    @default("active")
+  adapter             String
+  runtimeVersion      String
+  packId              String
+  packVersion         String
+  packSha256          String
+  clientJson          String
+  clientHash          String
+  lastSequence        Int       @default(-1)
+  createdAt           DateTime  @default(now())
+  lastUpdatedAt       DateTime  @updatedAt
+  cancelledAt         DateTime?
+
+  @@index([workspaceId, threadId, status])
+  @@index([ownerUserId, status])
+  @@index([conversationId])
+}
+
+model character_performance_plans {
+  id           String    @id
+  sessionId    String
+  responseId   String
+  sequenceId   String
+  status       String    @default("ready")
+  planJson     String
+  planHash     String
+  commandCount Int
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  @@unique([sessionId, responseId])
+  @@index([sessionId, createdAt])
+  @@index([status, createdAt])
+}
+
+model character_performance_events {
+  id          Int      @id @default(autoincrement())
+  sessionId   String
+  sequence    Int
+  eventType   String
+  planId      String?
+  commandId   String?
+  payloadJson String
+  payloadHash String
+  createdAt   DateTime @default(now())
+
+  @@unique([sessionId, sequence])
+  @@index([sessionId, createdAt])
+  @@index([planId])
+  @@index([commandId])
+}
+
+model character_performance_feedback {
+  id               String   @id
+  sessionId        String
+  planId           String
+  commandId        String
+  status           String
+  actualStartMs    Int?
+  actualDurationMs Int?
+  errorCode        String?
+  payloadJson      String
+  payloadHash      String
+  createdAt        DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+  @@index([planId, commandId, createdAt])
+}
+
 model tool_invocations {
   id                  String    @id @default(uuid())
   approvalRequestId   String    @unique
@@ -2055,6 +2823,11 @@ model browser_profiles {
   profileId           String
   ownerUserId         Int
   executionLocation   String    @default("cloud")
+  networkRoute        String    @default("system")
+  preferredDriver     String    @default("embedded")
+  egressGrantId       String?
+  routePolicyVersion  String    @default("browser-egress-route-v1")
+  lastRouteHealth     String?
   status              String    @default("ready")
   archiveRef          String?
   archiveManifestJson String?
@@ -2071,6 +2844,32 @@ model browser_profiles {
   @@index([ownerUserId, status])
   @@index([leaseExpiresAt])
   @@index([lastUsedAt])
+}
+
+model browser_egress_grants {
+  id               String    @id @default(uuid())
+  ownerUserId      Int
+  profileId        String
+  deviceId         String
+  state            String    @default("pending")
+  region           String    @default("overseas")
+  gatewayId        String?
+  credentialRef    String?
+  configVersion    String?
+  quotaConnections Int       @default(8)
+  quotaBytes       BigInt?
+  issuedAt         DateTime?
+  expiresAt        DateTime?
+  revokedAt        DateTime?
+  lastHandshakeAt  DateTime?
+  lastHealthCode   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([ownerUserId, profileId, deviceId])
+  @@index([ownerUserId, state])
+  @@index([deviceId, state])
+  @@index([expiresAt])
 }
 
 model browser_sessions {

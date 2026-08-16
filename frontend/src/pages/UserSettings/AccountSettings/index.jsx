@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import useUser from "@/hooks/useUser";
 import { userFromStorage } from "@/utils/request";
 import paths from "@/utils/paths";
@@ -16,7 +17,7 @@ import DataPrivacyCard from "./DataPrivacyCard";
 import AdminPanel from "./AdminPanel";
 import AccountSettingsApi from "./accountSettingsApi";
 import { AccountSettingsDataProvider } from "./AccountSettingsDataProvider";
-import { detectAuthCapability } from "@/utils/authCapability";
+import { detectAuthCapabilityAsync } from "@/utils/authCapability";
 import { canSeeAdmin } from "@/utils/authz";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import { confirmSignOut } from "@/utils/authSignOutConfirm";
@@ -24,6 +25,7 @@ import "./styles.css";
 
 export default function AccountSettings() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user: contextUser } = useUser();
   const mainRef = useRef(null);
   const [localUser, setLocalUser] = useState(
@@ -34,9 +36,10 @@ export default function AccountSettings() {
     hash: currentHash(),
     nonce: 0,
   }));
-  const [authCapability, setAuthCapability] = useState(() =>
-    detectAuthCapability()
-  );
+  const [authCapability, setAuthCapability] = useState({
+    status: "checking",
+    showPasskey: false,
+  });
   const [passkeys, setPasskeys] = useState([]);
   const [passkeysLoading, setPasskeysLoading] = useState(false);
   const passkeysRef = useRef([]);
@@ -72,7 +75,7 @@ export default function AccountSettings() {
   );
 
   const refreshPasskeys = useCallback(async () => {
-    const capability = detectAuthCapability();
+    const capability = await detectAuthCapabilityAsync();
     setAuthCapability(capability);
     if (!capability.showPasskey) {
       passkeysRef.current = [];
@@ -236,7 +239,7 @@ export default function AccountSettings() {
   }
 
   function returnHome() {
-    window.location.assign(paths.home());
+    navigate(paths.home(), { replace: true });
   }
 
   return (

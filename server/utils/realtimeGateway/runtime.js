@@ -8,13 +8,66 @@ const {
   stopSyncV2OutboxDispatcher,
   syncV2OutboxSnapshot,
 } = require("../syncV2/outboxDispatcher");
+const {
+  probeIdentityCapabilities,
+} = require("../authz/identityOperationsClient");
+const { emitSemanticEvent } = require("../observability/semanticEvents");
 
 class RealtimeGatewayRuntime {
-  constructor({ now = () => new Date() } = {}) {
+  constructor({
+    now = () => new Date(),
+    identityProbe = probeIdentityCapabilities,
+  } = {}) {
     this.startedAt = now().toISOString();
     this.now = now;
     this.status = "created";
     this.lastError = null;
+    this.identityProbe = identityProbe;
+    this.identityCapabilities = { ready: false, capabilities: {} };
+    this.identityCapabilityObserved = false;
+    this.capabilityTimer = null;
+  }
+
+  async refreshIdentityCapabilities() {
+    const previousReady = this.identityCapabilities.ready === true;
+    let next;
+    try {
+      next = await this.identityProbe();
+    } catch {
+      next = { ready: false, capabilities: {} };
+    }
+    this.identityCapabilities = next;
+    if (!next.ready) {
+      this.status = "degraded";
+      this.lastError = "identity_capability_unavailable";
+    } else if (["degraded", "not-ready"].includes(this.status)) {
+      this.status = "running";
+      this.lastError = null;
+    }
+    if (!this.identityCapabilityObserved || previousReady !== next.ready) {
+      emitSemanticEvent({
+        eventType: next.ready
+          ? "runtime.database_capability.recovered"
+          : "runtime.database_capability.missing",
+        category: "runtime",
+        severity: next.ready ? "info" : "error",
+        outcome: next.ready ? "recovered" : "degraded",
+        subject: {
+          type: "component",
+          component: "realtime-gateway",
+          operation: "identity-capability-matrix",
+        },
+        metadata: {
+          missingCapabilities: Object.entries(next.capabilities || {})
+            .filter(([, value]) => value !== "ready")
+            .map(([key]) => key)
+            .sort(),
+        },
+        sensitivity: "metadata_only",
+      });
+    }
+    this.identityCapabilityObserved = true;
+    return next;
   }
 
   async start() {
@@ -43,6 +96,12 @@ class RealtimeGatewayRuntime {
       await startSyncV2OutboxDispatcher();
       this.status = "running";
       this.lastError = null;
+      await this.refreshIdentityCapabilities();
+      this.capabilityTimer ||= setInterval(
+        () => void this.refreshIdentityCapabilities(),
+        15_000
+      );
+      this.capabilityTimer.unref?.();
     } catch (error) {
       this.status = "not-ready";
       this.lastError = error?.code || error?.message || String(error);
@@ -57,6 +116,8 @@ class RealtimeGatewayRuntime {
   }
 
   async stop() {
+    if (this.capabilityTimer) clearInterval(this.capabilityTimer);
+    this.capabilityTimer = null;
     await stopSyncV2OutboxDispatcher();
     await broadcastCenter.drainSharedTransport();
     this.status = "stopped";
@@ -75,6 +136,7 @@ class RealtimeGatewayRuntime {
       broadcast: broadcastCenter.snapshot(),
       syncOutbox: syncV2OutboxSnapshot(),
       lastError: this.lastError,
+      identityCapabilities: this.identityCapabilities,
       serviceIdentity: serviceIdentitySummary("realtime-gateway", {
         required: false,
       }),
@@ -87,7 +149,8 @@ class RealtimeGatewayRuntime {
         doesNotOwn: ["chat.sse", "agent.websocket", "crypto.websocket"],
       },
     };
-    const ready = this.status === "running";
+    const ready =
+      this.status === "running" && this.identityCapabilities.ready === true;
     return {
       ...moduleReadinessEnvelope("sync-v2", component, {
         source: "realtime-gateway-runtime",

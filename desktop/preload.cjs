@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld("athenaBrowserNode", {
   setZoom: (factor) => ipcRenderer.invoke("browser-node:set-zoom", factor),
   capture: () => ipcRenderer.invoke("browser-node:capture"),
   printToPdf: () => ipcRenderer.invoke("browser-node:print-to-pdf"),
+  installEgressConfig: (sealedConfig) =>
+    ipcRenderer.invoke("browser-node:install-egress-config", sealedConfig),
+  applyNetworkRoute: (networkRoute) =>
+    ipcRenderer.invoke("browser-node:apply-network-route", networkRoute),
+  openSystemChrome: (options) =>
+    ipcRenderer.invoke("browser-node:open-system-chrome", options),
   onState: (callback) => {
     if (typeof callback !== "function") return () => {};
     const listener = (_event, payload) => callback(payload);

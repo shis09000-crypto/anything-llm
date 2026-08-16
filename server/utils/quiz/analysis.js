@@ -1,7 +1,7 @@
 const { QUIZ_ANALYSIS_MODEL } = require("./constants");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { safeJsonParse } = require("../http");
-const { quizLLM, stripThinkBlocks } = require("./llm");
+const { quizLLM, quizRuntimeContext, stripThinkBlocks } = require("./llm");
 
 const ANALYSIS_OPEN_TAG = "<analysis_markdown>";
 const ANALYSIS_CLOSE_TAG = "</analysis_markdown>";
@@ -383,6 +383,8 @@ async function streamAnalyzeQuizResults({
   );
   const stream = await LLMConnector.streamGetChatCompletion(messages, {
     temperature: 0.2,
+    store: false,
+    runtimeContext: quizRuntimeContext(),
   });
   let fullText = "";
   const usage = { completion_tokens: 0 };
@@ -450,6 +452,51 @@ async function streamAnalyzeQuizResults({
   return {
     ...result,
     metrics: {},
+    model: QUIZ_ANALYSIS_MODEL,
+  };
+}
+
+async function analyzeQuizResults({ quiz, answers = {} }) {
+  const LLMConnector = quizLLM(QUIZ_ANALYSIS_MODEL, "quiz_analysis");
+  const parser = createTaggedAnalysisStreamParser();
+  const messages = await LLMConnector.compressMessages(
+    {
+      systemPrompt:
+        "You are a strict but helpful quiz grader. Follow the tagged output protocol exactly. Put the user-facing Chinese Markdown first and the structured JSON last.",
+      userPrompt: analysisPrompt({ quiz, answers }),
+      contextTexts: [],
+      chatHistory: [],
+      attachments: [],
+    },
+    []
+  );
+  const stream = await LLMConnector.streamGetChatCompletion(messages, {
+    temperature: 0.2,
+    store: false,
+    runtimeContext: quizRuntimeContext(),
+  });
+  let fullText = "";
+  const usage = { completion_tokens: 0 };
+  for await (const chunk of stream) {
+    const message = chunk?.choices?.[0];
+    const token = message?.delta?.content;
+    if (token) {
+      fullText += token;
+      usage.completion_tokens += 1;
+      parser.push(token);
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(message || {}, "finish_reason") &&
+      message.finish_reason !== "" &&
+      message.finish_reason !== null
+    ) {
+      break;
+    }
+  }
+  stream?.endMeasurement?.(usage);
+  return {
+    ...finalizeStreamResult({ parser, fullText, quiz, answers }),
+    metrics: stream?.metrics || {},
     model: QUIZ_ANALYSIS_MODEL,
   };
 }
@@ -613,6 +660,7 @@ function assertStructuredSourceRefs(results = [], quiz = {}) {
 }
 
 module.exports = {
+  analyzeQuizResults,
   streamAnalyzeQuizResults,
   createTaggedAnalysisStreamParser,
   parseStructuredResults,

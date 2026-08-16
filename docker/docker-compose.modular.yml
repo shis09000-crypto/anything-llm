@@ -46,12 +46,17 @@ services:
       ATHENA_BACKGROUND_INLINE: "false"
       ATHENA_OPERATIONS_PLANE_INLINE: "false"
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
+      ATHENA_CHARACTER_PERFORMANCE_RUNTIME_URL: https://anything-llm-character-performance-runtime:3042
+      ATHENA_CHARACTER_PERFORMANCE_RUNTIME_CUTOVER: "true"
+      ATHENA_3D_MEMORY_FAST_LANE_URL: http://anything-llm-chat-runtime:3116
       ATHENA_AUTHENTICATION_INLINE: "false"
       ATHENA_KNOWLEDGE_INGEST_INLINE: "false"
       ATHENA_RAG_INLINE: "false"
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
       ATHENA_BROWSER_PLANE_URL: https://anything-llm-browser-plane:3030
+      ATHENA_BROWSER_EGRESS_URL: https://anything-llm-browser-egress:3033
       ATHENA_BROWSER_AGENT_ENABLED: "false"
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
     networks:
@@ -192,6 +197,8 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: scheduler
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
       SCHEDULER_PORT: 3014
     networks:
       - anything-llm
@@ -221,7 +228,35 @@ services:
       ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
       ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","scheduler":"https://anything-llm-scheduler:3014"}
+        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","coordination-plane":"https://anything-llm-coordination-plane:3032"}
+    networks:
+      - anything-llm
+
+  anything-llm-coordination-plane:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: coordination-plane-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - coordination-plane
+    volumes:
+      - *runtime-env-volume
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "../server/storage:/app/server/storage"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: coordination-plane
+      ATHENA_COORDINATION_AUTHORITY_MODE: shadow
+      ATHENA_AICP_ENFORCEMENT_MODE: observe
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      COORDINATION_PLANE_PORT: 3032
     networks:
       - anything-llm
 
@@ -246,7 +281,17 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: chat-runtime
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_AGENT_RUNTIME_URL: https://anything-llm-agent-runtime:3017
+      ATHENA_API_INTERNAL_URL: https://anything-llm-api:3024
+      ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
       CHAT_RUNTIME_PORT: 3016
+      ATHENA_3D_FAST_LANE_ENABLED: "true"
+      ATHENA_3D_FAST_LANE_HOST: 0.0.0.0
+      ATHENA_3D_MEMORY_FAST_LANE_PORT: 3116
+      ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
     networks:
@@ -275,6 +320,8 @@ services:
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_BROWSER_AGENT_ENABLED: "false"
       AGENT_RUNTIME_PORT: 3017
+      ATHENA_RESPONSES_RUNTIME_CUTOVER: ${ATHENA_RESPONSES_RUNTIME_CUTOVER:-false}
+      ATHENA_RESPONSES_RUNTIME_URL: https://anything-llm-responses-runtime:3034
       ATHENA_RAG_CUTOVER: "true"
       ATHENA_RAG_URL: https://anything-llm-rag:3028
     networks:
@@ -301,7 +348,78 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: model-gateway
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_MODEL_GATEWAY_MAX_REQUEST_BYTES: ${ATHENA_MODEL_GATEWAY_MAX_REQUEST_BYTES:-8388608}
+      ATHENA_MODEL_GATEWAY_JSON_LIMIT: ${ATHENA_MODEL_GATEWAY_JSON_LIMIT:-10mb}
+      ATHENA_3D_CONTEXT_FAST_LANE_HOST: 0.0.0.0
+      ATHENA_3D_CONTEXT_FAST_LANE_PORT: 3118
+      ATHENA_3D_CONTEXT_FAST_LANE_JSON_LIMIT: ${ATHENA_3D_CONTEXT_FAST_LANE_JSON_LIMIT:-48mb}
       MODEL_GATEWAY_PORT: 3018
+    networks:
+      - anything-llm
+    mem_limit: 512m
+
+  anything-llm-responses-runtime:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: responses-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    depends_on:
+      anything-llm-chat-runtime:
+        condition: service_healthy
+      anything-llm-model-gateway:
+        condition: service_healthy
+      anything-llm-key-custody:
+        condition: service_healthy
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: responses-runtime
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_MODEL_GATEWAY_URL: https://anything-llm-model-gateway:3018
+      ATHENA_CHAT_RUNTIME_URL: https://anything-llm-chat-runtime:3016
+      ATHENA_3D_FAST_LANE_ENABLED: "true"
+      ATHENA_3D_MEMORY_FAST_LANE_URL: http://anything-llm-chat-runtime:3116
+      ATHENA_3D_CONTEXT_FAST_LANE_URL: http://anything-llm-model-gateway:3118
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      ATHENA_CHARACTER_PERFORMANCE_RUNTIME_URL: https://anything-llm-character-performance-runtime:3042
+      ATHENA_CHARACTER_PERFORMANCE_RUNTIME_CUTOVER: "true"
+      RESPONSES_RUNTIME_PORT: 3034
+    networks:
+      - anything-llm
+
+  anything-llm-character-performance-runtime:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: character-performance-runtime-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: character-performance-runtime
+      CHARACTER_PERFORMANCE_RUNTIME_PORT: 3042
     networks:
       - anything-llm
 
@@ -578,7 +696,41 @@ services:
       ATHENA_RUNTIME_ROLE: browser-plane
       ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
       ATHENA_BROWSER_WORKER_URL: https://anything-llm-browser-worker:3031
+      ATHENA_BROWSER_EGRESS_URL: https://anything-llm-browser-egress:3033
       BROWSER_PLANE_PORT: 3030
+    networks:
+      - anything-llm
+
+  anything-llm-browser-egress:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: browser-egress-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - browser-runtimes
+    depends_on:
+      anything-llm-key-custody:
+        condition: service_healthy
+    tmpfs:
+      - /tmp/athena-browser-egress:rw,nosuid,nodev,noexec,size=64m,mode=0700,uid=1000,gid=1000
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: browser-egress
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      ATHENA_KEY_CUSTODY_CUTOVER: "true"
+      ATHENA_KEY_CUSTODY_URL: https://anything-llm-key-custody:3023
+      BROWSER_EGRESS_PORT: 3033
+      STORAGE_DIR: /tmp/athena-browser-egress
     networks:
       - anything-llm
 

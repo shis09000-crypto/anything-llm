@@ -9,6 +9,11 @@ const {
 const { safeJsonParse } = require("../utils/http");
 const { clearInvocationFileAccess } = require("../utils/chats/agents");
 const {
+  cacheInvocationAttachments,
+  cacheInvocationExecutionTarget,
+  cacheInvocationFileAccess,
+} = require("../utils/chats/agents");
+const {
   drainAgentSessionJournal,
   getAgentSessionState,
   ensureDurableAgentSession,
@@ -237,6 +242,215 @@ class ResumableAgentSocket {
     this.handleToolApproval(JSON.stringify(payload));
     return { ok: true };
   }
+}
+
+class InternalAgentStreamSink {
+  constructor({ onEvent, onClose }) {
+    this.readyState = 1;
+    this.onEvent = onEvent;
+    this.onClose = onClose;
+  }
+
+  send(rawPayload) {
+    if (this.readyState !== 1) return;
+    const payload =
+      typeof rawPayload === "string"
+        ? safeJsonParse(rawPayload, null)
+        : rawPayload;
+    if (payload) this.onEvent(payload);
+  }
+
+  close() {
+    if (this.readyState !== 1) return;
+    this.readyState = 3;
+    this.onClose?.();
+  }
+}
+
+/**
+ * Run one durable Agent invocation without exposing the Agent websocket to the
+ * browser. The caller receives the same durable event stream over the internal
+ * service link and owns the outer Responses turn lifecycle.
+ */
+async function streamAgentInvocation({
+  uuid,
+  onEvent,
+  attachments = [],
+  displayAttachments = attachments,
+  displayPrompt = null,
+  reservedPublicChatId = null,
+  visionAnalysisContext = null,
+  fileAccess = {},
+  executionTarget = null,
+} = {}) {
+  uuid = String(uuid || "").trim();
+  if (!uuid) {
+    const error = new Error("agent_invocation_id_required");
+    error.code = "agent_invocation_id_required";
+    throw error;
+  }
+  if (activeAgentSessions.has(uuid)) {
+    const error = new Error("agent_invocation_already_running");
+    error.code = "agent_invocation_already_running";
+    error.httpStatus = 409;
+    throw error;
+  }
+
+  cacheInvocationAttachments(uuid, {
+    llmAttachments: attachments,
+    displayAttachments,
+    displayPrompt,
+    reservedPublicChatId,
+    visionAnalysisContext,
+  });
+  cacheInvocationFileAccess(uuid, fileAccess);
+  cacheInvocationExecutionTarget(uuid, executionTarget);
+
+  const ownership = await ensureDurableAgentSession(uuid);
+  if (ownership && ownership.claimed === false) {
+    const error = new Error("agent_invocation_already_owned");
+    error.code = "agent_invocation_already_owned";
+    error.httpStatus = 409;
+    throw error;
+  }
+
+  startAgentRunHeartbeat(uuid);
+  const agentHandler = await new AgentHandler({ uuid }).init();
+  if (!agentHandler.invocation) {
+    const error = new Error("agent_invocation_not_found");
+    error.code = "agent_invocation_not_found";
+    error.httpStatus = 404;
+    throw error;
+  }
+
+  const silencePolicy = agentSilencePolicy(
+    agentHandler.provider,
+    agentHandler.model
+  );
+  markAgentSessionState(uuid, {
+    provider: agentHandler.provider,
+    model: agentHandler.model,
+    modelTier: silencePolicy.tier,
+    silenceTimeoutMs: silencePolicy.silenceTimeoutMs,
+    status: "running",
+    closed: false,
+    retryable: true,
+  });
+
+  const bridge = new ResumableAgentSocket(uuid);
+  const session = { uuid, agentHandler, bridge, started: true };
+  activeAgentSessions.set(uuid, session);
+
+  let terminalSeen = false;
+  let closeResolve;
+  const closed = new Promise((resolve) => {
+    closeResolve = resolve;
+  });
+  const finalize = () => {
+    bridge.detach(sink);
+    const current = getAgentSessionState(uuid);
+    markAgentSessionState(uuid, {
+      status: terminalSeen ? "completed" : current.status || "closed",
+      closed: true,
+      retryable: false,
+      terminal: true,
+      closedAt: Date.now(),
+    });
+    WorkspaceAgentInvocation.close(uuid);
+    clearInvocationFileAccess(uuid);
+    activeAgentSessions.delete(uuid);
+    stopAgentRunHeartbeat(uuid);
+    closeResolve();
+  };
+  const sink = new InternalAgentStreamSink({
+    onEvent: (event) => {
+      onEvent?.(event);
+      if (event?.type !== "response.completed") return;
+      terminalSeen = true;
+      bridge.__agentFinalClose = true;
+      queueMicrotask(() => bridge.close());
+    },
+    onClose: finalize,
+  });
+  bridge.attach(sink);
+
+  try {
+    await Telemetry.sendTelemetry("agent_chat_started");
+    await agentHandler.createAIbitat({ socket: bridge });
+    await agentHandler.startAgentCluster();
+    if (terminalSeen && sink.readyState === 1) bridge.close();
+    await closed;
+  } catch (error) {
+    console.error("[AgentTurn] execution failed", {
+      invocationId: uuid,
+      errorCode: error?.code || "agent_turn_failed",
+      message: error?.message || "Agent turn failed.",
+    });
+    if (sink.readyState === 1) {
+      onEvent?.({
+        type: "response.failed",
+        response: {
+          id: uuid,
+          object: "response",
+          status: "failed",
+          error: {
+            code: error?.code || "agent_turn_failed",
+            message: error?.message || "Agent turn failed.",
+          },
+        },
+      });
+      bridge.__agentFinalClose = true;
+      sink.close();
+    }
+    throw error;
+  }
+}
+
+function submitAgentInvocationAction(uuid, actionId, body = {}) {
+  const session = activeAgentSessions.get(String(uuid));
+  if (!session?.bridge)
+    return { success: false, error: "agent_session_not_active" };
+  const action = String(body.action || body.type || "").toLowerCase();
+  if (action === "approval" || Object.hasOwn(body, "approved")) {
+    const result = session.bridge.receiveToolApprovalResponse({
+      type: "toolApprovalResponse",
+      requestId: actionId,
+      approved: !!body.approved,
+    });
+    return result?.ok
+      ? { success: true, actionId }
+      : { success: false, error: result?.reason || "approval_not_waiting" };
+  }
+  if (
+    action === "clarification" ||
+    Array.isArray(body.answers) ||
+    body.skipped === true
+  ) {
+    const result = session.bridge.receiveClarificationResponse({
+      type: "clarificationResponse",
+      requestId: actionId,
+      answers: Array.isArray(body.answers) ? body.answers : [],
+      skipped: !!body.skipped,
+    });
+    return result?.ok
+      ? { success: true, actionId }
+      : {
+          success: false,
+          error: result?.reason || "clarification_not_waiting",
+        };
+  }
+  return { success: false, error: "response_action_type_invalid" };
+}
+
+async function cancelAgentInvocation(uuid) {
+  uuid = String(uuid || "").trim();
+  const session = activeAgentSessions.get(uuid);
+  await WorkspaceAgentInvocation.close(uuid);
+  if (!session?.bridge) return { success: true, closed: true };
+  session.bridge.__clientStopped = true;
+  session.agentHandler?.aibitat?.abort?.();
+  session.bridge.close();
+  return { success: true, closed: true };
 }
 
 // Setup listener for incoming messages to relay to socket so it can be handled by agent plugin.
@@ -822,4 +1036,7 @@ module.exports = {
   agentRuntimeSnapshot,
   agentWebsocket,
   drainAgentRuntime,
+  cancelAgentInvocation,
+  submitAgentInvocationAction,
+  streamAgentInvocation,
 };

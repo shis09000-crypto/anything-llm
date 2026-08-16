@@ -13,14 +13,37 @@
     "server/endpoints/",
     "server/models/workspace.js"
   ],
-  "capabilities": ["http", "workspace", "account", "compatibility-api"],
+  "capabilities": [
+    "http",
+    "workspace",
+    "account",
+    "compatibility-api",
+    "3d-character-memory-facade",
+    "3d-character-memory-developer-inspection"
+  ],
   "routes": {
-    "public": ["/api/system/", "/api/workspace/", "/api/admin/"],
-    "internal": ["/live", "/ready", "/metrics"]
+    "public": [
+      "/api/system/",
+      "/api/workspace/",
+      "/api/admin/",
+      "/api/3d-center/characters/:instanceId/memory",
+      "/api/3d-center/characters/:instanceId/memory/memories",
+      "/api/3d-center/characters/:instanceId/memory/growth-nodes",
+      "/api/3d-center/characters/:instanceId/memory/milestones"
+    ],
+    "internal": [
+      "/live",
+      "/ready",
+      "/metrics",
+      "/internal/v1/workspace/thread-title/claim",
+      "/internal/v1/workspace/thread-title/commit"
+    ]
   },
   "rpc": {
     "provides": [
       "control.dispatch",
+      "workspace.thread-title.claim",
+      "workspace.thread-title.commit",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -53,7 +76,22 @@
       "key-custody.audit-descriptor",
       "key-custody.audit-sign",
       "operations.ingest-batch",
-      "sync.events.append"
+      "rag.retrieve",
+      "responses.create",
+      "responses.stream",
+      "responses.execution-metadata.resolve",
+      "responses.quiz.execute",
+      "sync.events.append",
+      "character.v2.conversations.create",
+      "character.v2.conversations.retrieve",
+      "character.v2.conversations.turns.create",
+      "character-performance.sessions.create",
+      "character-performance.sessions.retrieve",
+      "character-performance.sessions.resolve-scope",
+      "character-performance.sessions.link",
+      "character-performance.plans.compile",
+      "character-performance.events.retrieve",
+      "character-performance.feedback.create"
     ]
   },
   "events": {
@@ -69,6 +107,7 @@
     "keyDomains": ["data"],
     "allowedCallers": [
       "edge-web",
+      "chat-runtime",
       "scheduler",
       "operations-plane",
       "coordination-plane"
@@ -91,6 +130,7 @@
     "chat-runtime",
     "agent-runtime",
     "rag",
+    "responses-runtime",
     "scheduler"
   ],
   "domain": "platform-control",
@@ -101,6 +141,38 @@
   ],
   "contracts": {
     "provides": [
+      {
+        "id": "workspace.thread-title.claim",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.claim/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.claim/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "workspace.thread-title.commit",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.commit/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.commit/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
       {
         "id": "control.dispatch",
         "version": "1.0",
@@ -215,6 +287,85 @@
       }
     ],
     "consumes": [
+      {
+        "id": "responses.quiz.execute",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/responses.quiz.execute/request/1.0",
+        "responseSchema": "athena://contracts/responses.quiz.execute/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "quiz_not_found",
+          "quiz_state_conflict",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 300000,
+        "idempotency": "supported",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "rag.retrieve",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/rag.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/rag.retrieve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "responses.create",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/responses.create/request/1.0",
+        "responseSchema": "athena://contracts/responses.create/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "responses.stream",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/responses.stream/request/1.0",
+        "responseSchema": "athena://contracts/responses.stream/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "responses.execution-metadata.resolve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/responses.execution-metadata.resolve/request/1.0",
+        "responseSchema": "athena://contracts/responses.execution-metadata.resolve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
       {
         "id": "agent.submit",
         "version": "1.0",
@@ -620,6 +771,149 @@
         "timeoutMs": 5000,
         "idempotency": "supported",
         "dataClassification": "internal"
+      },
+      {
+        "id": "character.v2.conversations.create",
+        "version": "2.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character.v2.conversations.create/request/2.0",
+        "responseSchema": "athena://contracts/character.v2.conversations.create/response/2.0",
+        "errorCodes": [
+          "contract_invalid",
+          "character_conversation_scope_required",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character.v2.conversations.retrieve",
+        "version": "2.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/character.v2.conversations.retrieve/request/2.0",
+        "responseSchema": "athena://contracts/character.v2.conversations.retrieve/response/2.0",
+        "errorCodes": [
+          "contract_invalid",
+          "character_conversation_not_found",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character.v2.conversations.turns.create",
+        "version": "2.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character.v2.conversations.turns.create/request/2.0",
+        "responseSchema": "athena://contracts/character.v2.conversations.turns.create/response/2.0",
+        "errorCodes": [
+          "contract_invalid",
+          "character_conversation_not_found",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.create",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.sessions.create/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.create/response/1.0",
+        "errorCodes": [
+          "performance_pack_negotiation_failed",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.retrieve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/character-performance.sessions.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.retrieve/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.resolve-scope",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/character-performance.sessions.resolve-scope/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.resolve-scope/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.sessions.link",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.sessions.link/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.sessions.link/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_conversation_already_linked"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.plans.compile",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.plans.compile/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.plans.compile/response/1.0",
+        "errorCodes": [
+          "performance_plan_manifest_mismatch",
+          "performance_required_binding_missing"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.events.retrieve",
+        "version": "1.0",
+        "callType": "Stream",
+        "requestSchema": "athena://contracts/character-performance.events.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.events.retrieve/response/1.0",
+        "errorCodes": [
+          "performance_session_not_found",
+          "performance_session_forbidden"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "character-performance.feedback.create",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/character-performance.feedback.create/request/1.0",
+        "responseSchema": "athena://contracts/character-performance.feedback.create/response/1.0",
+        "errorCodes": [
+          "performance_feedback_event_invalid",
+          "performance_feedback_command_forged"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
       }
     ]
   },

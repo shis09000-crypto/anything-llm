@@ -38,6 +38,12 @@ const TASK_REGISTRY = {
     legacyProviderEnv: "THREAD_COMPACTION_PROVIDER",
     legacyModelEnv: "THREAD_COMPACTION_MODEL",
   },
+  "3d_center_session_compaction": {
+    tier: "rough",
+  },
+  "3d_center_character_memory_consolidation": {
+    tier: "rough",
+  },
   workspace_overview_narrative: {
     dynamic: "workspace_chat_or_system",
   },
@@ -59,9 +65,11 @@ const TASK_REGISTRY = {
   },
   agent_task: {
     dynamic: "agent_provider",
+    execution: "foreground",
   },
   ephemeral_agent_task: {
     dynamic: "agent_provider",
+    execution: "foreground",
   },
 };
 

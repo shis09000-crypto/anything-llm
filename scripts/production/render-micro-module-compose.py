@@ -25,9 +25,12 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-reader-worker",
     "anything-llm-scheduler",
     "anything-llm-operations-plane",
+    "anything-llm-coordination-plane",
     "anything-llm-chat-runtime",
     "anything-llm-agent-runtime",
     "anything-llm-model-gateway",
+    "anything-llm-responses-runtime",
+    "anything-llm-character-performance-runtime",
     "anything-llm-tool-broker",
     "anything-llm-crypto-market",
     "anything-llm-crypto-account",
@@ -39,6 +42,7 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-operations-shadow-agents",
     "anything-llm-browser-plane",
     "anything-llm-browser-worker",
+    "anything-llm-browser-egress",
     "anything-llm-collector",
 }
 
@@ -86,6 +90,10 @@ DEFAULT_SERVICE_PORTS = {
     "anything-llm-operations-shadow-agents": 3029,
     "anything-llm-browser-plane": 3030,
     "anything-llm-browser-worker": 3031,
+    "anything-llm-coordination-plane": 3032,
+    "anything-llm-browser-egress": 3033,
+    "anything-llm-responses-runtime": 3034,
+    "anything-llm-character-performance-runtime": 3042,
 }
 
 
@@ -145,14 +153,9 @@ def healthcheck(port: int, path: str = "/ready") -> dict:
 
 
 def readiness_path(service_name: str) -> str:
-    # These runtimes pre-date MicroModuleServiceHost and intentionally expose
-    # their existing /health contract. All hosted modules use /ready.
-    if service_name in {
-        "anything-llm-background-worker",
-        "anything-llm-reader-worker",
-        "anything-llm-realtime-gateway",
-    }:
-        return "/health"
+    # Every backend runtime except Collector now exposes the shared lifecycle
+    # host contract. Collector keeps /health on its existing HTTPS listener and
+    # receives the same lifecycle RPC surface through a local adapter.
     return "/ready"
 
 
@@ -163,6 +166,7 @@ def service_port(service_name: str, environment: dict) -> int | None:
         "READER_WORKER_PORT",
         "SCHEDULER_PORT",
         "OPERATIONS_PLANE_PORT",
+        "COORDINATION_PLANE_PORT",
         "CHAT_RUNTIME_PORT",
         "AGENT_RUNTIME_PORT",
         "MODEL_GATEWAY_PORT",
@@ -387,8 +391,48 @@ def render(source: Path) -> dict:
                 "/tmp/athena-browser-plane:rw,nosuid,nodev,noexec,size=256m,mode=0700,uid=1000,gid=1000"
             ]
             environment["STORAGE_DIR"] = "/tmp/athena-browser-plane"
+        elif name == "anything-llm-browser-egress":
+            service["mem_limit"] = "256m"
+            environment["STORAGE_DIR"] = "/tmp/athena-browser-egress"
+            environment["ATHENA_BROWSER_EGRESS_ENABLED"] = (
+                "${ATHENA_PROD_BROWSER_EGRESS_ENABLED:-false}"
+            )
+            environment["ATHENA_BROWSER_EGRESS_HOST"] = (
+                "${ATHENA_PROD_BROWSER_EGRESS_HOST:-}"
+            )
+            environment["ATHENA_BROWSER_EGRESS_PORT"] = (
+                "${ATHENA_PROD_BROWSER_EGRESS_PORT:-8443}"
+            )
+            environment["ATHENA_BROWSER_EGRESS_SERVER_NAME"] = (
+                "${ATHENA_PROD_BROWSER_EGRESS_SERVER_NAME:-}"
+            )
+            environment["ATHENA_BROWSER_EGRESS_REALITY_PUBLIC_KEY"] = (
+                "${ATHENA_PROD_BROWSER_EGRESS_REALITY_PUBLIC_KEY:-}"
+            )
+            environment["ATHENA_BROWSER_EGRESS_REALITY_SHORT_ID"] = (
+                "${ATHENA_PROD_BROWSER_EGRESS_REALITY_SHORT_ID:-}"
+            )
+            environment["ATHENA_BROWSER_EGRESS_CONFIG_DIR"] = (
+                "/var/lib/athena-browser-egress"
+            )
+            environment["ATHENA_BROWSER_EGRESS_REALITY_PRIVATE_KEY_FILE"] = (
+                "/run/secrets/browser-egress/reality-private.key"
+            )
+            service["volumes"] = [
+                "${ATHENA_PROD_STATE_DIR:?required}/browser-egress:/var/lib/athena-browser-egress",
+                "${ATHENA_PROD_SECRETS_DIR:?required}/browser-egress:/run/secrets/browser-egress:ro",
+            ] + service.get("volumes", [])
+            service["tmpfs"] = [
+                "/tmp/athena-browser-egress:rw,nosuid,nodev,noexec,size=64m,mode=0700,uid=1000,gid=1000"
+            ]
         elif name in {"anything-llm-chat-runtime", "anything-llm-agent-runtime"}:
             service["mem_limit"] = "448m"
+        elif name == "anything-llm-operations-plane":
+            # The Operations process keeps the ClickHouse batcher, JetStream
+            # consumer and module health graph resident. A 256 MiB cgroup
+            # leaves V8 in continuous GC and makes its own readiness probe
+            # time out even when ACK is current.
+            service["mem_limit"] = "384m"
         elif name in BACKEND_IMAGE_SERVICES:
             service["mem_limit"] = "256m"
 

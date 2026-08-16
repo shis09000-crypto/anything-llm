@@ -1,6 +1,9 @@
 import { checkSessionToken } from "@/lib/communication/systemRuntimeClient";
 import { AUTH_TIMESTAMP } from "@/utils/constants";
-import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";
+import {
+  authReasonFrom,
+  isTerminalAuthReason,
+} from "@/utils/authLifecycleCoordinator";
 
 const SESSION_VALIDATION_TTL_MS = 60 * 5 * 1000;
 export const SESSION_VALIDATION_STATE = {
@@ -19,8 +22,10 @@ function hasRecentSessionValidation() {
 }
 
 // Checks current localstorage and validates the session based on that.
-export async function validateSessionTokenForUserDetailed() {
-  if (hasRecentSessionValidation()) {
+export async function validateSessionTokenForUserDetailed({
+  force = false,
+} = {}) {
+  if (!force && hasRecentSessionValidation()) {
     return {
       state: SESSION_VALIDATION_STATE.VALID,
       valid: true,
@@ -53,12 +58,13 @@ export async function validateSessionTokenForUserDetailed() {
       reason: `status:${response.status}`,
     };
   } catch (error) {
-    if (shouldPreserveLocalAuthOnFailure(error)) {
+    const reason = authReasonFrom(error, "session_validation_unavailable");
+    if (!isTerminalAuthReason(reason)) {
       return {
         state: SESSION_VALIDATION_STATE.TRANSIENT,
         valid: true,
         transient: true,
-        reason: "transient",
+        reason,
       };
     }
 
@@ -66,7 +72,7 @@ export async function validateSessionTokenForUserDetailed() {
       state: SESSION_VALIDATION_STATE.INVALID,
       valid: false,
       transient: false,
-      reason: "error",
+      reason,
     };
   }
 }

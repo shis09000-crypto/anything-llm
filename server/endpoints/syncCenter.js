@@ -23,10 +23,17 @@ const {
   ensureSecureWebSocketRequest,
 } = require("../utils/security/transportSecurity");
 const {
+  identityCapabilityDescriptor,
+  sha256Base64Url,
   verifySignedWebSocketMessage,
   signingErrorCode,
   signingWarnOnly,
 } = require("../utils/requestSigning");
+const {
+  appendIdentityAuditViaIdentity,
+  remoteIdentityOperationsEnabled,
+  verifyRequestSigningViaIdentity,
+} = require("../utils/authz/identityOperationsClient");
 
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
@@ -477,7 +484,12 @@ async function authenticateBroadcastRequest(request, socket) {
         getClientContext(request, { user: principal.user }),
     };
   } catch (error) {
-    socket.close(1008, error.code || "auth_required");
+    const retryable = error?.code === "identity_capability_unavailable";
+    socket.close(
+      retryable ? 1013 : 1008,
+      error.code ||
+        (retryable ? "identity_capability_unavailable" : "auth_required")
+    );
     return null;
   }
 }
@@ -494,7 +506,57 @@ async function verifiedSocketPayload(request, socket, message) {
   const parsed = parseJsonMessage(message);
   const isSigned = parsed?.type === "athenaSignedMessage";
   if (!isSigned) return parsed;
-  const verification = await verifySignedWebSocketMessage(request, message);
+  let verification;
+  if (remoteIdentityOperationsEnabled()) {
+    const payloadString = JSON.stringify(parsed?.payload ?? null);
+    const signed = {
+      ...(parsed?.signed || {}),
+      signatureVersion: parsed?.signatureVersion,
+    };
+    const descriptor = identityCapabilityDescriptor(request, {
+      transport: "websocket",
+      signed,
+      computedBodySha256: sha256Base64Url(payloadString),
+    });
+    try {
+      const verified = await verifyRequestSigningViaIdentity({
+        claims: request.realtimePrincipal?.claims,
+        descriptor,
+        idempotencyKey: signed.nonce
+          ? `identity-signature:${signed.nonce}`
+          : null,
+      });
+      verification = {
+        ...(verified?.result || {
+          ok: false,
+          reasonCode: "verification_failed",
+        }),
+        payload: parsed.payload,
+        rawMessage: payloadString,
+      };
+      await appendIdentityAuditViaIdentity({
+        claims: request.realtimePrincipal?.claims,
+        descriptor,
+        result: verification,
+        metadata: {
+          transport: "websocket",
+          canonicalPathMode: verification.canonicalPathMode || "owner",
+        },
+        idempotencyKey: signed.nonce ? `identity-audit:${signed.nonce}` : null,
+      });
+    } catch {
+      sendSocket(socket, {
+        type: "broadcast.error",
+        code: "identity_capability_unavailable",
+        error: "Identity verification is temporarily unavailable.",
+        retryable: true,
+      });
+      socket.close(1013, "identity_capability_unavailable");
+      return null;
+    }
+  } else {
+    verification = await verifySignedWebSocketMessage(request, message);
+  }
   if (!verification.ok) {
     const fallbackPayload =
       parsed?.payload && typeof parsed.payload === "object"
@@ -965,20 +1027,6 @@ function syncCenterEndpoints(app) {
       clientId: connection.clientId,
       userId: connection.userId,
     });
-
-    const queryLastEventId = Array.isArray(request.query?.lastEventId)
-      ? request.query.lastEventId[0]
-      : request.query?.lastEventId;
-    if (queryLastEventId) {
-      const replay = await broadcastCenter.replayDurable({
-        userId: connection.userId,
-        clientId: connection.clientId,
-        platform: connection.platform,
-        lastEventId: queryLastEventId,
-        subscriptions: [...connection.subscriptions.values()],
-      });
-      sendReplay(connection, replay);
-    }
 
     socket.on("message", (message) => {
       void withCorrelation(request.athenaTraceContext || {}, async () => {

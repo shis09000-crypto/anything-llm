@@ -9,7 +9,9 @@ const MODEL_TIERS = {
     providerEnv: "LLM_TASK_REFINED_PROVIDER",
     modelEnv: "LLM_TASK_REFINED_MODEL",
     defaultProvider: "deepseek",
-    defaultModel: "deepseek-v4-pro",
+    // Background work is latency-first. "refined" controls the task prompt,
+    // token budget, and fallback policy; it does not select the Pro model.
+    defaultModel: "deepseek-v4-flash",
   },
   ultra: {
     providerEnv: "LLM_TASK_ULTRA_PROVIDER",

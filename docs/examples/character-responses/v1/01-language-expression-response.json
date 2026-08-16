@@ -1,0 +1,104 @@
+{
+  "id": "chr_resp_language_expression",
+  "object": "character.response",
+  "protocol_version": "1.0",
+  "status": "completed",
+  "created_at": 1786406400000,
+  "completed_at": 1786406401200,
+  "character": {
+    "character_id": "athena.default",
+    "instance_id": "char_inst_01",
+    "capability_manifest": {
+      "id": "athena.default",
+      "version": "1.0.0",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "conversation": {
+    "id": "ath_conv_01",
+    "previous_response_id": null
+  },
+  "capability_manifest": {
+    "id": "athena.default",
+    "version": "1.0.0",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "output": [
+    {
+      "id": "perf_01",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "timing": {
+        "start": "immediate",
+        "after_item_id": null,
+        "offset_ms": 0,
+        "duration_hint_ms": 1800
+      },
+      "interruptibility": "blend_out",
+      "affect": {
+        "primary": "athena.core:emotion/amused",
+        "secondary": null,
+        "intensity": 0.35,
+        "valence": 0.45,
+        "arousal": 0.3
+      },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 180 },
+      "persistence": "response_lifetime",
+      "revision": 1
+    },
+    {
+      "id": "exp_01",
+      "type": "expression",
+      "status": "completed",
+      "intent_id": "perf_01",
+      "required": false,
+      "timing": {
+        "start": "immediate",
+        "after_item_id": null,
+        "offset_ms": 0,
+        "duration_hint_ms": 1600
+      },
+      "interruptibility": "blend_out",
+      "expression": "athena.core:expression/amused",
+      "intensity": 0.35
+    },
+    {
+      "id": "speech_01",
+      "type": "speech",
+      "status": "completed",
+      "intent_id": "perf_01",
+      "required": true,
+      "timing": {
+        "start": "after_item",
+        "after_item_id": "exp_01",
+        "offset_ms": 120,
+        "duration_hint_ms": 1400
+      },
+      "interruptibility": "immediate",
+      "text": "你现在才看出来？",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/amused",
+        "emotion_source": "performance_intent",
+        "intensity": 0.35,
+        "rate": 0.98,
+        "volume": 0.82,
+        "style": "athena.core:voice_style/playful",
+        "pause_before_ms": 120,
+        "pause_after_ms": 80
+      }
+    }
+  ],
+  "warnings": [],
+  "usage": {
+    "input_tokens": 22,
+    "output_tokens": 34,
+    "total_tokens": 56,
+    "latency_ms": 1200,
+    "first_semantic_item_ms": 160,
+    "first_speech_delta_ms": 410
+  },
+  "error": null
+}

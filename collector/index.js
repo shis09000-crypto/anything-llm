@@ -5,6 +5,10 @@ const envPath =
 require("dotenv").config({ path: envPath });
 const { applyEnvironmentStorage } = require("./utils/environment");
 applyEnvironmentStorage();
+process.env.ATHENA_RUNTIME_ROLE ||= "collector";
+process.env.ATHENA_MTLS_CA_FILE ||= process.env.COLLECTOR_MTLS_CA_FILE;
+process.env.ATHENA_MTLS_CERT_FILE ||= process.env.COLLECTOR_MTLS_CERT_FILE;
+process.env.ATHENA_MTLS_KEY_FILE ||= process.env.COLLECTOR_MTLS_KEY_FILE;
 
 require("./utils/logger")();
 const express = require("express");
@@ -34,7 +38,9 @@ const {
   collectorServerIdentity,
 } = require("./utils/serviceIdentity");
 const { collectorReadinessEnvelope } = require("./utils/moduleReadiness");
+const { CollectorModuleLifecycle } = require("./utils/moduleLifecycle");
 const app = express();
+const moduleLifecycle = new CollectorModuleLifecycle();
 let ready = false;
 let httpServer = null;
 let serverIdentity = null;
@@ -83,9 +89,19 @@ if (
 }
 app.use((request, response, next) => {
   if (!isCollectorProcessingRoute(request)) return next();
+  if (moduleLifecycle.snapshot().ready) return next();
+  return response.status(503).json({
+    success: false,
+    error: "collector_not_accepting_work",
+    status: moduleLifecycle.lifecycle.state,
+  });
+});
+app.use((request, response, next) => {
+  if (!isCollectorProcessingRoute(request)) return next();
   return collectorTaskGuard(request, response, next);
 });
 app.use(requestBodyPolicy);
+moduleLifecycle.install(app);
 
 app.post(
   "/process",
@@ -259,13 +275,14 @@ app.get("/accepts", function (_, response) {
 });
 
 app.get("/health", function (_, response) {
+  const runtimeReady = ready && moduleLifecycle.snapshot().ready;
   let payloadKeyAvailable = false;
   try {
     new CommunicationKey().payloadKey();
     payloadKeyAvailable = true;
   } catch {}
-  response.status(ready ? 200 : 503).json({
-    ...collectorReadinessEnvelope(ready),
+  response.status(runtimeReady ? 200 : 503).json({
+    ...collectorReadinessEnvelope(runtimeReady),
     tasks: taskStats(),
     security: {
       ipcProtocol: 2,
@@ -284,6 +301,7 @@ app.get("/health", function (_, response) {
           }
         : { suiteId: null, serviceId: null },
     },
+    lifecycle: moduleLifecycle.snapshot().lifecycle,
   });
 });
 
@@ -325,6 +343,7 @@ app.use((error, _request, response, _next) => {
 });
 
 async function start() {
+  moduleLifecycle.initialize();
   await assertCollectorRuntimeSecurity();
   const identity = collectorServerIdentity();
   serverIdentity = identity;
@@ -350,6 +369,7 @@ async function start() {
     bindHost,
     () => {
       ready = true;
+      moduleLifecycle.markReady();
       console.log(
         `Document processor app listening on port ${
           process.env.COLLECTOR_PORT || 8888
@@ -384,11 +404,13 @@ function safeUploadId(value) {
 
 async function shutdown(signal) {
   ready = false;
+  await moduleLifecycle.drain("collector_signal");
   console.log(`[Collector] ${signal} received; draining requests.`);
   const timeout = setTimeout(() => process.exit(1), 30_000);
   timeout.unref();
   if (httpServer)
     await new Promise((resolve) => httpServer.close(() => resolve()));
+  await moduleLifecycle.stop();
   clearTimeout(timeout);
   process.exit(0);
 }
@@ -398,6 +420,7 @@ process.once("SIGINT", () => shutdown("SIGINT"));
 
 start().catch((error) => {
   ready = false;
+  moduleLifecycle.fail(error);
   console.error(`[Collector] Startup failed: ${error.message}`);
   process.exitCode = 1;
 });

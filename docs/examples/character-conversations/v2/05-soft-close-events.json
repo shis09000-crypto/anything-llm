@@ -1,0 +1,47 @@
+[
+  {
+    "type": "character.conversation.close_ready",
+    "event_id": "chr_conv_evt_01",
+    "sequence_number": 20,
+    "created_at": 1786500020000,
+    "conversation_id": "ath_conv_continuous_01",
+    "turn_id": "chr_turn_continuous_02",
+    "response_id": "chr_resp_continuous_02",
+    "conversation_horizon": {
+      "depth": "brief",
+      "continuation_probability": 0.15,
+      "closure_readiness": 0.9,
+      "basis": "answer_complete"
+    },
+    "soft_close_timing": {
+      "model_wait_ms": null,
+      "effective_wait_ms": 8000,
+      "source": "depth_default",
+      "depth": "brief"
+    },
+    "soft_close_due_at": 1786500028000
+  },
+  {
+    "type": "character.conversation.soft_closing",
+    "event_id": "chr_conv_evt_02",
+    "sequence_number": 21,
+    "created_at": 1786500028000,
+    "conversation_id": "ath_conv_continuous_01"
+  },
+  {
+    "type": "character.conversation.soft_closed",
+    "event_id": "chr_conv_evt_03",
+    "sequence_number": 22,
+    "created_at": 1786500028001,
+    "conversation_id": "ath_conv_continuous_01",
+    "recoverable": true
+  },
+  {
+    "type": "character.activity.ambient.requested",
+    "event_id": "chr_conv_evt_04",
+    "sequence_number": 23,
+    "created_at": 1786500028002,
+    "conversation_id": "ath_conv_continuous_01",
+    "activity": "reading"
+  }
+]

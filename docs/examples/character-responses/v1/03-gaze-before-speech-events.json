@@ -1,0 +1,201 @@
+[
+  {
+    "type": "character.response.created",
+    "event_id": "chr_evt_gaze_00",
+    "sequence_number": 0,
+    "created_at": 1786406420000,
+    "response_id": "chr_resp_gaze_first",
+    "response": {
+      "id": "chr_resp_gaze_first",
+      "object": "character.response",
+      "protocol_version": "1.0",
+      "status": "queued",
+      "created_at": 1786406420000,
+      "completed_at": null,
+      "character": {
+        "character_id": "athena.default",
+        "instance_id": "char_inst_01",
+        "capability_manifest": {
+          "id": "athena.default",
+          "version": "1.0.0",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "conversation": { "id": "ath_conv_01", "previous_response_id": null },
+      "capability_manifest": {
+        "id": "athena.default",
+        "version": "1.0.0",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output": [],
+      "warnings": [],
+      "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 },
+      "error": null
+    }
+  },
+  {
+    "type": "character.response.output_item.added",
+    "event_id": "chr_evt_gaze_01",
+    "sequence_number": 1,
+    "created_at": 1786406420100,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 0,
+    "item_id": "perf_gaze_first",
+    "revision": 0,
+    "item": {
+      "id": "perf_gaze_first",
+      "type": "performance_intent",
+      "status": "in_progress",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1800 },
+      "interruptibility": "blend_out",
+      "affect": { "primary": "athena.core:emotion/concerned", "secondary": null, "intensity": 0.45, "valence": -0.2, "arousal": 0.5 },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 120 },
+      "persistence": "response_lifetime",
+      "revision": 0
+    }
+  },
+  {
+    "type": "character.response.output_item.done",
+    "event_id": "chr_evt_gaze_02",
+    "sequence_number": 2,
+    "created_at": 1786406420140,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 0,
+    "item_id": "perf_gaze_first",
+    "revision": 1,
+    "item": {
+      "id": "perf_gaze_first",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1800 },
+      "interruptibility": "blend_out",
+      "affect": { "primary": "athena.core:emotion/concerned", "secondary": null, "intensity": 0.45, "valence": -0.2, "arousal": 0.5 },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 120 },
+      "persistence": "response_lifetime",
+      "revision": 1
+    }
+  },
+  {
+    "type": "character.response.output_item.added",
+    "event_id": "chr_evt_gaze_03",
+    "sequence_number": 3,
+    "created_at": 1786406420160,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 1,
+    "item_id": "gaze_early",
+    "revision": 0,
+    "item": {
+      "id": "gaze_early",
+      "type": "gaze",
+      "status": "in_progress",
+      "intent_id": "perf_gaze_first",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1600 },
+      "interruptibility": "blend_out",
+      "target": { "type": "semantic", "value": "player" },
+      "style": "athena.core:gaze_style/direct",
+      "intensity": 0.75,
+      "tracking": true
+    }
+  },
+  {
+    "type": "character.response.output_item.done",
+    "event_id": "chr_evt_gaze_04",
+    "sequence_number": 4,
+    "created_at": 1786406420200,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 1,
+    "item_id": "gaze_early",
+    "revision": 1,
+    "item": {
+      "id": "gaze_early",
+      "type": "gaze",
+      "status": "completed",
+      "intent_id": "perf_gaze_first",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 1600 },
+      "interruptibility": "blend_out",
+      "target": { "type": "semantic", "value": "player" },
+      "style": "athena.core:gaze_style/direct",
+      "intensity": 0.75,
+      "tracking": true
+    }
+  },
+  {
+    "type": "character.response.output_item.added",
+    "event_id": "chr_evt_gaze_05",
+    "sequence_number": 5,
+    "created_at": 1786406420320,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 2,
+    "item_id": "speech_late",
+    "revision": 0,
+    "item": {
+      "id": "speech_late",
+      "type": "speech",
+      "status": "in_progress",
+      "intent_id": "perf_gaze_first",
+      "required": true,
+      "timing": { "start": "at_offset", "after_item_id": null, "offset_ms": 320, "duration_hint_ms": 1200 },
+      "interruptibility": "immediate",
+      "text": "",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/concerned",
+        "emotion_source": "performance_intent",
+        "intensity": 0.45,
+        "rate": 0.92,
+        "volume": 0.8,
+        "style": "athena.core:voice_style/soft",
+        "pause_before_ms": 260,
+        "pause_after_ms": 100
+      }
+    }
+  },
+  {
+    "type": "character.response.output_item.delta",
+    "event_id": "chr_evt_gaze_06",
+    "sequence_number": 6,
+    "created_at": 1786406420410,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 2,
+    "item_id": "speech_late",
+    "revision": 1,
+    "delta": { "kind": "speech_text_append", "text": "我知道了。" }
+  },
+  {
+    "type": "character.response.output_item.done",
+    "event_id": "chr_evt_gaze_07",
+    "sequence_number": 7,
+    "created_at": 1786406420900,
+    "response_id": "chr_resp_gaze_first",
+    "output_index": 2,
+    "item_id": "speech_late",
+    "revision": 2,
+    "item": {
+      "id": "speech_late",
+      "type": "speech",
+      "status": "completed",
+      "intent_id": "perf_gaze_first",
+      "required": true,
+      "timing": { "start": "at_offset", "after_item_id": null, "offset_ms": 320, "duration_hint_ms": 1200 },
+      "interruptibility": "immediate",
+      "text": "我知道了。",
+      "language": "zh-CN",
+      "delivery": {
+        "emotion": "athena.core:emotion/concerned",
+        "emotion_source": "performance_intent",
+        "intensity": 0.45,
+        "rate": 0.92,
+        "volume": 0.8,
+        "style": "athena.core:voice_style/soft",
+        "pause_before_ms": 260,
+        "pause_after_ms": 100
+      }
+    }
+  }
+]

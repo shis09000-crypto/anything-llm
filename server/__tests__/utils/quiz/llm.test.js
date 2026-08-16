@@ -1,6 +1,7 @@
 const mockCreate = jest.fn();
 const mockGetTaskConnector = jest.fn();
 const mockStreamGetChatCompletion = jest.fn();
+const mockCreateResponsesRuntimeConnector = jest.fn((connector) => connector);
 const mockCompressMessages = jest.fn(async ({ systemPrompt, userPrompt }) => [
   { role: "system", content: systemPrompt },
   { role: "user", content: userPrompt },
@@ -19,10 +20,16 @@ jest.mock("../../../utils/llmTasks", () => ({
   getTaskConnector: (...args) => mockGetTaskConnector(...args),
 }));
 
+jest.mock("../../../utils/responsesRuntime/chatAdapter", () => ({
+  createResponsesRuntimeConnector: (...args) =>
+    mockCreateResponsesRuntimeConnector(...args),
+}));
+
 const {
   completeJson,
   completeJsonWithRetry,
   completeJsonStreamWithRetry,
+  completeText,
 } = require("../../../utils/quiz/llm");
 
 async function* streamFromTokens(tokens = []) {
@@ -57,16 +64,18 @@ async function* hangingStream() {
 describe("quiz llm helpers", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGetTaskConnector.mockImplementation((taskName, _context, overrides) => ({
-      provider: "deepseek",
-      model: overrides?.model,
-      connector: {
+    mockGetTaskConnector.mockImplementation(
+      (taskName, _context, overrides) => ({
+        provider: "deepseek",
         model: overrides?.model,
-        compressMessages: mockCompressMessages,
-        getChatCompletion: mockCreate,
-        streamGetChatCompletion: mockStreamGetChatCompletion,
-      },
-    }));
+        connector: {
+          model: overrides?.model,
+          compressMessages: mockCompressMessages,
+          getChatCompletion: mockCreate,
+          streamGetChatCompletion: mockStreamGetChatCompletion,
+        },
+      })
+    );
     mockCreate.mockResolvedValue({ textResponse: '{"ok":true}', metrics: {} });
     mockStreamGetChatCompletion.mockResolvedValue(
       streamFromTokens(['{"ok":true}'])
@@ -84,6 +93,43 @@ describe("quiz llm helpers", () => {
     expect(mockCreate).toHaveBeenCalledWith(expect.any(Array), {
       temperature: 0.1,
       responseFormat: { type: "json_object" },
+      store: false,
+      runtimeContext: {
+        chatRunId: expect.stringMatching(/^quiz:/),
+        taskName: "quiz_generation",
+        taskIntent: "quiz_generation",
+        taskPriority: "P0",
+      },
+    });
+    expect(mockCreateResponsesRuntimeConnector).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        provider: "deepseek",
+        model: "deepseek-v4-pro",
+        callerRole: "api",
+      })
+    );
+  });
+
+  it("routes quiz analysis text through a scoped non-stored response", async () => {
+    mockCreate.mockResolvedValue({ textResponse: "analysis", metrics: {} });
+
+    const result = await completeText({
+      model: "deepseek-v4-pro",
+      systemPrompt: "system",
+      userPrompt: "user",
+    });
+
+    expect(result.text).toBe("analysis");
+    expect(mockCreate).toHaveBeenCalledWith(expect.any(Array), {
+      temperature: 0.2,
+      store: false,
+      runtimeContext: {
+        chatRunId: expect.stringMatching(/^quiz:/),
+        taskName: "quiz_generation",
+        taskIntent: "quiz_generation",
+        taskPriority: "P0",
+      },
     });
   });
 
@@ -136,6 +182,13 @@ describe("quiz llm helpers", () => {
       {
         temperature: 0.1,
         responseFormat: { type: "json_object" },
+        store: false,
+        runtimeContext: {
+          chatRunId: expect.stringMatching(/^quiz:/),
+          taskName: "quiz_generation",
+          taskIntent: "quiz_generation",
+          taskPriority: "P0",
+        },
       }
     );
   });

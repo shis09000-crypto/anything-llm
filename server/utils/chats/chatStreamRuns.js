@@ -21,7 +21,20 @@ function responseClosed(response) {
   return response.destroyed || response.writableEnded;
 }
 
+function isResponsesEvent(payload = {}) {
+  return /^(response\.|athena\.)/.test(String(payload?.type || ""));
+}
+
+function writeRunPayload(response, payload = {}) {
+  if (!isResponsesEvent(payload)) return writeResponseChunk(response, payload);
+  const sequence = Number(payload.sequence_number || payload.runRevision || 0);
+  if (sequence > 0) response.write(`id: ${sequence}\n`);
+  response.write(`event: ${payload.type}\n`);
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
 function emitRunEvent(run, eventType, outcome, extra = {}) {
+  const reasonCode = String(extra.errorCode || "").trim() || null;
   emitSemanticEvent({
     eventType,
     category: "chat",
@@ -41,6 +54,7 @@ function emitRunEvent(run, eventType, outcome, extra = {}) {
       scope: "conversation-run",
       status: extra.status || outcome,
     },
+    metadata: reasonCode ? { reasonCode } : {},
     sensitivity: "metadata_only",
   });
 }
@@ -106,6 +120,7 @@ class ChatStreamRuntime {
     this.errorCode = run.errorCode || null;
     this.cancelRequested = false;
     this.terminalEventType = null;
+    this.responsesMode = false;
     this.subscribers = new Map();
     this.checkpointTimer = null;
     this.checkpointChain = Promise.resolve();
@@ -130,6 +145,7 @@ class ChatStreamRuntime {
 
   acceptPayload(payload = {}) {
     if (terminalStatus(this.status)) return;
+    if (isResponsesEvent(payload)) this.responsesMode = true;
     this.revision += 1;
     if (
       payload.type === "textResponseChunk" &&
@@ -141,6 +157,16 @@ class ChatStreamRuntime {
       typeof payload.textResponse === "string"
     ) {
       this.partialResponse = payload.textResponse;
+    } else if (
+      payload.type === "response.output_text.delta" &&
+      typeof payload.delta === "string"
+    ) {
+      this.partialResponse += payload.delta;
+    } else if (
+      payload.type === "response.output_text.done" &&
+      typeof payload.text === "string"
+    ) {
+      this.partialResponse = payload.text;
     }
     if (payload.type === "finalizeResponseStream") {
       this.finalChatId = payload.chatId || this.finalChatId;
@@ -155,11 +181,28 @@ class ChatStreamRuntime {
     if (payload.type === "stopGeneration" && payload.close) {
       this.terminalEventType = payload.type;
     }
+    if (payload.type === "response.completed") {
+      this.finalChatId = payload.response?.metadata?.chatId || this.finalChatId;
+      this.finalPublicChatId =
+        payload.response?.metadata?.publicChatId || this.finalPublicChatId;
+      this.terminalEventType = payload.type;
+    }
+    if (
+      payload.type === "response.failed" ||
+      payload.type === "response.incomplete"
+    ) {
+      this.errorCode =
+        payload.response?.error?.code || payload.type.replace(".", "_");
+      this.terminalEventType = payload.type;
+    }
 
     const event = {
       ...payload,
       clientTurnId: payload.clientTurnId || this.run.clientTurnId,
       runRevision: this.revision,
+      ...(isResponsesEvent(payload)
+        ? { sequence_number: this.revision, response_id: this.run.id }
+        : {}),
     };
     this.eventBuffer.push({
       sequence: this.revision,
@@ -238,7 +281,7 @@ class ChatStreamRuntime {
         continue;
       }
       try {
-        writeResponseChunk(response, payload);
+        writeRunPayload(response, payload);
       } catch {
         this.detach(response);
       }
@@ -290,18 +333,31 @@ class ChatStreamRuntime {
       });
     }
     if (this.partialResponse && normalizedAfter < this.revision) {
-      writeResponseChunk(response, {
-        id: this.run.id,
-        type: "fullTextResponse",
-        textResponse: this.partialResponse,
-        close: false,
-        replayed: normalizedAfter > 0,
-        clientTurnId: this.run.clientTurnId,
-        runRevision: this.revision,
-      });
+      writeRunPayload(
+        response,
+        this.responsesMode
+          ? {
+              type: "response.output_text.delta",
+              response_id: this.run.id,
+              delta: this.partialResponse,
+              replayed: normalizedAfter > 0,
+              clientTurnId: this.run.clientTurnId,
+              runRevision: this.revision,
+              sequence_number: this.revision,
+            }
+          : {
+              id: this.run.id,
+              type: "fullTextResponse",
+              textResponse: this.partialResponse,
+              close: false,
+              replayed: normalizedAfter > 0,
+              clientTurnId: this.run.clientTurnId,
+              runRevision: this.revision,
+            }
+      );
     }
     if (terminalStatus(this.status)) {
-      this.writeTerminal(response);
+      if (!this.terminalEventType) this.writeTerminal(response);
       response.end();
       return Promise.resolve();
     }
@@ -326,6 +382,68 @@ class ChatStreamRuntime {
   }
 
   writeTerminal(response) {
+    const terminalSequence =
+      Number(this.run.revision || this.revision || 0) + 1;
+    if (this.responsesMode && this.status === "completed" && this.run?.id) {
+      writeRunPayload(response, {
+        type: "response.completed",
+        response_id: this.run.id,
+        sequence_number: terminalSequence,
+        response: {
+          id: this.run.id,
+          object: "response",
+          status: "completed",
+          completed_at: Math.floor(Date.now() / 1000),
+          error: null,
+          incomplete_details: null,
+          output: [],
+          metadata: {
+            chatId: this.finalChatId,
+            publicChatId: this.finalPublicChatId,
+            clientTurnId: this.run.clientTurnId,
+          },
+        },
+      });
+      return;
+    }
+    if (
+      this.responsesMode &&
+      (this.status === "failed" || this.status === "interrupted") &&
+      this.run?.id
+    ) {
+      writeRunPayload(response, {
+        type: "response.failed",
+        response_id: this.run.id,
+        sequence_number: terminalSequence,
+        response: {
+          id: this.run.id,
+          object: "response",
+          status: "failed",
+          error: {
+            code: this.errorCode || `responses_turn_${this.status}`,
+            message:
+              this.status === "interrupted"
+                ? "Responses turn was interrupted by a server restart."
+                : "Responses turn failed.",
+          },
+        },
+      });
+      return;
+    }
+    if (this.responsesMode && this.status === "cancelled" && this.run?.id) {
+      writeRunPayload(response, {
+        type: "response.incomplete",
+        response_id: this.run.id,
+        sequence_number: terminalSequence,
+        response: {
+          id: this.run.id,
+          object: "response",
+          status: "incomplete",
+          incomplete_details: { reason: "cancelled" },
+        },
+      });
+      return;
+    }
     if (this.status === "failed" || this.status === "interrupted") {
       writeResponseChunk(response, {
         id: this.run.id,
@@ -385,7 +503,7 @@ class ChatStreamRuntime {
       this.run,
       `chat.run.${status}`,
       status === "completed" ? "succeeded" : "failed",
-      { status }
+      { status, errorCode: this.errorCode }
     );
 
     for (const response of [...this.subscribers.keys()]) {
@@ -401,13 +519,26 @@ class ChatStreamRuntime {
   cancel() {
     if (terminalStatus(this.status) || this.cancelRequested) return false;
     this.cancelRequested = true;
-    this.broadcast({
-      id: this.run.id,
-      type: "stopGeneration",
-      close: false,
-      clientTurnId: this.run.clientTurnId,
-      runRevision: this.revision,
-    });
+    if (this.responsesMode) {
+      this.acceptPayload({
+        type: "response.incomplete",
+        response_id: this.run.id,
+        response: {
+          id: this.run.id,
+          object: "response",
+          status: "incomplete",
+          incomplete_details: { reason: "cancelled" },
+        },
+      });
+    } else {
+      this.broadcast({
+        id: this.run.id,
+        type: "stopGeneration",
+        close: false,
+        clientTurnId: this.run.clientTurnId,
+        runRevision: this.revision,
+      });
+    }
     this.sink.cancel();
     return true;
   }
@@ -448,6 +579,7 @@ class ChatStreamRunManager {
     if (!run) return null;
     return {
       kind: "chat",
+      responseId: run.id,
       clientTurnId: run.clientTurnId,
       status: run.status,
       revision: Number(run.revision || 0),
@@ -482,13 +614,31 @@ class ChatStreamRunManager {
         )
       )
       .catch(async (error) => {
-        runtime.acceptPayload({
-          id: run.id,
-          type: "abort",
-          close: true,
-          error: error?.message || "Chat generation failed.",
-          errorCode: error?.code || "chat_stream_failed",
-        });
+        if (!runtime.terminalEventType) {
+          runtime.acceptPayload(
+            runtime.responsesMode
+              ? {
+                  type: "response.failed",
+                  response_id: run.id,
+                  response: {
+                    id: run.id,
+                    object: "response",
+                    status: "failed",
+                    error: {
+                      code: error?.code || "responses_turn_failed",
+                      message: error?.message || "Responses turn failed.",
+                    },
+                  },
+                }
+              : {
+                  id: run.id,
+                  type: "abort",
+                  close: true,
+                  error: error?.message || "Chat generation failed.",
+                  errorCode: error?.code || "chat_stream_failed",
+                }
+          );
+        }
         await runtime.settle("failed", error?.code || "chat_stream_failed");
       })
       .finally(() => {
@@ -556,7 +706,7 @@ class ChatStreamRunManager {
           });
           for (const event of events) {
             if (closed || responseClosed(response)) break;
-            writeResponseChunk(response, event.payload);
+            writeRunPayload(response, event.payload);
             lastRevision = Math.max(lastRevision, Number(event.sequence));
           }
           if (
@@ -565,18 +715,26 @@ class ChatStreamRunManager {
             Number(run.revision) > lastRevision
           ) {
             lastRevision = Number(run.revision);
-            writeResponseChunk(response, {
-              id: run.id,
-              type: "fullTextResponse",
-              textResponse: run.partialResponse,
-              close: false,
+            writeRunPayload(response, {
+              type: "response.output_text.delta",
+              response_id: run.id,
+              delta: run.partialResponse,
               replayed: true,
               clientTurnId: run.clientTurnId,
               runRevision: lastRevision,
+              sequence_number: lastRevision,
             });
           }
           if (terminalStatus(run.status)) {
             const terminal = new ChatStreamRuntime(run);
+            const lastEvent = events[events.length - 1]?.payload;
+            terminal.responsesMode = isResponsesEvent(lastEvent);
+            terminal.terminalEventType = lastEvent?.type || null;
+            if (terminal.terminalEventType) {
+              response.end();
+              finish();
+              return;
+            }
             terminal.writeTerminal(response);
             response.end();
             finish();

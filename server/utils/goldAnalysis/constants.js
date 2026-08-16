@@ -13,6 +13,7 @@ const TWELVE_DATA_BASE = "https://api.twelvedata.com";
 const GOLD_API_BASE = "https://api.gold-api.com/price";
 const FRED_CSV_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv";
 const CFTC_DISAGGREGATED_URL = "https://www.cftc.gov/dea/newcot/f_disagg.txt";
+const GATE_SPOT_CANDLES_URL = "https://api.gateio.ws/api/v4/spot/candlesticks";
 const SGE_BASE = "https://www.sge.com.cn/sjzx/shanghaiAuAuto";
 const GLD_PAGE =
   "https://www.ssga.com/us/en/intermediary/etfs/spdr-gold-shares-gld";
@@ -47,6 +48,7 @@ module.exports = {
   FORMULA_VERSION,
   FRED_CSV_BASE,
   FRED_SERIES,
+  GATE_SPOT_CANDLES_URL,
   GLD_PAGE,
   GOLD_API_BASE,
   IAU_PAGE,

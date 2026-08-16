@@ -3,6 +3,7 @@
 const {
   OperationsEventForwarder,
   forwardingEnabled,
+  isSelfReferentialForwardingEvent,
 } = require("../../utils/operations/remoteEventForwarder");
 
 describe("Remote Operations event forwarder", () => {
@@ -19,6 +20,23 @@ describe("Remote Operations event forwarder", () => {
       forwardingEnabled({
         ...env,
         ATHENA_RUNTIME_ROLE: "operations-plane",
+      })
+    ).toBe(false);
+  });
+
+  test("does not recursively forward observations about its own failed link", () => {
+    expect(
+      isSelfReferentialForwardingEvent({
+        eventType: "aicp.rpc.observed",
+        subject: { operation: "POST /internal/v1/operations/" },
+        impact: { scope: "operations-plane", status: "failed" },
+      })
+    ).toBe(true);
+    expect(
+      isSelfReferentialForwardingEvent({
+        eventType: "aicp.rpc.observed",
+        subject: { operation: "POST /internal/v1/browser/" },
+        impact: { scope: "browser-plane", status: "failed" },
       })
     ).toBe(false);
   });
@@ -43,6 +61,10 @@ describe("Remote Operations event forwarder", () => {
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
         callerRole: "chat-runtime",
+        callerModule: "chat-runtime",
+        targetModule: "operations-plane",
+        capability: "operations.ingest-batch",
+        contractVersion: "1.0",
         url: "https://operations-plane:3015/internal/v1/operations/ingest-batch",
         body: {
           events: [
@@ -50,8 +72,19 @@ describe("Remote Operations event forwarder", () => {
             { eventId: "event-2", sensitivity: "metadata_only" },
           ],
         },
+        coordinationContext: expect.objectContaining({
+          center: "recovery",
+          correlationId: "operations:event-1",
+          causationId: "event-1",
+          priority: "P2",
+        }),
       })
     );
+    expect(
+      Date.parse(
+        request.mock.calls[0][0].coordinationContext.deadlineAt
+      )
+    ).toBeGreaterThan(Date.now());
     expect(forwarder.snapshot()).toMatchObject({
       status: "running",
       queued: 0,

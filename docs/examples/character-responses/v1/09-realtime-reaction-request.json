@@ -1,0 +1,31 @@
+{
+  "protocol_version": "1.0",
+  "character": {
+    "character_id": "athena.default",
+    "instance_id": "char_inst_01",
+    "capability_manifest": { "id": "athena.default", "version": "1.0.0", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+  },
+  "conversation": { "id": "ath_conv_reaction", "previous_response_id": null },
+  "input": [
+    {
+      "id": "prediction_touch_01",
+      "type": "interaction_prediction",
+      "actor": { "type": "entity", "entity_id": "player.local", "kind": "actor" },
+      "target": { "type": "entity", "entity_id": "athena.default", "kind": "character" },
+      "interaction": "touch",
+      "body_region": "head",
+      "confidence": 0.91,
+      "eta_ms": 180
+    }
+  ],
+  "context": {
+    "character_state_ref": { "id": "char_state_01", "revision": 18 },
+    "world_snapshot_ref": { "id": "world_snapshot_10", "revision": 94 }
+  },
+  "generation": {
+    "mode": "realtime_reaction",
+    "channels": ["performance", "expression", "gaze", "gesture"],
+    "latency_class": "realtime"
+  },
+  "metadata": { "source": "local_reaction_runtime" }
+}

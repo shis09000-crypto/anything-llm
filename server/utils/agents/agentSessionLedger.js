@@ -222,6 +222,7 @@ function isMeaningfulEvent(eventType) {
     "statusResponse",
     "toolApprovalRequest",
     "wssFailure",
+    "response.completed",
   ].includes(eventType);
 }
 
@@ -269,21 +270,25 @@ function updateStateFromEvent(uuid, record) {
     sensitivity: record.sensitivity || current.sensitivity || "metadata-only",
     status: alreadyCompleted
       ? "completed"
-      : record.eventType === "chatId"
+      : record.eventType === "response.completed"
         ? "completed"
-        : record.eventType === "fullTextResponse"
-          ? "finalizing"
-          : record.eventType === "wssFailure"
-            ? "failed"
-            : current.status || "running",
-    terminal:
-      record.eventType === "chatId" || record.eventType === "wssFailure"
-        ? true
-        : current.terminal || false,
-    retryable:
-      record.eventType === "chatId" || record.eventType === "wssFailure"
-        ? false
-        : current.retryable !== false,
+        : record.eventType === "chatId"
+          ? "completed"
+          : record.eventType === "fullTextResponse"
+            ? "finalizing"
+            : record.eventType === "wssFailure"
+              ? "failed"
+              : current.status || "running",
+    terminal: ["chatId", "wssFailure", "response.completed"].includes(
+      record.eventType
+    )
+      ? true
+      : current.terminal || false,
+    retryable: ["chatId", "wssFailure", "response.completed"].includes(
+      record.eventType
+    )
+      ? false
+      : current.retryable !== false,
     finalChatId:
       record.eventType === "chatId"
         ? Number(content.chatId || 0) || current.finalChatId || null
@@ -336,6 +341,10 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
   const deliveryPayload = {
     ...payload,
     seq,
+    ...(String(payload.type || "").startsWith("response.") &&
+    payload.sequence_number == null
+      ? { sequence_number: seq }
+      : {}),
     ...(payload.type === "reportStreamEvent" &&
     payload.content &&
     typeof payload.content === "object"

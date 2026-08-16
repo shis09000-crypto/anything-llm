@@ -15,6 +15,7 @@ const RISK_ORDER: Record<FuturesRiskLevel, number> = {
   danger: 3,
   watch: 2,
   safe: 1,
+  unavailable: 0,
 };
 
 const FILTER_OPTIONS: Array<{ id: PositionFilter; label: string }> = [
@@ -47,6 +48,7 @@ const LIQUIDATION_RISK_META: Record<
   danger: { label: "高危", lights: 3 },
   critical: { label: "危险", lights: 4 },
   extreme: { label: "极危", lights: 5 },
+  unavailable: { label: "数据不可用", lights: 0 },
 };
 
 const statusMeta: Record<
@@ -147,7 +149,9 @@ function markPriceTone(position: OpenFuturesPositionItem) {
 
 function sortedPositions(positions: OpenFuturesPositionItem[]) {
   return [...positions].sort((left, right) => {
-    const riskDelta = RISK_ORDER[right.riskLevel] - RISK_ORDER[left.riskLevel];
+    const riskDelta =
+      (RISK_ORDER[right.riskLevel] ?? RISK_ORDER.unavailable) -
+      (RISK_ORDER[left.riskLevel] ?? RISK_ORDER.unavailable);
     if (riskDelta !== 0) return riskDelta;
     return (
       Math.abs(parseNumber(right.unrealizedPnlUsd)) -
@@ -172,7 +176,14 @@ function legacyLiquidationRiskLevel(
 ): LiquidationRiskLevel {
   if (riskLevel === "danger") return "critical";
   if (riskLevel === "watch") return "danger";
+  if (riskLevel === "unavailable") return "unavailable";
   return "safe";
+}
+
+function normalizeLiquidationRiskLevel(value: unknown): LiquidationRiskLevel {
+  return typeof value === "string" && value in LIQUIDATION_RISK_META
+    ? (value as LiquidationRiskLevel)
+    : "unavailable";
 }
 
 function liquidationRiskLevelFromDistance(
@@ -189,9 +200,9 @@ function liquidationRiskLevel(position: OpenFuturesPositionItem) {
   const distancePct = parseOptionalNumber(position.liquidationDistancePct);
   if (distancePct !== null)
     return liquidationRiskLevelFromDistance(distancePct);
-  return (
-    position.liquidationRiskLevel ||
-    legacyLiquidationRiskLevel(position.riskLevel)
+  return normalizeLiquidationRiskLevel(
+    position.liquidationRiskLevel ??
+      legacyLiquidationRiskLevel(position.riskLevel)
   );
 }
 
@@ -202,7 +213,8 @@ function LiquidationRiskLights({
 }) {
   const distancePct = parseOptionalNumber(position.liquidationDistancePct);
   const level = liquidationRiskLevel(position);
-  const meta = LIQUIDATION_RISK_META[level];
+  const meta =
+    LIQUIDATION_RISK_META[level] ?? LIQUIDATION_RISK_META.unavailable;
   const distanceLabel =
     distancePct === null ? "待计算" : `${distancePct.toFixed(2)}%`;
 

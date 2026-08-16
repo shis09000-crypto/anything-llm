@@ -1,4 +1,5 @@
 const AdmZip = require("adm-zip");
+const { execFile } = require("node:child_process");
 const { parse } = require("node-html-parser");
 const {
   MarketDataError,
@@ -12,6 +13,7 @@ const {
   CFTC_DISAGGREGATED_URL,
   FRED_CSV_BASE,
   FRED_SERIES,
+  GATE_SPOT_CANDLES_URL,
   GLD_PAGE,
   GOLD_API_BASE,
   IAU_PAGE,
@@ -135,6 +137,118 @@ async function fetchTwelveSeries(
     bars,
     receivedAtMs: now,
   };
+}
+
+async function fetchGateGoldSeries(
+  { symbol = "XAU/USD", interval, outputsize = 5_000, now = Date.now() },
+  dependencies = {}
+) {
+  if (symbol !== "XAU/USD")
+    return {
+      status: "optional_unavailable",
+      symbol,
+      interval,
+      bars: [],
+      receivedAtMs: now,
+      reason: "gate_gold_proxy_has_no_silver_pair",
+    };
+  const duration = intervalMs(interval);
+  if (!duration)
+    throw new MarketDataError("invalid_input", "Unsupported gold interval.");
+  const gateInterval = { "5min": "5m", "1day": "1d" }[interval];
+  if (!gateInterval)
+    throw new MarketDataError("invalid_input", "Unsupported gold interval.");
+  const desired = Math.min(5_000, Math.max(30, Number(outputsize) || 30));
+  const pointsPerRequest = 900;
+  const end = Math.floor(now / duration) * duration;
+  const ranges = [];
+  for (let offset = 0; offset < desired; offset += pointsPerRequest) {
+    const count = Math.min(pointsPerRequest, desired - offset);
+    const toMs = end - offset * duration;
+    const fromMs = toMs - (count - 1) * duration;
+    ranges.push({ fromMs, toMs });
+  }
+  const pages = await Promise.all(
+    ranges.map(({ fromMs, toMs }) => {
+      const query = new URLSearchParams({
+        currency_pair: "PAXG_USDT",
+        interval: gateInterval,
+        from: String(Math.floor(fromMs / 1_000)),
+        to: String(Math.floor(toMs / 1_000)),
+      });
+      return fetchJson(
+        `${GATE_SPOT_CANDLES_URL}?${query}`,
+        { headers: { Accept: "application/json", "User-Agent": "Athena/1.0" } },
+        dependencies.fetchImpl
+      );
+    })
+  );
+  const byOpen = new Map();
+  for (const row of pages.flat()) {
+    if (!Array.isArray(row)) continue;
+    const openTimeMs = Number(row[0]) * 1_000;
+    const close = finite(row[2]);
+    const high = finite(row[3]);
+    const low = finite(row[4]);
+    const open = finite(row[5]);
+    if (
+      !Number.isFinite(openTimeMs) ||
+      [open, high, low, close].some((value) => value === null || value <= 0)
+    )
+      continue;
+    const closeTimeMs = openTimeMs + duration;
+    byOpen.set(openTimeMs, {
+      source: "gate_paxg_usdt_proxy",
+      symbol,
+      interval,
+      openTimeMs,
+      closeTimeMs,
+      open,
+      high,
+      low,
+      close,
+      volume: null,
+      backfilled: true,
+      providerVersion: "gate-paxg-usdt-gold-proxy-v1",
+      forming: closeTimeMs > now,
+    });
+  }
+  const bars = [...byOpen.values()].sort(
+    (left, right) => left.openTimeMs - right.openTimeMs
+  );
+  if (!bars.length)
+    throw new MarketDataError(
+      "provider_invalid_response",
+      "Gate returned no usable PAXG/USDT gold proxy series."
+    );
+  return {
+    status: "available",
+    symbol,
+    interval,
+    exchangeTimezone: "UTC",
+    bars,
+    receivedAtMs: now,
+    proxy: "PAXG/USDT",
+  };
+}
+
+async function fetchGoldSeries(input, dependencies = {}) {
+  try {
+    return await fetchTwelveSeries(input, dependencies);
+  } catch (error) {
+    if (
+      ![
+        "provider_not_configured",
+        "provider_secret_unavailable",
+        "provider_unavailable",
+        "provider_timeout",
+        "provider_http_error",
+        "provider_rate_limited",
+      ].includes(error?.code)
+    )
+      throw error;
+    return await fetchGateGoldSeries(input, dependencies);
+  }
 }
 
 async function fetchGoldCrosscheck(
@@ -300,17 +414,58 @@ function cotRowsFromText(text) {
 }
 
 async function fetchBytes(url, fetchImpl = global.fetch) {
-  const response = await fetchImpl(url, {
-    headers: { Accept: "application/zip", "User-Agent": "Athena/1.0" },
-    redirect: "error",
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok)
-    throw new MarketDataError(
-      "provider_http_error",
-      `The data provider returned HTTP ${response.status}.`
+  try {
+    const response = await fetchImpl(url, {
+      headers: { Accept: "application/zip", "User-Agent": "Athena/1.0" },
+      redirect: "error",
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok)
+      throw new MarketDataError(
+        "provider_http_error",
+        `The data provider returned HTTP ${response.status}.`
+      );
+    return Buffer.from(await response.arrayBuffer());
+  } catch (error) {
+    if (fetchImpl !== global.fetch) throw error;
+    return await fetchWithCurl(url, "application/zip");
+  }
+}
+
+function fetchWithCurl(url, accept) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "curl",
+      [
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        "--max-time",
+        "12",
+        "--proto",
+        "=https",
+        "--user-agent",
+        "Athena/1.0",
+        "--header",
+        `Accept: ${accept}`,
+        url,
+      ],
+      { encoding: "buffer", maxBuffer: 40 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(
+            new MarketDataError(
+              "provider_unavailable",
+              "The CFTC provider could not be reached."
+            )
+          );
+          return;
+        }
+        resolve(stdout);
+      }
     );
-  return Buffer.from(await response.arrayBuffer());
+  });
 }
 
 async function fetchCotContext(
@@ -323,7 +478,12 @@ async function fetchCotContext(
       CFTC_DISAGGREGATED_URL,
       { headers: { Accept: "text/plain", "User-Agent": "Athena/1.0" } },
       dependencies.fetchImpl
-    ),
+    ).catch(async (error) => {
+      if (dependencies.fetchImpl) throw error;
+      return (
+        await fetchWithCurl(CFTC_DISAGGREGATED_URL, "text/plain")
+      ).toString("utf8");
+    }),
     ...Array.from({ length: historyYears }, (_, offset) =>
       fetchBytes(
         `https://www.cftc.gov/files/dea/history/fut_disagg_txt_${year - offset}.zip`,
@@ -582,6 +742,8 @@ module.exports = {
   fetchCotContext,
   fetchEtfContext,
   fetchFredContext,
+  fetchGateGoldSeries,
+  fetchGoldSeries,
   fetchGoldCrosscheck,
   fetchSgeContext,
   fetchTwelveSeries,

@@ -46,8 +46,10 @@ jest.mock("../../models/eventLogs", () => ({
 
 const {
   clientIdentityMiddleware,
+  clientSecuritySyncReady,
   getClientContext,
   listUserClients,
+  recoverClientDeviceIdentity,
   recordClientTrustCheckpoint,
   registerClient,
   revokeAllOtherClients,
@@ -91,6 +93,25 @@ describe("client identity helpers", () => {
     mockUserFindUnique.mockResolvedValue({ authUserId: 100 });
     mockRevokeClientSessions.mockResolvedValue({ count: 1 });
     mockVaultRegistrationUpdateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("does not inspect Sync V2 tables through the client identity facade when security sync is disabled", async () => {
+    const previousEnabled = process.env.ATHENA_SYNC_V2_ENABLED;
+    const previousDomains = process.env.ATHENA_SYNC_V2_DOMAINS;
+    process.env.ATHENA_SYNC_V2_ENABLED = "false";
+    process.env.ATHENA_SYNC_V2_DOMAINS = "all";
+    try {
+      await expect(
+        clientSecuritySyncReady({ userId: 10, maintainShadow: true })
+      ).resolves.toBe(false);
+    } finally {
+      if (previousEnabled === undefined)
+        delete process.env.ATHENA_SYNC_V2_ENABLED;
+      else process.env.ATHENA_SYNC_V2_ENABLED = previousEnabled;
+      if (previousDomains === undefined)
+        delete process.env.ATHENA_SYNC_V2_DOMAINS;
+      else process.env.ATHENA_SYNC_V2_DOMAINS = previousDomains;
+    }
   });
 
   it("parses client context from HTTP headers", () => {
@@ -372,6 +393,40 @@ describe("client identity helpers", () => {
       publicKeyParameterSet: "secp256r1",
       publicKeyOrigin: "apple-secure-enclave",
       publicKeyHardwareProtection: "client-asserted-hardware-backed",
+    });
+  });
+
+  it("rebinds both device keys in the client identity owner data domain", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: 91,
+      userId: 10,
+      clientId: "client_recovered",
+      revokedAt: null,
+    });
+
+    const result = await recoverClientDeviceIdentity({
+      userId: 10,
+      clientId: "client_recovered",
+      p256PublicKey: "fresh-p256",
+      p256KeyAlgorithm: "device-p256-webcrypto-v1",
+      pqPublicKey: "fresh-mldsa65",
+    });
+
+    expect(result).toMatchObject({ id: 91, clientId: "client_recovered" });
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: {
+        userId: 10,
+        clientId: "client_recovered",
+        revokedAt: null,
+      },
+      data: expect.objectContaining({
+        publicKey: "fresh-p256",
+        deviceFingerprintVersion: "device-p256-webcrypto-v1",
+        pqPublicKey: "fresh-mldsa65",
+        pqKeyAlgorithm: "request-device-mldsa65-v1",
+        signingSecretEncrypted: null,
+        trustLevel: "medium",
+      }),
     });
   });
 

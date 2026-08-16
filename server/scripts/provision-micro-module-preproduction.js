@@ -24,9 +24,12 @@ const physicalRoles = Object.freeze([
   ["reader-worker", "anything-llm-reader-worker"],
   ["scheduler", "anything-llm-scheduler"],
   ["operations-plane", "anything-llm-operations-plane"],
+  ["coordination-plane", "anything-llm-coordination-plane"],
   ["chat-runtime", "anything-llm-chat-runtime"],
   ["agent-runtime", "anything-llm-agent-runtime"],
   ["model-gateway", "anything-llm-model-gateway"],
+  ["responses-runtime", "anything-llm-responses-runtime"],
+  ["character-performance-runtime", "anything-llm-character-performance-runtime"],
   ["tool-broker", "anything-llm-tool-broker"],
   ["crypto-market", "anything-llm-crypto-market"],
   ["crypto-account", "anything-llm-crypto-account"],
@@ -38,6 +41,9 @@ const physicalRoles = Object.freeze([
   ["knowledge-ingest", "anything-llm-knowledge-ingest"],
   ["rag", "anything-llm-rag"],
   ["operations-shadow-agents", "anything-llm-operations-shadow-agents"],
+  ["browser-plane", "anything-llm-browser-plane"],
+  ["browser-worker", "anything-llm-browser-worker"],
+  ["browser-egress", "anything-llm-browser-egress"],
   ["prometheus", "anything-llm-prometheus"],
 ]);
 const infrastructureCertificates = Object.freeze([["minio", "minio"]]);

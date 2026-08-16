@@ -33,10 +33,14 @@ const {
 } = require("./snapshot");
 const { QUIZ_GENERATION_MODEL } = require("./constants");
 const { getScopedWorkspaceChat } = require("../authz/resourceAccess");
+const {
+  runWithOperationContext,
+} = require("../observability/operationContext");
 
 const activeQuizGenerations = new Set();
 const chatWriteQueues = new Map();
 const QUIZ_BACKGROUND_GENERATION_CONCURRENCY = 2;
+const QUIZ_COORDINATION_TIMEOUT_MS = 5 * 60 * 1_000;
 const QUESTION_TYPE_PRIORITY = {
   single_choice: 1,
   multiple_choice: 2,
@@ -466,7 +470,7 @@ async function enqueueRemainingGenerationJobs({
   return true;
 }
 
-async function generateQuiz({
+async function generateQuizWithinContext({
   workspace,
   user = null,
   message,
@@ -553,6 +557,21 @@ async function generateQuiz({
     generationStatus: quiz.generationStatus,
     history: await chatHistoryFor({ workspace, user, thread }),
   };
+}
+
+async function generateQuiz(options) {
+  // Plan extraction, optional RAG enrichment, and the first Responses API
+  // generation are one foreground operation. Do not let the generic 30-second
+  // browser coordination deadline expire between those module calls.
+  return runWithOperationContext(
+    {
+      coordinationDeadlineAt: new Date(
+        Date.now() + QUIZ_COORDINATION_TIMEOUT_MS
+      ).toISOString(),
+      taskPriority: "P0",
+    },
+    () => generateQuizWithinContext(options)
+  );
 }
 
 async function quizStatus({ workspace, user = null, quizId }) {
@@ -834,4 +853,5 @@ module.exports = {
   runBackgroundJobs,
   visibleAndDeferredQuestions,
   QUIZ_BACKGROUND_GENERATION_CONCURRENCY,
+  QUIZ_COORDINATION_TIMEOUT_MS,
 };

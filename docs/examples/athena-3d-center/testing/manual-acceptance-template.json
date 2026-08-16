@@ -1,0 +1,49 @@
+{
+  "object": "athena.3d_center.manual_acceptance",
+  "protocol_version": "1.0",
+  "release": "",
+  "commit": "",
+  "reviewers": [
+    {
+      "role": "product",
+      "name": "",
+      "signed_at": null,
+      "scores": {
+        "persona_language_consistency": null,
+        "facial_continuity": null,
+        "gaze_feasibility": null,
+        "body_limb_naturalness": null,
+        "speech_motion_timing": null,
+        "within_session_emotion_continuity": null,
+        "cross_session_recall_accuracy": null
+      }
+    },
+    {
+      "role": "engineering_animation",
+      "name": "",
+      "signed_at": null,
+      "scores": {
+        "persona_language_consistency": null,
+        "facial_continuity": null,
+        "gaze_feasibility": null,
+        "body_limb_naturalness": null,
+        "speech_motion_timing": null,
+        "within_session_emotion_continuity": null,
+        "cross_session_recall_accuracy": null
+      }
+    }
+  ],
+  "scenarios": [
+    "apology_demand",
+    "leaving_tomorrow",
+    "cake_homecoming",
+    "love_confession",
+    "possible_final_farewell",
+    "five_turn_exam",
+    "cross_session_recall",
+    "conflict_and_repair"
+  ],
+  "fatal_findings": [],
+  "evidence": [],
+  "decision": "pending"
+}

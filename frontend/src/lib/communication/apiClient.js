@@ -12,7 +12,6 @@ import {
   isRecoverableSigningError,
   maybeSignedRequestHeaders,
 } from "./requestSigningClient";
-import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import {
   communicationByteLength,
   communicationResponseSize,
@@ -24,6 +23,11 @@ import {
   attemptSessionRecovery,
   recoveryReplayAllowed,
 } from "@/utils/authRecoveryCoordinator";
+import {
+  authReasonFrom,
+  isTerminalAuthReason,
+  redirectToLogin,
+} from "@/utils/authLifecycleCoordinator";
 
 const CLIENT_IDENTITY_REAUTH_RECOVERY = "CLIENT_IDENTITY_REAUTH_REQUIRED";
 
@@ -93,16 +97,7 @@ function requestSignal({ signal, timeoutMs }) {
 function shouldClearAuthToken(response, data) {
   if (!response || ![401, 403].includes(response.status)) return false;
   if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) return true;
-
-  const message = String(data?.error || data?.message || "").toLowerCase();
-  return [
-    "session expired",
-    "invalid auth token",
-    "invalid auth for user",
-    "no auth token",
-    "client revoked",
-    "session client mismatch",
-  ].some((needle) => message.includes(needle));
+  return isTerminalAuthReason(authReasonFrom({ raw: data }));
 }
 
 function clearSensitiveAuthState(response, data) {
@@ -112,14 +107,27 @@ function clearSensitiveAuthState(response, data) {
     void resetClientIdentity({ rotateDeviceKey: true });
   }
   if (shouldClearAuthToken(response, data)) {
-    clearSensitiveClientSession({
-      reason:
-        data?.error === API_ERROR_CODES.CLIENT_REVOKED
-          ? "client_revoked"
-          : "auth_error",
-      includeDurableCaches: false,
-    });
+    const reason =
+      data?.error === API_ERROR_CODES.CLIENT_REVOKED
+        ? "client_revoked"
+        : authReasonFrom({ raw: data }, "session_revoked");
+    redirectToLogin({ reason });
   }
+}
+
+function requestIdentityValidation(response, data, context = {}) {
+  if (!response || ![401, 403].includes(response.status)) return;
+  if (shouldClearAuthToken(response, data)) return;
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("athena-auth-validation-required", {
+      detail: {
+        status: response.status,
+        requestId: context.requestId || null,
+        path: context.path || null,
+      },
+    })
+  );
 }
 
 function requiresClientIdentityReauth(data) {
@@ -132,12 +140,9 @@ function shouldAttemptSessionRecovery(response, data) {
   const message = String(
     data?.reason || data?.error || data?.message || ""
   ).toLowerCase();
-  return [
-    "no auth token",
-    "session client mismatch",
-    "session expired",
-    "session_revoked",
-  ].some((needle) => message.includes(needle));
+  return ["no auth token", "session client mismatch"].some((needle) =>
+    message.includes(needle)
+  );
 }
 
 async function recoverMismatchedClientIdentity() {
@@ -208,6 +213,7 @@ async function requestJsonCore(path, options = {}) {
     acceptNotModified = false,
     task: requestTask,
     onRequestMetadata,
+    schedulerTaskContext = null,
     schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
@@ -260,6 +266,32 @@ async function requestJsonCore(path, options = {}) {
       method: normalizedMethod,
       headers: {
         ...jsonHeaders(headers, { includeBaseHeaders, requestId }),
+        ...(schedulerTaskContext?.id
+          ? { "X-Athena-Task-Id": schedulerTaskContext.id }
+          : {}),
+        ...(schedulerTaskContext?.priority
+          ? { "X-Athena-Task-Priority": schedulerTaskContext.priority }
+          : {}),
+        ...(schedulerTaskContext?.coordinationContext?.coordinationRunId
+          ? {
+              "X-Athena-Coordination-Run-Id":
+                schedulerTaskContext.coordinationContext.coordinationRunId,
+              "X-Athena-Coordination-Step-Id":
+                schedulerTaskContext.coordinationContext.stepId,
+              "X-Athena-Coordination-Center":
+                schedulerTaskContext.coordinationContext.center,
+              "X-Athena-Correlation-Id":
+                schedulerTaskContext.coordinationContext.correlationId,
+              "X-Athena-Coordination-Deadline-At":
+                schedulerTaskContext.coordinationContext.deadlineAt,
+              ...(schedulerTaskContext.coordinationContext.causationId
+                ? {
+                    "X-Athena-Coordination-Causation-Id":
+                      schedulerTaskContext.coordinationContext.causationId,
+                  }
+                : {}),
+            }
+          : {}),
         ...signingResult.headers,
       },
       body: bodyString ? bodyString : undefined,
@@ -326,16 +358,7 @@ async function requestJsonCore(path, options = {}) {
         !sessionRecovery.recovered &&
         !sessionRecovery.transient
       ) {
-        clearSensitiveClientSession({
-          reason: "client_identity_mismatch",
-          includeDurableCaches: false,
-        });
-        if (
-          typeof window !== "undefined" &&
-          window.location?.pathname !== "/login"
-        ) {
-          window.location.assign("/login?reason=device-identity-reauth");
-        }
+        redirectToLogin({ reason: "device_identity_reauth" });
       }
       if (
         !sessionRecoveryRequired &&
@@ -396,6 +419,7 @@ async function requestJsonCore(path, options = {}) {
       ) {
         clearSensitiveAuthState(response, data);
       }
+      requestIdentityValidation(response, data, { requestId, path });
       const apiError = normalizeApiError(null, response, {
         code:
           data?.error === API_ERROR_CODES.CLIENT_REVOKED
@@ -543,12 +567,13 @@ export async function requestJson(path, options = {}) {
   }
 
   return runScheduledTaskRequest(
-    ({ signal: scheduledSignal }) =>
+    ({ signal: scheduledSignal, handle }) =>
       requestJsonCore(path, {
         ...options,
         signal: scheduledSignal,
         task: false,
         schedulerInternal: true,
+        schedulerTaskContext: handle?.context?.() || null,
       }),
     {
       method,

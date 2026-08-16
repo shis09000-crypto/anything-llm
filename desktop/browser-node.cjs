@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { WebContentsView, session } = require("electron");
 const { browserWebContentsViewOptions } = require("./security-policy.cjs");
+const { openManagedChrome } = require("./managed-chrome.cjs");
 
 const CONTRACT = "athena.browser.driver.v1";
 const MAX_TABS = 8;
@@ -50,10 +51,11 @@ function siteUrl(cookie) {
 }
 
 class DesktopBrowserNode {
-  constructor({ app, mainWindow, log = () => {} } = {}) {
+  constructor({ app, mainWindow, egressRuntime = null, log = () => {} } = {}) {
     this.app = app;
     this.mainWindow = mainWindow;
     this.log = log;
+    this.egressRuntime = egressRuntime;
     this.tabs = new Map();
     this.currentTabId = null;
     this.partition = null;
@@ -61,6 +63,12 @@ class DesktopBrowserNode {
     this.attached = false;
     this.sitePermissions = new Map();
     this.nodeId = this.loadNodeId();
+    this.network = {
+      requestedRoute: "system",
+      effectiveRoute: "system",
+      connected: true,
+      region: "local",
+    };
   }
 
   loadNodeId() {
@@ -84,6 +92,10 @@ class DesktopBrowserNode {
       downloads: true,
       uploads: true,
       maxTabs: MAX_TABS,
+      systemChrome: true,
+      ...(this.egressRuntime?.capabilities?.() || {
+        proxyModes: ["direct", "system"],
+      }),
     };
   }
 
@@ -128,16 +140,86 @@ class DesktopBrowserNode {
     });
   }
 
-  async attach({ accountRef = "local-account", profileId = "default" } = {}) {
+  async attach({
+    accountRef = "local-account",
+    profileId = "default",
+    networkRoute = "system",
+  } = {}) {
     const nextPartition = profilePartition(accountRef, profileId);
-    if (this.partition && this.partition !== nextPartition)
+    if (
+      this.partition &&
+      (this.partition !== nextPartition ||
+        this.network.requestedRoute !== networkRoute)
+    )
       await this.closeAll();
     this.partition = nextPartition;
-    this.configureSession(this.browserSession());
+    const browserSession = this.browserSession();
+    this.configureSession(browserSession);
+    await this.applyNetworkRoute(networkRoute, browserSession);
     this.attached = true;
     if (!this.tabs.size) await this.newTab();
     this.showCurrent();
     return this.snapshot();
+  }
+
+  async installEgressConfig(sealedConfig) {
+    if (!this.egressRuntime)
+      throw new Error("desktop_browser_egress_runtime_unavailable");
+    return this.egressRuntime.installSealedConfig(sealedConfig);
+  }
+
+  async applyNetworkRoute(networkRoute, targetSession = null) {
+    const route = String(networkRoute || "system");
+    if (!this.egressRuntime && route === "athena_egress")
+      throw new Error("desktop_browser_egress_runtime_unavailable");
+    const browserSession = targetSession || this.browserSession();
+    await browserSession.closeAllConnections();
+    const resolved = this.egressRuntime
+      ? await this.egressRuntime.route(route)
+      : route === "direct"
+        ? {
+            mode: "direct",
+            network: {
+              requestedRoute: route,
+              effectiveRoute: route,
+              connected: true,
+              region: "local",
+            },
+          }
+        : {
+            mode: "system",
+            network: {
+              requestedRoute: "system",
+              effectiveRoute: "system",
+              connected: true,
+              region: "local",
+            },
+          };
+    await browserSession.setProxy({
+      mode: resolved.mode,
+      ...(resolved.proxyRules ? { proxyRules: resolved.proxyRules } : {}),
+      ...(resolved.proxyBypassRules
+        ? { proxyBypassRules: resolved.proxyBypassRules }
+        : {}),
+    });
+    await browserSession.closeAllConnections();
+    this.network = resolved.network;
+    this.emitState();
+    return this.snapshot();
+  }
+
+  async openSystemChrome({ url, profileId = "default" } = {}) {
+    const proxyServer =
+      this.network.effectiveRoute === "athena_egress"
+        ? await this.egressRuntime?.chromeProxyBridge?.()
+        : null;
+    return openManagedChrome({
+      app: this.app,
+      url,
+      profileId,
+      networkRoute: this.network.effectiveRoute,
+      proxyServer,
+    });
   }
 
   async createView() {
@@ -442,6 +524,7 @@ class DesktopBrowserNode {
     for (const tab of this.tabs.values()) tab.view.webContents.close();
     this.tabs.clear();
     this.currentTabId = null;
+    await this.egressRuntime?.stop?.();
   }
 
   snapshot() {
@@ -451,6 +534,7 @@ class DesktopBrowserNode {
       executionLocation: "desktop",
       driver: "electron-webcontentsview",
       attached: this.attached,
+      network: this.network,
       currentTabId: this.currentTabId,
       tabs: [...this.tabs.values()].map((tab) => ({
         tabId: tab.tabId,

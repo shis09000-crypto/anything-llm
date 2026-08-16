@@ -157,6 +157,27 @@ describe("agentSessionLedger", () => {
     });
   });
 
+  it("uses response.completed as the authoritative terminal event", () => {
+    const event = ledger.recordAgentSessionEvent("responses-terminal", {
+      type: "response.completed",
+      response: {
+        id: "ath_resp_123",
+        object: "response",
+        status: "completed",
+        completed_at: 123,
+        metadata: { clientTurnId: "turn-123" },
+      },
+    });
+
+    expect(event.payload.sequence_number).toBe(1);
+    expect(ledger.getAgentSessionState("responses-terminal")).toMatchObject({
+      status: "completed",
+      terminal: true,
+      retryable: false,
+      closed: false,
+    });
+  });
+
   it("does not regress completed state when a late final envelope arrives", () => {
     ledger.recordAgentSessionEvent("terminal-late-envelope", {
       type: "reportStreamEvent",

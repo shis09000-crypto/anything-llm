@@ -53,6 +53,7 @@ function wrapWithModelGateway(
   { provider, model, env = process.env } = {}
 ) {
   const {
+    createBoundDelegateProxy,
     wrapWithResponsesRuntime,
   } = require("../responsesRuntime/chatAdapter");
   const responsesDelegate = wrapWithResponsesRuntime(delegate, {
@@ -64,11 +65,12 @@ function wrapWithModelGateway(
   if (!gatewayEnabled(env)) return delegate;
   const baseUrl = String(env.ATHENA_MODEL_GATEWAY_URL).replace(/\/+$/, "");
   const callerRole = String(env.ATHENA_RUNTIME_ROLE);
-  const remote = Object.create(delegate);
-  remote.className = delegate.className;
-  remote.model = delegate.model || model;
-  remote.modelGateway = true;
-  remote.getChatCompletion = async (messages, options = {}) => {
+  const overrides = {
+    className: delegate.className,
+    model: delegate.model || model,
+    modelGateway: true,
+  };
+  overrides.getChatCompletion = async (messages, options = {}) => {
     const response = await requestInternalService({
       callerRole,
       url: `${baseUrl}/internal/v1/models/complete`,
@@ -82,7 +84,7 @@ function wrapWithModelGateway(
     });
     return response.result;
   };
-  remote.streamGetChatCompletion = async (messages, options = {}) => {
+  overrides.streamGetChatCompletion = async (messages, options = {}) => {
     const response = await requestInternalStream({
       callerRole,
       url: `${baseUrl}/internal/v1/models/stream`,
@@ -95,7 +97,7 @@ function wrapWithModelGateway(
     stream.endMeasurement = () => {};
     return stream;
   };
-  return remote;
+  return createBoundDelegateProxy(delegate, overrides);
 }
 
 module.exports = {

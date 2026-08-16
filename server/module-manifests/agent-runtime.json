@@ -9,6 +9,7 @@
   "criticality": "critical",
   "runtimeRole": "agent-runtime",
   "sourcePaths": [
+    "server/agent-runtime.js",
     "server/endpoints/agentWebsocket.js",
     "server/utils/agents/"
   ],
@@ -24,29 +25,38 @@
       "/api/agent-invocation/"
     ],
     "internal": [
+      "/internal/v1/agent/invocations",
+      "/internal/v1/agent/invocations/:invocationId/actions/:actionId",
+      "/internal/v1/agent/invocations/:invocationId/cancel",
+      "/internal/v1/agent/invocations/:invocationId/stream",
       "/internal/v1/agent/runs",
       "/internal/v1/agent/runs/:id/drain"
     ]
   },
   "rpc": {
     "provides": [
-      "agent.submit",
       "agent.status",
+      "agent.submit",
+      "agent.turn.action",
+      "agent.turn.cancel",
+      "agent.turn.stream",
       "module.describe",
-      "module.self-test",
-      "module.lifecycle.query",
       "module.drain",
+      "module.lifecycle.query",
       "module.quiesce",
-      "module.resume"
+      "module.resume",
+      "module.self-test"
     ],
     "consumes": [
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "identity.session.validate",
+      "identity.user-domain-wrap.queue",
       "model.stream",
+      "operations.ingest-batch",
       "responses.create",
       "responses.stream",
-      "operations.ingest-batch",
       "tool.invoke"
     ]
   },
@@ -75,10 +85,11 @@
       "agent"
     ],
     "allowedCallers": [
-      "edge-web",
       "athena-api",
-      "scheduler",
-      "coordination-plane"
+      "chat-runtime",
+      "coordination-plane",
+      "edge-web",
+      "scheduler"
     ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 30000
@@ -93,7 +104,6 @@
   },
   "dependsOn": [
     "authentication",
-    "chat-runtime",
     "model-gateway",
     "responses-runtime",
     "tool-runtime",
@@ -242,6 +252,54 @@
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "confidential"
+      },
+      {
+        "id": "agent.turn.stream",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/agent.turn.stream/request/1.0",
+        "responseSchema": "athena://contracts/agent.turn.stream/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 600000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "agent.turn.action",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/agent.turn.action/request/1.0",
+        "responseSchema": "athena://contracts/agent.turn.action/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "agent.turn.cancel",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/agent.turn.cancel/request/1.0",
+        "responseSchema": "athena://contracts/agent.turn.cancel/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
       }
     ],
     "consumes": [
@@ -251,7 +309,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.create/request/1.0",
         "responseSchema": "athena://contracts/responses.create/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -262,7 +324,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.stream/request/1.0",
         "responseSchema": "athena://contracts/responses.stream/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -362,6 +428,40 @@
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.session.validate",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/identity.session.validate/request/1.0",
+        "responseSchema": "athena://contracts/identity.session.validate/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.user-domain-wrap.queue",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/identity.user-domain-wrap.queue/request/1.0",
+        "responseSchema": "athena://contracts/identity.user-domain-wrap.queue/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "restricted",
+        "targetModule": "authentication",
+        "requiredForReadiness": true
       }
     ]
   },

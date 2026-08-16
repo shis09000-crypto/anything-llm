@@ -4,13 +4,14 @@
   "private": true,
   "main": "main.cjs",
   "scripts": {
+    "prepare:browser-egress-core": "node scripts/run-browser-egress-core-prep.cjs",
     "prepare:desktop": "node prepare-desktop.cjs",
     "icon:generate": "python3 scripts/generate-icon-assets.py",
     "test": "node --test tests/*.test.cjs",
     "security:audit": "node scripts/security-config-audit.cjs",
     "start": "electron .",
-    "dist:win": "npm run prepare:desktop && electron-builder --win nsis --x64",
-    "dist:mac": "npm run prepare:desktop && electron-builder --mac dmg zip --arm64 --x64"
+    "dist:win": "npm run prepare:browser-egress-core -- --platforms=win32-x64 && npm run prepare:desktop && electron-builder --win nsis --x64",
+    "dist:mac": "npm run prepare:browser-egress-core -- --platforms=darwin-arm64,darwin-x64 && npm run prepare:desktop && electron-builder --mac dmg zip --arm64 --x64"
   },
   "devDependencies": {
     "electron": "42.7.1",

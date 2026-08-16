@@ -1,5 +1,5 @@
 import { USER_PROMPT_INPUT_MAP } from "@/utils/constants";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import debounce from "lodash.debounce";
 import { safeJsonParse } from "@/utils/request";
@@ -48,18 +48,21 @@ export function clearPromptInputDraft(storageKey, options = {}) {
 
 export default function usePromptInputStorage({
   promptInput,
+  promptInputRef: externalPromptInputRef = null,
   setPromptInput,
   storageKey = null,
 }) {
   const { threadSlug = null, slug: workspaceSlug } = useParams();
   const scopedStorageKey = storageKey || threadSlug || workspaceSlug;
   const syncedDraftScope = promptDraftScope({ workspaceSlug, threadSlug });
-  const promptInputRef = useRef(promptInput);
+  const internalPromptInputRef = useRef(promptInput || "");
+  const promptInputRef = externalPromptInputRef || internalPromptInputRef;
   const hydrationSequenceRef = useRef(0);
 
   useEffect(() => {
+    if (externalPromptInputRef) return;
     promptInputRef.current = promptInput;
-  }, [promptInput]);
+  }, [externalPromptInputRef, promptInput, promptInputRef]);
 
   useEffect(() => {
     const hydrationSequence = hydrationSequenceRef.current + 1;
@@ -71,8 +74,8 @@ export default function usePromptInputStorage({
 
     const userPromptInputValue = promptInputMap[scopedStorageKey];
     if (userPromptInputValue) {
-      setPromptInput(userPromptInputValue);
       promptInputRef.current = userPromptInputValue;
+      setPromptInput(userPromptInputValue);
       delete promptInputMap[scopedStorageKey];
       if (Object.keys(promptInputMap).length) {
         localStorage.setItem(
@@ -91,8 +94,8 @@ export default function usePromptInputStorage({
         // A slow hydration must never overwrite text that the user typed or
         // cleared while the request was in flight.
         if (promptInputRef.current !== hydrationBaseline) return;
-        setPromptInput(remoteValue);
         promptInputRef.current = remoteValue;
+        setPromptInput(remoteValue);
       }
     );
     return () => {
@@ -100,7 +103,7 @@ export default function usePromptInputStorage({
         hydrationSequenceRef.current += 1;
       }
     };
-  }, [scopedStorageKey, setPromptInput, syncedDraftScope]);
+  }, [promptInputRef, scopedStorageKey, setPromptInput, syncedDraftScope]);
 
   const debouncedWriteToStorage = useMemo(
     () =>
@@ -129,9 +132,18 @@ export default function usePromptInputStorage({
     [syncedDraftScope, threadSlug, workspaceSlug]
   );
 
+  const schedulePromptInputStorage = useCallback(
+    (value) => {
+      promptInputRef.current = value;
+      debouncedWriteToStorage(value, scopedStorageKey);
+    },
+    [debouncedWriteToStorage, promptInputRef, scopedStorageKey]
+  );
+
   useEffect(() => {
-    debouncedWriteToStorage(promptInput, scopedStorageKey);
-  }, [promptInput, scopedStorageKey, debouncedWriteToStorage]);
+    if (externalPromptInputRef) return;
+    schedulePromptInputStorage(promptInput);
+  }, [externalPromptInputRef, promptInput, schedulePromptInputStorage]);
 
   useEffect(
     () => () => {
@@ -143,4 +155,6 @@ export default function usePromptInputStorage({
     },
     [debouncedWriteToStorage, syncedDraftScope]
   );
+
+  return schedulePromptInputStorage;
 }

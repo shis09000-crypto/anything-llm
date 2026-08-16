@@ -2,6 +2,7 @@ const path = require("path");
 const {
   ownerForTable,
   ownershipRegistry,
+  modelTables,
   roleRegistry,
   runtimeSchemaForRole,
   crossSchemaCapabilityFor,
@@ -18,8 +19,9 @@ describe("module schema ownership", () => {
     "%s registry covers every Prisma table exactly once",
     (database) => {
       const registry = ownershipRegistry({ database, schemaFile });
-      expect(registry).toHaveLength(167);
-      expect(new Set(registry.map(({ table }) => table)).size).toBe(167);
+      const tableCount = modelTables(schemaFile).length;
+      expect(registry).toHaveLength(tableCount);
+      expect(new Set(registry.map(({ table }) => table)).size).toBe(tableCount);
       const roles = roleRegistry(database);
       for (const entry of registry) expect(roles[entry.schema]).toBeTruthy();
     }
@@ -36,6 +38,9 @@ describe("module schema ownership", () => {
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
     expect(ownerForTable("security_key_registry", "main")).toBe("key_custody");
+    expect(ownerForTable("auth_device_recovery_challenges", "main")).toBe(
+      "identity"
+    );
     expect(ownerForTable("user_root_key_envelopes", "auth")).toBe("identity");
     expect(ownerForTable("auth_sessions", "auth")).toBe("identity");
   });

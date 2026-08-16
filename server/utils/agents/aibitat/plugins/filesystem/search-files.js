@@ -173,7 +173,7 @@ module.exports.FilesystemSearchFiles = {
                 for (const dir of allowedDirs) {
                   if (!dir || typeof dir !== "string") continue;
                   try {
-                    const { files } = searchFilesWithRipgrepGlob({
+                    const { files } = await searchFilesWithRipgrepGlob({
                       searchPath: dir,
                       patterns: effectivePatterns,
                       excludePatterns: safeExcludePatterns,
@@ -221,7 +221,7 @@ module.exports.FilesystemSearchFiles = {
               for (const dir of allowedDirs) {
                 if (!dir || typeof dir !== "string") continue;
                 try {
-                  const results = searchWithRipgrep({
+                  const results = await searchWithRipgrep({
                     searchPath: dir,
                     pattern,
                     filePattern,
@@ -277,18 +277,35 @@ module.exports.FilesystemSearchFiles = {
  * Search for files by glob pattern using ripgrep (fast file listing).
  * @returns {{ files: string[], method: string }}
  */
-function searchFilesWithRipgrepGlob({
+async function searchFilesWithRipgrepGlob({
   searchPath,
   patterns,
   excludePatterns = [],
   maxResults = 100,
 }) {
   const { spawnSync } = require("child_process");
-  let rgPath;
-  try {
-    ({ rgPath } = require("@vscode/ripgrep"));
-  } catch {
-    throw new Error("@vscode/ripgrep not installed");
+  const rgPath = resolveRipgrepPath();
+  if (!rgPath) {
+    const fs = require("fs/promises");
+    const files = new Set();
+    for (const pattern of patterns) {
+      const matches = await filesystem.searchFilesWithGlob(
+        searchPath,
+        pattern,
+        { excludePatterns }
+      );
+      for (const filePath of matches) {
+        try {
+          if (!(await fs.stat(filePath)).isFile()) continue;
+        } catch {
+          continue;
+        }
+        files.add(filePath);
+        if (files.size >= maxResults)
+          return { files: [...files], method: "node" };
+      }
+    }
+    return { files: [...files], method: "node" };
   }
 
   // Build ripgrep arguments for file listing
@@ -329,7 +346,7 @@ function searchFilesWithRipgrepGlob({
 /**
  * Search file contents using @vscode/ripgrep binary directly via spawnSync.
  */
-function searchWithRipgrep({
+async function searchWithRipgrep({
   searchPath,
   pattern,
   filePattern,
@@ -338,12 +355,16 @@ function searchWithRipgrep({
   maxResults,
 }) {
   const { spawnSync } = require("child_process");
-  let rgPath;
-  try {
-    ({ rgPath } = require("@vscode/ripgrep"));
-  } catch {
-    throw new Error("@vscode/ripgrep not installed");
-  }
+  const rgPath = resolveRipgrepPath();
+  if (!rgPath)
+    return await searchFileContentsWithNode({
+      searchPath,
+      pattern,
+      filePattern,
+      excludePatterns,
+      caseSensitive,
+      maxResults,
+    });
 
   // Build ripgrep arguments
   const args = [
@@ -386,6 +407,72 @@ function searchWithRipgrep({
     });
   }
 
+  return results;
+}
+
+function resolveRipgrepPath() {
+  const fs = require("fs");
+  const candidates = [];
+  try {
+    candidates.push(require("@vscode/ripgrep").rgPath);
+  } catch {}
+  for (const directory of String(process.env.PATH || "").split(path.delimiter))
+    if (directory) candidates.push(path.join(directory, "rg"));
+  return (
+    candidates.find((candidate) => {
+      if (!candidate || !fs.existsSync(candidate)) return false;
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    }) || null
+  );
+}
+
+async function searchFileContentsWithNode({
+  searchPath,
+  pattern,
+  filePattern,
+  excludePatterns,
+  caseSensitive,
+  maxResults,
+}) {
+  const fs = require("fs/promises");
+  let matcher;
+  try {
+    matcher = new RegExp(pattern, caseSensitive ? "" : "i");
+  } catch {
+    throw new Error("Invalid search regular expression");
+  }
+  const candidates = await filesystem.searchFilesWithGlob(
+    searchPath,
+    filePattern || "**/*",
+    { excludePatterns }
+  );
+  const results = [];
+  for (const filePath of candidates) {
+    if (results.length >= maxResults) break;
+    try {
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile() || stat.size > 5 * 1024 * 1024) continue;
+      const content = await fs.readFile(filePath, "utf8");
+      if (content.includes("\u0000")) continue;
+      const lines = content.split(/\r?\n/);
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!matcher.test(lines[index])) continue;
+        results.push({
+          file: filePath,
+          line: index + 1,
+          content: lines[index].trim(),
+        });
+        if (results.length >= maxResults) break;
+      }
+    } catch {
+      continue;
+    }
+  }
   return results;
 }
 

@@ -9,6 +9,9 @@ const { writeResponseChunk } = require("../helpers/chat/responses");
 const { enrichOperationContext } = require("../observability/operationContext");
 const { grepAgents } = require("./agents");
 const {
+  shouldBypassAutomaticAgentRouting,
+} = require("./automaticAgentRouting");
+const {
   grepCommand,
   VALID_COMMANDS,
   chatPrompt,
@@ -49,6 +52,11 @@ const { requestChatToolApproval } = require("./toolApproval");
 const { promptForHistory } = require("./displayPrompt");
 const { hydrateIncomingAttachments } = require("../contentObjects/chatPayload");
 const { beginModelExecution } = require("../aiGovernance");
+const {
+  finalizedTurnPersister,
+  hotTurnBuffer,
+  scopeKey: hotTurnScopeKey,
+} = require("./hotTurnBuffer");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -170,6 +178,7 @@ async function streamChatWithWorkspace(
 ) {
   enrichOperationContext({
     clientTurnId: options.clientTurnId || null,
+    timeZone: options.timeZone || null,
     workspaceId: workspace?.id || null,
     threadId: thread?.id || null,
     journey: "chat",
@@ -268,11 +277,13 @@ async function streamChatWithWorkspace(
   });
   if (isAgentChat) return;
 
+  const socialChatFastPath = shouldBypassAutomaticAgentRouting(agentMessage);
+
   const LLMConnector = getLLMProvider({
     provider: workspace?.chatProvider,
     model: workspace?.chatModel,
   });
-  const VectorDb = getVectorDbClass();
+  const VectorDb = socialChatFastPath ? null : getVectorDbClass();
 
   const messageLimit = workspace?.openAiHistory || 20;
   const historyStrategy = cacheStableHistoryStrategyFor({
@@ -281,13 +292,15 @@ async function streamChatWithWorkspace(
   });
   let hasVectorizedSpace = false;
   let embeddingsCount = 0;
-  try {
-    hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
-    embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
-  } catch (error) {
-    logRecoverableChatError("vector.namespace_status", error, {
-      workspaceSlug: workspace.slug,
-    });
+  if (!socialChatFastPath) {
+    try {
+      hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
+      embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
+    } catch (error) {
+      logRecoverableChatError("vector.namespace_status", error, {
+        workspaceSlug: workspace.slug,
+      });
+    }
   }
 
   // User is trying to query-mode chat a workspace that has no data in it - so
@@ -365,6 +378,24 @@ async function streamChatWithWorkspace(
     chatHistory = history.chatHistory || [];
     compaction = history.compaction || null;
     historyWindow = history.historyWindow || null;
+
+    const persistedTurnIds = rawHistory
+      .map((entry) => entry?.clientTurnId)
+      .filter(Boolean);
+    const hotTurns = hotTurnBuffer.pendingForScope(
+      {
+        workspaceId: workspace.id,
+        threadId: thread?.id || null,
+        userId: user?.id || null,
+      },
+      { persistedClientTurnIds: persistedTurnIds }
+    );
+    for (const hotTurn of hotTurns) {
+      chatHistory.push(
+        { role: "user", content: hotTurn.prompt },
+        { role: "assistant", content: hotTurn.response }
+      );
+    }
   } catch (error) {
     logRecoverableChatError("recent_chat_history", error, {
       workspaceSlug: workspace.slug,
@@ -378,43 +409,47 @@ async function streamChatWithWorkspace(
   // it will undergo prompt compression anyway to make it work. If there is so much pinned that the context here is bigger than
   // what the model can support - it would get compressed anyway and that really is not the point of pinning. It is really best
   // suited for high-context models.
-  try {
-    await new DocumentManager({
-      workspace,
-      maxTokens: LLMConnector.promptWindowLimit(),
-    })
-      .pinnedDocs()
-      .then((pinnedDocs) => {
-        pinnedDocs.forEach((doc) => {
-          const { pageContent, ...metadata } = doc;
-          pinnedDocIdentifiers.push(sourceIdentifier(doc));
-          contextTexts.push(doc.pageContent);
-          sources.push({
-            text:
-              pageContent.slice(0, 1_000) +
-              "...continued on in source document...",
-            ...metadata,
+  if (!socialChatFastPath) {
+    try {
+      await new DocumentManager({
+        workspace,
+        maxTokens: LLMConnector.promptWindowLimit(),
+      })
+        .pinnedDocs()
+        .then((pinnedDocs) => {
+          pinnedDocs.forEach((doc) => {
+            const { pageContent, ...metadata } = doc;
+            pinnedDocIdentifiers.push(sourceIdentifier(doc));
+            contextTexts.push(doc.pageContent);
+            sources.push({
+              text:
+                pageContent.slice(0, 1_000) +
+                "...continued on in source document...",
+              ...metadata,
+            });
           });
         });
+    } catch (error) {
+      logRecoverableChatError("pinned_docs", error, {
+        workspaceSlug: workspace.slug,
       });
-  } catch (error) {
-    logRecoverableChatError("pinned_docs", error, {
-      workspaceSlug: workspace.slug,
-    });
+    }
   }
 
   // Inject any parsed files for this workspace/thread/user
-  const parsedFiles = await WorkspaceParsedFiles.getContextFiles(
-    workspace,
-    thread || null,
-    user || null
-  ).catch((error) => {
-    logRecoverableChatError("parsed_files", error, {
-      workspaceSlug: workspace.slug,
-      threadId: thread?.id || null,
-    });
-    return [];
-  });
+  const parsedFiles = socialChatFastPath
+    ? []
+    : await WorkspaceParsedFiles.getContextFiles(
+        workspace,
+        thread || null,
+        user || null
+      ).catch((error) => {
+        logRecoverableChatError("parsed_files", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        });
+        return [];
+      });
   parsedFiles.forEach((doc) => {
     const { pageContent, ...metadata } = doc;
     contextTexts.push(doc.pageContent);
@@ -564,18 +599,20 @@ async function streamChatWithWorkspace(
   if (exposeSaveMemoryTool) {
     systemPrompt = `${systemPrompt}\n\n${SAVE_MEMORY_TOOL_SYSTEM_INSTRUCTION}`;
   }
-  const autoCompaction = await maybeAutoCompact({
-    workspace,
-    user,
-    thread,
-    llm: LLMConnector,
-    systemPrompt,
-    chatHistory,
-    userPrompt: updatedMessage,
-    contextTexts,
-    attachments: llmAttachments,
-    compaction,
-  });
+  const autoCompaction = socialChatFastPath
+    ? null
+    : await maybeAutoCompact({
+        workspace,
+        user,
+        thread,
+        llm: LLMConnector,
+        systemPrompt,
+        chatHistory,
+        userPrompt: updatedMessage,
+        contextTexts,
+        attachments: llmAttachments,
+        compaction,
+      });
   if (autoCompaction?.compactionId) {
     const nextHistory = await recentChatHistoryWithCompaction({
       user,
@@ -598,7 +635,9 @@ async function streamChatWithWorkspace(
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: appendCurrentDateTimeToPrompt(updatedMessage),
+      userPrompt: appendCurrentDateTimeToPrompt(updatedMessage, {
+        timeZone: options.timeZone,
+      }),
       contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
@@ -611,6 +650,10 @@ async function streamChatWithWorkspace(
     historyWindow,
     compaction
   );
+  const lockedExecution = {
+    model: workspace?.chatModel || LLMConnector?.model || null,
+    provider: workspace?.chatProvider || process.env.LLM_PROVIDER || null,
+  };
   const modelExecution = await beginModelExecution(
     {
       ownerType: "workspace",
@@ -636,6 +679,15 @@ async function streamChatWithWorkspace(
           temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
           user: user,
           thinking: deepSeekThinkingMode,
+          runtimeContext: {
+            workspaceId: workspace.id,
+            threadId: thread?.id || null,
+            userId: user?.id || null,
+            chatRunId: options.clientTurnId || uuid,
+            clientTurnId: options.clientTurnId || null,
+            taskPriority: "P0",
+            taskIntent: "foreground_chat",
+          },
         });
 
       completeText = textResponse;
@@ -648,7 +700,7 @@ async function streamChatWithWorkspace(
         sources,
         type: "textResponseChunk",
         textResponse: completeText,
-        close: true,
+        close: false,
         error: false,
         metrics,
       });
@@ -657,6 +709,15 @@ async function streamChatWithWorkspace(
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
         user: user,
         thinking: deepSeekThinkingMode,
+        runtimeContext: {
+          workspaceId: workspace.id,
+          threadId: thread?.id || null,
+          userId: user?.id || null,
+          chatRunId: options.clientTurnId || uuid,
+          clientTurnId: options.clientTurnId || null,
+          taskPriority: "P0",
+          taskIntent: "foreground_chat",
+        },
         ...(exposeSaveMemoryTool
           ? {
               tools: saveMemoryToolsForMessage(updatedMessage),
@@ -702,42 +763,219 @@ async function streamChatWithWorkspace(
     await modelExecution.fail(error);
     throw error;
   }
-  await modelExecution.settle(metrics, {
-    transport: "web-stream",
-    chatMode,
-  });
+  const settleModelExecution = () =>
+    modelExecution
+      .settle(metrics, {
+        transport: "web-stream",
+        chatMode,
+      })
+      .catch((error) =>
+        logRecoverableChatError("model_execution_settle", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        })
+      );
 
   if (completeText?.length > 0) {
-    const { chat } = await WorkspaceChats.new({
+    const clientTurnId = String(options.clientTurnId || "").trim() || null;
+    const responsePayload = {
+      text: completeText,
+      sources,
+      type: chatMode,
+      attachments: historyAttachments,
+      metrics,
+      execution: require("./executionMetadata").executionMetadata({
+        metrics,
+        ...lockedExecution,
+      }),
+      ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
+    };
+    const persistenceInput = {
       workspaceId: workspace.id,
       prompt: displayMessage,
-      response: {
-        text: completeText,
-        sources,
-        type: chatMode,
-        attachments: historyAttachments,
-        metrics,
-        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
-      },
+      response: responsePayload,
       threadId: thread?.id || null,
       user,
-      clientTurnId: options.clientTurnId || null,
-    }).catch((error) => {
-      logRecoverableChatError("chat_history_save", error, {
-        workspaceSlug: workspace.slug,
-        threadId: thread?.id || null,
-      });
-      return { chat: null };
+      clientTurnId,
+    };
+    const hotStage = hotTurnBuffer.stage({
+      workspaceId: workspace.id,
+      threadId: thread?.id || null,
+      userId: user?.id || null,
+      clientTurnId,
+      prompt: displayMessage,
+      response: completeText,
+      metadata: { chatMode },
     });
+
+    if (hotStage.accepted) {
+      writeResponseChunk(response, {
+        uuid,
+        type: "finalizeResponseStream",
+        // The terminal frame doubles as an authoritative snapshot. This
+        // closes the race where completion arrives before the browser paints
+        // its last throttled delta batch.
+        textResponse: completeText,
+        close: false,
+        error: false,
+        clientTurnId,
+        persistenceStatus: "pending",
+        metrics,
+      });
+
+      const persistenceKey = hotTurnScopeKey({
+        workspaceId: workspace.id,
+        threadId: thread?.id || null,
+        userId: user?.id || null,
+      });
+      const persist = async () => {
+        hotTurnBuffer.updateStatus(clientTurnId, "persisting");
+        let lastError = null;
+        for (const delayMs of [0, 250, 1_000, 4_000]) {
+          if (delayMs)
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          try {
+            const result = await WorkspaceChats.new(persistenceInput);
+            if (!result?.chat) throw new Error("chat_history_save_empty");
+            return result.chat;
+          } catch (error) {
+            lastError = error;
+            hotTurnBuffer.updateStatus(clientTurnId, "retrying");
+            logRecoverableChatError("chat_history_save_retry", error, {
+              workspaceSlug: workspace.slug,
+              threadId: thread?.id || null,
+            });
+          }
+        }
+        throw lastError || new Error("chat_history_save_failed");
+      };
+
+      try {
+        const chat = await finalizedTurnPersister.enqueue(
+          persistenceKey,
+          persist
+        );
+        hotTurnBuffer.delete(clientTurnId);
+        void settleModelExecution();
+        if (syncEvent) {
+          publishWorkspaceSyncEvent({
+            ...syncEvent,
+            type: "chat_finalized",
+            chatId: chat.id,
+            publicChatId: chat.public_id || null,
+            clientTurnId,
+          });
+        }
+        writeResponseChunk(response, {
+          uuid,
+          type: "chatPersistence",
+          close: true,
+          clientTurnId,
+          status: "saved",
+          chatId: chat.id,
+          publicChatId: chat.public_id || null,
+          metrics,
+        });
+        maybeAutoCompact({
+          workspace,
+          user,
+          thread,
+          llm: LLMConnector,
+          systemPrompt,
+          chatHistory: [
+            ...chatHistory,
+            { role: "user", content: updatedMessage },
+            { role: "assistant", content: completeText },
+          ],
+          userPrompt: "",
+          contextTexts,
+          attachments: llmAttachments,
+          compaction,
+          historyPressureLimit: historyWindow?.historyPressureLimit || null,
+          phase: "turn_end",
+        }).catch((error) =>
+          console.warn(
+            "[ThreadCompaction] turn-end auto compact failed",
+            error.message
+          )
+        );
+      } catch (error) {
+        hotTurnBuffer.updateStatus(clientTurnId, "failed");
+        logRecoverableChatError("chat_history_save_failed", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        });
+        void settleModelExecution();
+        writeResponseChunk(response, {
+          uuid,
+          type: "chatPersistence",
+          close: true,
+          clientTurnId,
+          status: "failed",
+          errorCode: "chat_persistence_failed",
+          metrics,
+        });
+        void (async () => {
+          for (const delayMs of [15_000, 30_000, 60_000, 120_000, 240_000]) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+            if (!hotTurnBuffer.entries.has(clientTurnId)) return;
+            try {
+              const chat = await finalizedTurnPersister.enqueue(
+                persistenceKey,
+                async () => {
+                  const result = await WorkspaceChats.new(persistenceInput);
+                  if (!result?.chat) throw new Error("chat_history_save_empty");
+                  return result.chat;
+                }
+              );
+              hotTurnBuffer.delete(clientTurnId);
+              if (syncEvent) {
+                publishWorkspaceSyncEvent({
+                  ...syncEvent,
+                  type: "chat_finalized",
+                  chatId: chat.id,
+                  publicChatId: chat.public_id || null,
+                  clientTurnId,
+                });
+              }
+              return;
+            } catch (retryError) {
+              hotTurnBuffer.updateStatus(clientTurnId, "retrying");
+              logRecoverableChatError(
+                "chat_history_background_retry",
+                retryError,
+                {
+                  workspaceSlug: workspace.slug,
+                  threadId: thread?.id || null,
+                }
+              );
+            }
+          }
+        })();
+      }
+      return;
+    }
+
+    await settleModelExecution();
+    const { chat } = await WorkspaceChats.new(persistenceInput).catch(
+      (error) => {
+        logRecoverableChatError("chat_history_save", error, {
+          workspaceSlug: workspace.slug,
+          threadId: thread?.id || null,
+        });
+        return { chat: null };
+      }
+    );
     if (syncEvent) {
       publishWorkspaceSyncEvent({
         ...syncEvent,
         type: "chat_finalized",
         chatId: chat?.id || null,
         publicChatId: chat?.public_id || null,
-        clientTurnId: options.clientTurnId || null,
+        clientTurnId,
       });
     }
+
     maybeAutoCompact({
       workspace,
       user,
@@ -769,11 +1007,13 @@ async function streamChatWithWorkspace(
       error: false,
       chatId: chat?.id || null,
       publicChatId: chat?.public_id || null,
-      clientTurnId: options.clientTurnId || null,
+      clientTurnId,
       metrics,
     });
     return;
   }
+
+  await settleModelExecution();
 
   writeResponseChunk(response, {
     uuid,

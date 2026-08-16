@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-character-performance-plan-v1.schema.json",
+  "title": "Athena Character Performance Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "id",
+    "session_id",
+    "response_id",
+    "sequence_id",
+    "pack_ref",
+    "status",
+    "created_at",
+    "clock",
+    "planned_duration_ms",
+    "resolved_duration_ms",
+    "commands",
+    "suppressed_cues",
+    "warnings",
+    "integrity"
+  ],
+  "properties": {
+    "schema": { "const": "athena.character.performance_plan" },
+    "schema_version": { "const": "1.0" },
+    "id": { "type": "string", "pattern": "^chr_perf_plan_[a-f0-9]+$" },
+    "session_id": {
+      "type": "string",
+      "pattern": "^chr_perf_session_[a-f0-9]+$"
+    },
+    "response_id": { "type": "string", "minLength": 1 },
+    "sequence_id": { "type": "string", "minLength": 1 },
+    "pack_ref": { "$ref": "#/$defs/packRef" },
+    "status": {
+      "enum": [
+        "ready",
+        "dispatched",
+        "executing",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "created_at": { "type": "integer", "minimum": 0 },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "origin"],
+      "properties": {
+        "unit": { "const": "ms" },
+        "origin": { "const": "plan_dispatch" }
+      }
+    },
+    "planned_duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000
+    },
+    "resolved_duration_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000
+    },
+    "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+    "suppressed_cues": { "type": "array", "items": { "type": "object" } },
+    "warnings": { "type": "array", "items": { "type": "object" } },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256"],
+      "properties": { "sha256": { "$ref": "#/$defs/sha256" } }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "packRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "sha256"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "cue_id",
+        "track",
+        "start_ms",
+        "duration_ms",
+        "timing",
+        "easing",
+        "intensity",
+        "binding_id",
+        "primitive",
+        "target",
+        "parameters"
+      ],
+      "properties": {
+        "command_id": { "type": "string", "pattern": "^chr_cmd_[a-f0-9]+$" },
+        "cue_id": { "type": "string", "minLength": 1 },
+        "track": {
+          "enum": [
+            "face",
+            "gaze",
+            "head_neck",
+            "shoulders",
+            "torso",
+            "left_arm",
+            "right_arm",
+            "left_hand",
+            "right_hand",
+            "left_leg",
+            "right_leg",
+            "action",
+            "speech"
+          ]
+        },
+        "start_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "duration_ms": { "type": "integer", "minimum": 40, "maximum": 360000 },
+        "timing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "planned_start_ms",
+            "planned_duration_ms",
+            "resolved_start_ms",
+            "resolved_duration_ms",
+            "actual_start_ms",
+            "actual_duration_ms"
+          ],
+          "properties": {
+            "planned_start_ms": { "type": "integer", "minimum": 0 },
+            "planned_duration_ms": { "type": "integer", "minimum": 40 },
+            "resolved_start_ms": { "type": "integer", "minimum": 0 },
+            "resolved_duration_ms": { "type": "integer", "minimum": 40 },
+            "actual_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+            "actual_duration_ms": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        },
+        "easing": {
+          "enum": [
+            "cut",
+            "linear",
+            "ease_in",
+            "ease_out",
+            "ease_in_out",
+            "blend"
+          ]
+        },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "binding_id": { "type": "string", "minLength": 1 },
+        "primitive": {
+          "enum": [
+            "face.region_state",
+            "gaze.target",
+            "body.motion",
+            "limb.motion",
+            "world.action",
+            "speech.text"
+          ]
+        },
+        "target": { "type": "string", "minLength": 1 },
+        "parameters": { "type": "object" }
+      }
+    }
+  }
+}

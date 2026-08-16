@@ -269,6 +269,7 @@ class ClickHouseEventStore {
     eventId,
     subjectId,
     operationId,
+    traceId,
     limit = 100,
   } = {}) {
     const filters = [];
@@ -296,6 +297,10 @@ class ClickHouseEventStore {
     if (operationId) {
       filters.push("operation_id = {operationId:String}");
       params.operationId = operationId;
+    }
+    if (traceId) {
+      filters.push("trace_id = {traceId:String}");
+      params.traceId = traceId;
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 100, 500));
     const query = `

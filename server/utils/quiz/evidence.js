@@ -77,25 +77,32 @@ function sourceKey(source = {}) {
 }
 
 function toSourceRef(source = {}, id, score) {
+  const metadata =
+    source?.metadata && typeof source.metadata === "object"
+      ? source.metadata
+      : {};
+  const resolved = { ...metadata, ...source };
   return {
     id,
     title:
-      source.title ||
-      source.name ||
-      source.fileName ||
-      source.docpath ||
+      resolved.title ||
+      resolved.name ||
+      resolved.fileName ||
+      resolved.docpath ||
       "Source",
-    docId: source.docId || null,
-    docpath: source.docpath || source.filePath || source.source || null,
+    docId: resolved.docId || null,
+    docpath: resolved.docpath || resolved.filePath || resolved.source || null,
+    chunkSource: resolved.chunkSource || null,
+    text: textOf(source).slice(0, 4_000),
     chunkIndex:
-      source.chunkIndex === undefined || source.chunkIndex === null
+      resolved.chunkIndex === undefined || resolved.chunkIndex === null
         ? null
-        : Number(source.chunkIndex),
+        : Number(resolved.chunkIndex),
     score,
-    published: source.published || null,
-    sourceType: source.sourceType || null,
-    nodeKey: source.nodeKey || null,
-    nodeLabel: source.nodeLabel || null,
+    published: resolved.published || null,
+    sourceType: resolved.sourceType || null,
+    nodeKey: resolved.nodeKey || null,
+    nodeLabel: resolved.nodeLabel || null,
   };
 }
 
@@ -126,7 +133,11 @@ function normalizeEvidenceSources(sources = []) {
     });
 }
 
-async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
+async function retrieveWorkspaceQuizEvidence({
+  workspace,
+  plan,
+  nodeContext = null,
+}) {
   const VectorDb = getVectorDbClass();
   const EmbedderEngine = getEmbeddingEngineSelection();
   const LLMConnector = {
@@ -188,8 +199,7 @@ async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
       filterIdentifiers: [],
       rerank: workspace?.vectorSearchMode === "rerank",
     });
-    if (result.message)
-      return { evidenceChunks: [], sourceRefs: [], error: result.message };
+    if (result.message) return generalKnowledgeEvidence(plan);
     sources.push(...(result.sources || []));
   }
 
@@ -202,6 +212,28 @@ async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
     sourceRefs: evidenceChunks.map((chunk) => chunk.sourceRef),
     error: null,
   };
+}
+
+async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
+  try {
+    return await retrieveWorkspaceQuizEvidence({
+      workspace,
+      plan,
+      nodeContext,
+    });
+  } catch (error) {
+    // Evidence retrieval only enriches a quiz. Missing workspace evidence,
+    // graph/vector errors, and remote RAG failures must never block the model
+    // from generating questions from its own general knowledge.
+    console.warn(
+      "[QuizEvidence] workspace retrieval unavailable; using model knowledge",
+      {
+        code: error?.code || null,
+        message: error?.message || "quiz_evidence_unavailable",
+      }
+    );
+    return generalKnowledgeEvidence(plan);
+  }
 }
 
 module.exports = {

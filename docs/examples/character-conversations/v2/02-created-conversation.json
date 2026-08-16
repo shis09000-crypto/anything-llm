@@ -1,0 +1,35 @@
+{
+  "id": "ath_conv_continuous_01",
+  "object": "character.conversation",
+  "protocol_version": "2.0",
+  "status": "created",
+  "character_id": "athena.test.cold_tsundere",
+  "character_instance_id": "char_inst_continuous_01",
+  "current_turn_id": null,
+  "last_response_id": null,
+  "state_revision": 0,
+  "previous_activity": "reading",
+  "soft_close_due_at": null,
+  "suspended_at": null,
+  "ended_at": null,
+  "created_at": 1786500000000,
+  "updated_at": 1786500000000,
+  "character_state": {
+    "revision": 0,
+    "affect": {
+      "primary": "athena.core:emotion/neutral",
+      "secondary": null,
+      "intensity": 0.15,
+      "valence": 0,
+      "arousal": 0.15
+    },
+    "attention": { "target": "player", "intensity": 0.45 },
+    "gaze": { "target": "player", "style": "neutral" },
+    "posture": "conversation_ready",
+    "activity": { "current": "conversation", "previous": "reading" },
+    "performance_state": "listening",
+    "decay": { "mode": "hold", "target": "soft_neutral", "duration_ms": 0 },
+    "source_turn_id": null,
+    "updated_at": 1786500000000
+  }
+}

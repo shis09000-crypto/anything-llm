@@ -184,9 +184,63 @@ function decryptSecretIfNeeded(value, context = {}) {
   return decryptSecret(value, context);
 }
 
+function remoteContextForEncryptedValue(value, context = {}) {
+  if (context.purpose || context.domain) return context;
+  const payload = parseEncryptedSecret(value);
+  return {
+    ...context,
+    purpose: payload.purpose || "secret-store",
+    domain: payload.purpose || "secret-store",
+  };
+}
+
+async function encryptSecretAsync(plainText, context = {}) {
+  if (isEmptySecret(plainText) || isEncryptedSecret(plainText))
+    return plainText;
+  const {
+    remoteKeyCustodyEnabled,
+    wrapMaterial,
+  } = require("./keyCustody/remoteClient");
+  if (!remoteKeyCustodyEnabled(process.env, context))
+    return encryptSecret(plainText, context);
+  return wrapMaterial(String(plainText), {
+    purpose: normalizedPurpose(context),
+    domain: context.domain || normalizedPurpose(context),
+    operation: context.operation || "encrypt-secret",
+    resource: context.resource,
+  });
+}
+
+async function decryptSecretAsync(encryptedText, context = {}) {
+  const resolvedContext = remoteContextForEncryptedValue(
+    encryptedText,
+    context
+  );
+  const {
+    remoteKeyCustodyEnabled,
+    unwrapMaterial,
+  } = require("./keyCustody/remoteClient");
+  if (!remoteKeyCustodyEnabled(process.env, resolvedContext))
+    return decryptSecret(encryptedText, context);
+  return unwrapMaterial(encryptedText, {
+    purpose: normalizedPurpose(resolvedContext),
+    domain: resolvedContext.domain || normalizedPurpose(resolvedContext),
+    operation: resolvedContext.operation || "decrypt-secret",
+    resource: resolvedContext.resource,
+  });
+}
+
+async function decryptSecretIfNeededAsync(value, context = {}) {
+  if (!isEncryptedSecret(value)) return value;
+  return decryptSecretAsync(value, context);
+}
+
 module.exports = {
   encryptSecret,
+  encryptSecretAsync,
   decryptSecret,
+  decryptSecretAsync,
   isEncryptedSecret,
   decryptSecretIfNeeded,
+  decryptSecretIfNeededAsync,
 };

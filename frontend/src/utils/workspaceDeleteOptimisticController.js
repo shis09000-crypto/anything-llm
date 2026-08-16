@@ -143,6 +143,7 @@ function registerWorkspaceCreate({ data = {}, source = "local" } = {}) {
     intentRank: 0,
     protected: true,
     abortable: false,
+    immediate: true,
     label: "optimistic:workspace-create",
     dedupeKey: `optimistic:workspace-create:${createIntentId}`,
     optimisticPatch: () => {

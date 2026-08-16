@@ -3,6 +3,7 @@ const {
   BrowserWindow,
   dialog,
   ipcMain,
+  safeStorage,
   session,
   shell,
 } = require("electron");
@@ -25,6 +26,7 @@ const {
   writeRuntimeConfig,
 } = require("./runtime.cjs");
 const { DesktopBrowserNode } = require("./browser-node.cjs");
+const { DesktopBrowserEgressRuntime } = require("./browser-egress-runtime.cjs");
 
 let mainWindow;
 let runtimeConfig;
@@ -33,6 +35,7 @@ let startupError = null;
 let quitting = false;
 let shutdownComplete = false;
 let browserNode = null;
+let browserEgressRuntime = null;
 const repoRoot = app.isPackaged ? __dirname : path.resolve(__dirname, "..");
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const MAX_ROTATED_LOGS = 5;
@@ -297,9 +300,15 @@ async function createWindow() {
     webPreferences: browserWindowOptions(path.join(__dirname, "preload.cjs")),
   });
   configureRendererSecurity(mainWindow);
+  browserEgressRuntime = new DesktopBrowserEgressRuntime({
+    app,
+    safeStorage,
+    log: appendDesktopLog,
+  });
   browserNode = new DesktopBrowserNode({
     app,
     mainWindow,
+    egressRuntime: browserEgressRuntime,
     log: appendDesktopLog,
   });
 
@@ -404,6 +413,15 @@ browserIpc("browser-node:find", (node, term) => node.find(term));
 browserIpc("browser-node:set-zoom", (node, factor) => node.setZoom(factor));
 browserIpc("browser-node:capture", (node) => node.capture());
 browserIpc("browser-node:print-to-pdf", (node) => node.printToPdf());
+browserIpc("browser-node:install-egress-config", (node, sealedConfig) =>
+  node.installEgressConfig(sealedConfig)
+);
+browserIpc("browser-node:apply-network-route", (node, networkRoute) =>
+  node.applyNetworkRoute(networkRoute)
+);
+browserIpc("browser-node:open-system-chrome", (node, options) =>
+  node.openSystemChrome(options)
+);
 ipcMain.on("browser-node:info", (event) => {
   assertTrustedIpc(event);
   event.returnValue = browserNode
@@ -441,6 +459,11 @@ app.whenReady().then(async () => {
   await createWindow();
 });
 
+app.on("login", (event, _webContents, _details, authInfo, callback) => {
+  if (!browserEgressRuntime?.handleProxyLogin?.(authInfo, callback)) return;
+  event.preventDefault();
+});
+
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
 });
@@ -454,10 +477,12 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   if (quitting) return;
   quitting = true;
-  void Promise.allSettled([stopServices(), browserNode?.closeAll?.()]).finally(
-    () => {
-      shutdownComplete = true;
-      app.quit();
-    }
-  );
+  void Promise.allSettled([
+    stopServices(),
+    browserNode?.closeAll?.(),
+    browserEgressRuntime?.close?.(),
+  ]).finally(() => {
+    shutdownComplete = true;
+    app.quit();
+  });
 });

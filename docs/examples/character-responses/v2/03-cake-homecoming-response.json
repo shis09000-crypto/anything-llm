@@ -1,0 +1,624 @@
+{
+  "id": "chr_resp_0f1027a4a22e",
+  "object": "character.response",
+  "protocol_version": "2.0",
+  "status": "completed",
+  "created_at": 1786469700226,
+  "completed_at": 1786469718418,
+  "character": {
+    "character_id": "athena.test.cold_tsundere",
+    "instance_id": "char_inst_flash_v2_observer",
+    "capability_manifest": {
+      "id": "athena.cold_tsundere.expressive",
+      "version": "2.0.0",
+      "sha256": "1b82e27288c8e2b6d82d0cb7c4173dad44049944736c408851696445eb5dd252"
+    }
+  },
+  "conversation": {
+    "id": "ath_conv_flash_v2_3",
+    "previous_response_id": null
+  },
+  "capability_manifest": {
+    "id": "athena.cold_tsundere.expressive",
+    "version": "2.0.0",
+    "sha256": "1b82e27288c8e2b6d82d0cb7c4173dad44049944736c408851696445eb5dd252"
+  },
+  "output": [
+    {
+      "id": "perf_0f1027a4a22e",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "affect": {
+        "primary": "athena.core:emotion/tender",
+        "secondary": "athena.core:emotion/embarrassed",
+        "intensity": 0.55,
+        "valence": 0.7,
+        "arousal": 0.35
+      },
+      "source": "main_agent",
+      "channel_modulation": {
+        "face": {
+          "primary": "athena.core:emotion/tender",
+          "secondary": "athena.core:emotion/embarrassed",
+          "intensity": 0.5,
+          "valence": 0.6,
+          "arousal": 0.3
+        },
+        "voice": {
+          "primary": "athena.core:emotion/tender",
+          "secondary": "athena.core:emotion/embarrassed",
+          "intensity": 0.5,
+          "valence": 0.6,
+          "arousal": 0.3
+        },
+        "body": {
+          "primary": "athena.core:emotion/tender",
+          "secondary": "athena.core:emotion/neutral",
+          "intensity": 0.4,
+          "valence": 0.5,
+          "arousal": 0.2
+        },
+        "gaze": {
+          "primary": "athena.core:emotion/tender",
+          "secondary": "athena.core:emotion/embarrassed",
+          "intensity": 0.5,
+          "valence": 0.6,
+          "arousal": 0.3
+        }
+      },
+      "transition": {
+        "style": "ease_in_out",
+        "duration_ms": 300
+      },
+      "persistence": "response_lifetime",
+      "revision": 0,
+      "interruptibility": "blend_out"
+    },
+    {
+      "id": "sequence_0f1027a4a22e",
+      "type": "performance_sequence",
+      "status": "completed",
+      "intent_id": "perf_0f1027a4a22e",
+      "required": true,
+      "planned_duration_ms": 5200,
+      "phases": [
+        {
+          "id": "reaction",
+          "planned_start_ms": 0,
+          "planned_duration_ms": 700
+        },
+        {
+          "id": "orientation",
+          "planned_start_ms": 700,
+          "planned_duration_ms": 900
+        },
+        {
+          "id": "delivery",
+          "planned_start_ms": 1600,
+          "planned_duration_ms": 2400
+        },
+        {
+          "id": "recovery",
+          "planned_start_ms": 4000,
+          "planned_duration_ms": 1200
+        }
+      ],
+      "tracks": [
+        {
+          "name": "face",
+          "enabled": true,
+          "baseline": [
+            {
+              "region": "brow",
+              "side": "both",
+              "state": "athena.core:face_brow/neutral",
+              "intensity": 0.3
+            },
+            {
+              "region": "eyelid",
+              "side": "both",
+              "state": "athena.core:face_eyelid/neutral",
+              "intensity": 0.3
+            },
+            {
+              "region": "eye_shape",
+              "side": "both",
+              "state": "athena.core:face_eye_shape/soft",
+              "intensity": 0.3
+            },
+            {
+              "region": "pupil",
+              "side": "both",
+              "state": "athena.core:face_pupil/neutral",
+              "intensity": 0.2
+            },
+            {
+              "region": "cheek",
+              "side": "both",
+              "state": "athena.core:face_cheek/neutral",
+              "intensity": 0.2
+            },
+            {
+              "region": "nose",
+              "side": "center",
+              "state": "athena.core:face_nose/neutral",
+              "intensity": 0.2
+            },
+            {
+              "region": "lip",
+              "side": "both",
+              "state": "athena.core:face_lip/neutral",
+              "intensity": 0.3
+            },
+            {
+              "region": "jaw",
+              "side": "center",
+              "state": "athena.core:face_jaw/neutral",
+              "intensity": 0.2
+            }
+          ],
+          "cues": [
+            {
+              "cue_id": "cue_face_reaction_01",
+              "phase_id": "reaction",
+              "planned_start_ms": 0,
+              "planned_duration_ms": 500,
+              "easing": "ease_in_out",
+              "intensity": 0.5,
+              "amplitude": "small",
+              "required": false,
+              "changes": [
+                {
+                  "region": "brow",
+                  "side": "both",
+                  "state": "athena.core:face_brow/inner_raise",
+                  "intensity": 0.5
+                },
+                {
+                  "region": "eyelid",
+                  "side": "both",
+                  "state": "athena.core:face_eyelid/wide",
+                  "intensity": 0.4
+                },
+                {
+                  "region": "eye_shape",
+                  "side": "both",
+                  "state": "athena.core:face_eye_shape/soft",
+                  "intensity": 0.5
+                },
+                {
+                  "region": "lip",
+                  "side": "both",
+                  "state": "athena.core:face_lip/part",
+                  "intensity": 0.4
+                }
+              ]
+            },
+            {
+              "cue_id": "cue_face_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 700,
+              "planned_duration_ms": 600,
+              "easing": "ease_in_out",
+              "intensity": 0.5,
+              "amplitude": "small",
+              "required": false,
+              "changes": [
+                {
+                  "region": "brow",
+                  "side": "both",
+                  "state": "athena.core:face_brow/neutral",
+                  "intensity": 0.3
+                },
+                {
+                  "region": "eyelid",
+                  "side": "both",
+                  "state": "athena.core:face_eyelid/half_lidded",
+                  "intensity": 0.4
+                },
+                {
+                  "region": "lip",
+                  "side": "both",
+                  "state": "athena.core:face_lip/restrained_smile",
+                  "intensity": 0.5
+                },
+                {
+                  "region": "cheek",
+                  "side": "both",
+                  "state": "athena.core:face_cheek/flush",
+                  "intensity": 0.35
+                }
+              ]
+            },
+            {
+              "cue_id": "cue_face_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1600,
+              "planned_duration_ms": 1800,
+              "easing": "ease_in_out",
+              "intensity": 0.55,
+              "amplitude": "small",
+              "required": false,
+              "changes": [
+                {
+                  "region": "brow",
+                  "side": "both",
+                  "state": "athena.core:face_brow/neutral",
+                  "intensity": 0.3
+                },
+                {
+                  "region": "eyelid",
+                  "side": "both",
+                  "state": "athena.core:face_eyelid/neutral",
+                  "intensity": 0.3
+                },
+                {
+                  "region": "eye_shape",
+                  "side": "both",
+                  "state": "athena.core:face_eye_shape/soft",
+                  "intensity": 0.6
+                },
+                {
+                  "region": "lip",
+                  "side": "both",
+                  "state": "athena.core:face_lip/restrained_smile",
+                  "intensity": 0.6
+                },
+                {
+                  "region": "cheek",
+                  "side": "both",
+                  "state": "athena.core:face_cheek/flush",
+                  "intensity": 0.4
+                }
+              ]
+            },
+            {
+              "cue_id": "cue_face_recovery_01",
+              "phase_id": "recovery",
+              "planned_start_ms": 4000,
+              "planned_duration_ms": 1000,
+              "easing": "ease_out",
+              "intensity": 0.35,
+              "amplitude": "micro",
+              "required": false,
+              "changes": [
+                {
+                  "region": "lip",
+                  "side": "both",
+                  "state": "athena.core:face_lip/neutral",
+                  "intensity": 0.3
+                },
+                {
+                  "region": "cheek",
+                  "side": "both",
+                  "state": "athena.core:face_cheek/neutral",
+                  "intensity": 0.2
+                },
+                {
+                  "region": "eyelid",
+                  "side": "both",
+                  "state": "athena.core:face_eyelid/half_lidded",
+                  "intensity": 0.3
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "gaze",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_gaze_reaction_01",
+              "phase_id": "reaction",
+              "planned_start_ms": 0,
+              "planned_duration_ms": 500,
+              "easing": "ease_in",
+              "intensity": 0.5,
+              "amplitude": "small",
+              "required": false,
+              "gaze": "athena.core:gaze/focus",
+              "target": {
+                "type": "semantic",
+                "value": "current_focus"
+              }
+            },
+            {
+              "cue_id": "cue_gaze_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 700,
+              "planned_duration_ms": 700,
+              "easing": "ease_in_out",
+              "intensity": 0.5,
+              "amplitude": "small",
+              "required": false,
+              "gaze": "athena.core:gaze/avert",
+              "target": {
+                "type": "semantic",
+                "value": "away"
+              }
+            },
+            {
+              "cue_id": "cue_gaze_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1600,
+              "planned_duration_ms": 1800,
+              "easing": "ease_in_out",
+              "intensity": 0.55,
+              "amplitude": "small",
+              "required": false,
+              "gaze": "athena.core:gaze/direct",
+              "target": {
+                "type": "semantic",
+                "value": "player"
+              }
+            },
+            {
+              "cue_id": "cue_gaze_recovery_01",
+              "phase_id": "recovery",
+              "planned_start_ms": 4000,
+              "planned_duration_ms": 900,
+              "easing": "ease_out",
+              "intensity": 0.3,
+              "amplitude": "micro",
+              "required": false,
+              "gaze": "athena.core:gaze/avert",
+              "target": {
+                "type": "semantic",
+                "value": "away"
+              }
+            }
+          ]
+        },
+        {
+          "name": "head_neck",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_head_reaction_01",
+              "phase_id": "reaction",
+              "planned_start_ms": 0,
+              "planned_duration_ms": 500,
+              "easing": "ease_in",
+              "intensity": 0.4,
+              "amplitude": "small",
+              "required": false,
+              "motion": "athena.core:head_neck_motion/raise",
+              "direction": "slight upward, attentive"
+            },
+            {
+              "cue_id": "cue_head_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 700,
+              "planned_duration_ms": 600,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "small",
+              "required": false,
+              "motion": "athena.core:head_neck_motion/tilt",
+              "direction": "slight left tilt, thoughtful"
+            },
+            {
+              "cue_id": "cue_head_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1600,
+              "planned_duration_ms": 1800,
+              "easing": "ease_in_out",
+              "intensity": 0.45,
+              "amplitude": "small",
+              "required": false,
+              "motion": "athena.core:head_neck_motion/turn_toward",
+              "direction": "toward player"
+            }
+          ]
+        },
+        {
+          "name": "shoulders",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_shoulders_reaction_01",
+              "phase_id": "reaction",
+              "planned_start_ms": 0,
+              "planned_duration_ms": 500,
+              "easing": "ease_in",
+              "intensity": 0.35,
+              "amplitude": "micro",
+              "required": false,
+              "motion": "athena.core:shoulders_motion/relax",
+              "direction": "softening posture"
+            }
+          ]
+        },
+        {
+          "name": "torso",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_torso_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 700,
+              "planned_duration_ms": 700,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "small",
+              "required": false,
+              "motion": "athena.core:torso_motion/lean_forward",
+              "direction": "slight lean toward player"
+            }
+          ]
+        },
+        {
+          "name": "left_arm",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_larm_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1800,
+              "planned_duration_ms": 1200,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "small",
+              "required": false,
+              "motion": "athena.core:arm_motion/hold_close",
+              "direction": "arm tucked close to body"
+            }
+          ]
+        },
+        {
+          "name": "right_arm",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_rarm_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1800,
+              "planned_duration_ms": 1200,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "small",
+              "required": false,
+              "motion": "athena.core:arm_motion/hold_close",
+              "direction": "arm tucked close to body"
+            }
+          ]
+        },
+        {
+          "name": "left_hand",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_lhand_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1900,
+              "planned_duration_ms": 1000,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "micro",
+              "required": false,
+              "motion": "athena.core:hand_motion/pinch_clothing",
+              "direction": "fingers lightly gripping sleeve"
+            }
+          ]
+        },
+        {
+          "name": "right_hand",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_rhand_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1900,
+              "planned_duration_ms": 1000,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "micro",
+              "required": false,
+              "motion": "athena.core:hand_motion/pinch_clothing",
+              "direction": "fingers lightly gripping sleeve"
+            }
+          ]
+        },
+        {
+          "name": "left_leg",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_lleg_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 800,
+              "planned_duration_ms": 600,
+              "easing": "ease_in_out",
+              "intensity": 0.3,
+              "amplitude": "micro",
+              "required": false,
+              "motion": "athena.core:leg_motion/shift_weight",
+              "direction": "weight shifting slightly"
+            }
+          ]
+        },
+        {
+          "name": "right_leg",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_rleg_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 800,
+              "planned_duration_ms": 600,
+              "easing": "ease_in_out",
+              "intensity": 0.3,
+              "amplitude": "micro",
+              "required": false,
+              "motion": "athena.core:leg_motion/balanced",
+              "direction": "steady stance"
+            }
+          ]
+        },
+        {
+          "name": "action",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_action_orientation_01",
+              "phase_id": "orientation",
+              "planned_start_ms": 700,
+              "planned_duration_ms": 800,
+              "easing": "ease_in_out",
+              "intensity": 0.4,
+              "amplitude": "small",
+              "required": false,
+              "action": "athena.core:action/turn_to",
+              "target": {
+                "type": "semantic",
+                "value": "player"
+              },
+              "arguments": {
+                "purpose": "acknowledge arrival"
+              }
+            }
+          ]
+        },
+        {
+          "name": "speech",
+          "enabled": true,
+          "cues": [
+            {
+              "cue_id": "cue_speech_delivery_01",
+              "phase_id": "delivery",
+              "planned_start_ms": 1700,
+              "planned_duration_ms": 2100,
+              "easing": "ease_in_out",
+              "intensity": 0.5,
+              "amplitude": "small",
+              "required": false,
+              "text": "……蛋糕？你倒是记得挺清楚。",
+              "language": "zh-CN",
+              "delivery": {
+                "emotion": "athena.core:emotion/tender",
+                "emotion_source": "performance_intent",
+                "intensity": 0.5,
+                "rate": 0.9,
+                "volume": 0.6,
+                "style": "athena.core:voice_style/restrained",
+                "pause_before_ms": 200,
+                "pause_after_ms": 300
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "warnings": [],
+  "usage": {
+    "input_tokens": 11649,
+    "output_tokens": 3803,
+    "total_tokens": 15452,
+    "latency_ms": 18192
+  },
+  "safety_assessment": "normal",
+  "error": null
+}

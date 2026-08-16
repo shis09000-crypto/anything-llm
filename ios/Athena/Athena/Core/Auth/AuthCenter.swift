@@ -56,6 +56,7 @@ enum AuthCenterError: LocalizedError, Equatable {
     case invalidCredentials(String)
     case invalidSession
     case missingToken
+    case deviceIdentityRecoveryRequired(String)
 
     var errorDescription: String? {
         switch self {
@@ -65,6 +66,8 @@ enum AuthCenterError: LocalizedError, Equatable {
             "登录状态已失效，请重新登录。"
         case .missingToken:
             "服务器没有返回登录凭证。"
+        case .deviceIdentityRecoveryRequired(let message):
+            message
         }
     }
 }
@@ -77,6 +80,15 @@ enum SessionRecoveryResult: Equatable {
 private struct LoginRequest: Encodable {
     let identifier: String
     let password: String
+    let deviceBinding: DeviceBindingAssertion
+}
+
+private struct DeviceBindingPreflightRequest: Encodable {}
+
+private struct DeviceBindingPreflightResponse: Decodable {
+    let success: Bool
+    let challengeId: String
+    let challenge: String
 }
 
 private struct LoginResponse: Decodable {
@@ -85,6 +97,8 @@ private struct LoginResponse: Decodable {
     let token: String?
     let message: String?
     let recoveryCodes: [String]?
+    let nextAction: String?
+    let recoveryTicket: String?
 }
 
 private struct TokenCheckResponse: Decodable {
@@ -185,15 +199,38 @@ final class AuthCenter {
     }
 
     func login(identifier: String, password: String, using apiClient: APIClient) async throws {
-        let response = try await apiClient.requestJSON(
-            LoginResponse.self,
+        let preflight = try await apiClient.requestJSON(
+            DeviceBindingPreflightResponse.self,
             method: .post,
-            path: loginPath,
-            body: LoginRequest(identifier: identifier, password: password),
+            path: "/api/auth/device-binding/preflight",
+            body: DeviceBindingPreflightRequest(),
             authorization: .none,
             signing: .none,
             retryOnConnectionLoss: true
         )
+        guard preflight.success else { throw APIClientError.signingUnavailable }
+        let deviceBinding = try apiClient.deviceBindingAssertion(
+            challengeId: preflight.challengeId,
+            challenge: preflight.challenge
+        )
+        let response = try await apiClient.requestJSON(
+            LoginResponse.self,
+            method: .post,
+            path: loginPath,
+            body: LoginRequest(
+                identifier: identifier,
+                password: password,
+                deviceBinding: deviceBinding
+            ),
+            authorization: .none,
+            signing: .none,
+            retryOnConnectionLoss: true
+        )
+        if response.nextAction == "device_identity_reauth" {
+            throw AuthCenterError.deviceIdentityRecoveryRequired(
+                response.message ?? "需要使用通行密钥确认此设备身份。"
+            )
+        }
         guard response.valid else {
             throw AuthCenterError.invalidCredentials(response.message ?? "用户名或密码不正确。")
         }

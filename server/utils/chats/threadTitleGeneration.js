@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const PQueue = require("p-queue").default;
 const { getTaskConnector } = require("../llmTasks");
 const { publishThreadTitleUpdate } = require("./threadTitleEvents");
+const { requestInternalService } = require("../microModules");
 
 const TITLE_GENERATION_TIMEOUT_MS = 15_000;
 const TITLE_REFRESH_PAGE_SIZE =
@@ -36,6 +37,12 @@ const titleQueue = new PQueue({ concurrency: TITLE_QUEUE_CONCURRENCY });
 const pendingJobKeys = new Set();
 const pendingCallbacks = new Map();
 let titleMetadataReadiness = null;
+
+function usesRemoteThreadTitleControl() {
+  return ["chat-runtime", "agent-runtime"].includes(
+    String(process.env.ATHENA_RUNTIME_ROLE || "")
+  );
+}
 
 function titleDebug(event, payload = {}) {
   if (process.env.THREAD_TITLE_DEBUG !== "true") return;
@@ -325,17 +332,19 @@ async function runTitleGenerationJob({
   scope,
 }) {
   titleDebug("job:start", { workspaceId, threadId, userId, scope });
-  const thread = await getScopedThread({ workspaceId, threadId, userId });
-  if (!thread || thread.titleSource === "manual") {
-    titleDebug("job:skip", {
-      workspaceId,
-      threadId,
-      scope,
-      reason: !thread ? "missing_thread" : "manual_locked",
-    });
-    return null;
+  const remoteControl = usesRemoteThreadTitleControl();
+  if (!remoteControl) {
+    const thread = await getScopedThread({ workspaceId, threadId, userId });
+    if (!thread || thread.titleSource === "manual") {
+      titleDebug("job:skip", {
+        workspaceId,
+        threadId,
+        scope,
+        reason: !thread ? "missing_thread" : "manual_locked",
+      });
+      return null;
+    }
   }
-
   const prompts = await userPromptsForScope({
     workspaceId,
     threadId,
@@ -346,6 +355,22 @@ async function runTitleGenerationJob({
   if (normalizedPrompts.length === 0) throw new Error("no_user_messages");
 
   const titleHash = hashUserMessages(normalizedPrompts);
+  let lease = null;
+  if (remoteControl) {
+    const claimed = await requestInternalService({
+      callerRole: String(process.env.ATHENA_RUNTIME_ROLE),
+      targetModule: "athena-api",
+      capability: "workspace.thread-title.claim",
+      contractVersion: "1.0",
+      url: `${String(
+        process.env.ATHENA_API_INTERNAL_URL || "https://anything-llm-api:3024"
+      ).replace(/\/+$/, "")}/internal/v1/workspace/thread-title/claim`,
+      body: { workspaceId, threadId, userId, scope, titleHash },
+      idempotencyKey: `${threadId}:${scope}:${titleHash}`,
+      timeoutMs: 10_000,
+    });
+    lease = claimed.lease;
+  }
   let result;
   try {
     result = await generateTitle({
@@ -369,13 +394,33 @@ async function runTitleGenerationJob({
     });
   }
 
-  const updatedThread = await WorkspaceThread.updateAutomaticTitle({
-    threadId,
-    title: result.title,
-    titleSource: result.usedFallback ? "first_message" : "llm",
-    titleHash,
-    titleMessageScope: scope,
-  });
+  const updatedThread = remoteControl
+    ? (
+        await requestInternalService({
+          callerRole: String(process.env.ATHENA_RUNTIME_ROLE),
+          targetModule: "athena-api",
+          capability: "workspace.thread-title.commit",
+          contractVersion: "1.0",
+          url: `${String(
+            process.env.ATHENA_API_INTERNAL_URL ||
+              "https://anything-llm-api:3024"
+          ).replace(/\/+$/, "")}/internal/v1/workspace/thread-title/commit`,
+          body: {
+            lease,
+            title: result.title,
+            titleSource: result.usedFallback ? "first_message" : "llm",
+          },
+          idempotencyKey: `${threadId}:${scope}:${titleHash}:commit`,
+          timeoutMs: 10_000,
+        })
+      ).thread
+    : await WorkspaceThread.updateAutomaticTitle({
+        threadId,
+        title: result.title,
+        titleSource: result.usedFallback ? "first_message" : "llm",
+        titleHash,
+        titleMessageScope: scope,
+      });
   titleDebug("db:save", {
     workspaceId,
     threadId,
@@ -396,7 +441,8 @@ async function enqueueThreadTitleGeneration({
   onTitle = null,
 } = {}) {
   if (!workspaceId || !threadId || !scope) return { queued: false };
-  if (!(await titleMetadataReady()))
+  const remoteControl = usesRemoteThreadTitleControl();
+  if (!remoteControl && !(await titleMetadataReady()))
     return { queued: false, skipped: "schema_missing" };
 
   const key = `${threadId}:${scope}`;
@@ -405,28 +451,22 @@ async function enqueueThreadTitleGeneration({
     return { queued: false, deduped: true };
   }
 
-  const thread = await getScopedThread({ workspaceId, threadId, userId });
-  if (!thread || thread.titleSource === "manual") {
-    titleDebug("enqueue:skip", {
-      workspaceId,
+  if (!remoteControl) {
+    const thread = await getScopedThread({ workspaceId, threadId, userId });
+    if (!thread || thread.titleSource === "manual") {
+      titleDebug("enqueue:skip", {
+        workspaceId,
+        threadId,
+        scope,
+        reason: !thread ? "missing_thread" : "manual_locked",
+      });
+      return { queued: false, skipped: "manual_or_missing" };
+    }
+    const markedPending = await WorkspaceThread.markTitleGenerationPending(
       threadId,
-      scope,
-      reason: !thread ? "missing_thread" : "manual_locked",
-    });
-    return { queued: false, skipped: "manual_or_missing" };
-  }
-  const markedPending = await WorkspaceThread.markTitleGenerationPending(
-    threadId,
-    scope
-  );
-  if (!markedPending) {
-    titleDebug("enqueue:skip", {
-      workspaceId,
-      threadId,
-      scope,
-      reason: "pending_mark_failed",
-    });
-    return { queued: false, skipped: "manual_or_missing" };
+      scope
+    );
+    if (!markedPending) return { queued: false, skipped: "manual_or_missing" };
   }
 
   if (onTitle) callbacksForKey(key).push(onTitle);
@@ -442,7 +482,10 @@ async function enqueueThreadTitleGeneration({
           scope,
         });
         if (updatedThread) {
-          publishThreadTitleUpdate(updatedThread);
+          // The API owns thread metadata and publishes the distributed title
+          // event as part of the atomic commit. Publishing again here would
+          // make clients apply the same title twice.
+          if (!remoteControl) publishThreadTitleUpdate(updatedThread);
           titleDebug("event:callbacks", {
             workspaceId,
             threadId,
@@ -453,7 +496,8 @@ async function enqueueThreadTitleGeneration({
         }
       } catch (error) {
         console.warn("[ThreadTitle] generation failed", error.message);
-        await WorkspaceThread.markTitleGenerationFailed(threadId, scope);
+        if (!remoteControl)
+          await WorkspaceThread.markTitleGenerationFailed(threadId, scope);
       } finally {
         pendingJobKeys.delete(key);
         pendingCallbacks.delete(key);
@@ -486,16 +530,19 @@ async function maybeEnqueueTitleGenerationAfterChat({
   }
 
   try {
-    const thread = await getScopedThread({ workspaceId, threadId, userId });
-    if (!thread || thread.titleSource === "manual") {
-      titleDebug("trigger:skip", {
-        workspaceId,
-        threadId,
-        reason: !thread ? "missing_thread" : "manual_locked",
-      });
-      return;
+    const remoteControl = usesRemoteThreadTitleControl();
+    let thread = null;
+    if (!remoteControl) {
+      thread = await getScopedThread({ workspaceId, threadId, userId });
+      if (!thread || thread.titleSource === "manual") {
+        titleDebug("trigger:skip", {
+          workspaceId,
+          threadId,
+          reason: !thread ? "missing_thread" : "manual_locked",
+        });
+        return;
+      }
     }
-
     const count = await WorkspaceChats.count(
       visibleThreadChatClause({ workspaceId, threadId, userId })
     );
@@ -504,7 +551,6 @@ async function maybeEnqueueTitleGenerationAfterChat({
       threadId,
       userId,
       count,
-      currentScope: thread.titleMessageScope,
     });
 
     if (count === 1) {
@@ -520,10 +566,11 @@ async function maybeEnqueueTitleGenerationAfterChat({
 
     if (
       count === 5 &&
-      ![
-        TITLE_SCOPES.firstFiveUserMessages,
-        TITLE_SCOPES.latestFiveUserMessages,
-      ].includes(thread.titleMessageScope)
+      (remoteControl ||
+        ![
+          TITLE_SCOPES.firstFiveUserMessages,
+          TITLE_SCOPES.latestFiveUserMessages,
+        ].includes(thread?.titleMessageScope))
     ) {
       await enqueueThreadTitleGeneration({
         workspaceId,
@@ -543,6 +590,15 @@ async function maybeEnqueueTitleGenerationAfterChat({
   } catch (error) {
     console.warn("[ThreadTitle] trigger failed", error.message);
   }
+}
+
+async function requestThreadTitleGeneration(context = {}) {
+  // Agent finalization reaches Chat Runtime through the durable
+  // chat.finalized event. Keeping this edge asynchronous avoids a forbidden
+  // Chat Runtime <-> Agent Runtime RPC cycle while preserving one title owner.
+  if (String(process.env.ATHENA_RUNTIME_ROLE || "") === "agent-runtime")
+    return { queued: false, delegated: "chat_finalized_event" };
+  return await maybeEnqueueTitleGenerationAfterChat(context);
 }
 
 async function refreshRecentThreadTitles({
@@ -578,20 +634,16 @@ async function refreshRecentThreadTitles({
       if (!chat.thread_id || seenThreadIds.has(chat.thread_id)) continue;
       seenThreadIds.add(chat.thread_id);
 
-      const thread = await getScopedThread({
-        workspaceId: chat.workspaceId,
-        threadId: chat.thread_id,
-        userId: chat.user_id ?? null,
-      });
-      if (!thread || thread.titleSource === "manual") continue;
-      if (titleRefreshOnCooldown(thread)) {
-        titleDebug("refresh:skip", {
+      const remoteControl = usesRemoteThreadTitleControl();
+      let thread = null;
+      if (!remoteControl) {
+        thread = await getScopedThread({
           workspaceId: chat.workspaceId,
           threadId: chat.thread_id,
-          reason: "title_refresh_cooldown",
-          titleGeneratedAt: thread.titleGeneratedAt,
+          userId: chat.user_id ?? null,
         });
-        continue;
+        if (!thread || thread.titleSource === "manual") continue;
+        if (titleRefreshOnCooldown(thread)) continue;
       }
 
       const prompts = await userPromptsForScope({
@@ -601,7 +653,8 @@ async function refreshRecentThreadTitles({
         scope: TITLE_SCOPES.latestFiveUserMessages,
       });
       const titleHash = hashUserMessages(prompts);
-      if (!titleHash || titleHash === thread.titleHash) continue;
+      if (!titleHash || (!remoteControl && titleHash === thread?.titleHash))
+        continue;
 
       const result = await enqueueThreadTitleGeneration({
         workspaceId: chat.workspaceId,
@@ -627,6 +680,7 @@ module.exports = {
   fallbackTitleFromMessage,
   enqueueThreadTitleGeneration,
   maybeEnqueueTitleGenerationAfterChat,
+  requestThreadTitleGeneration,
   refreshRecentThreadTitles,
   _internals: {
     titleQueue,

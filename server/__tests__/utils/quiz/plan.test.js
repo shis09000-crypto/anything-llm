@@ -1,10 +1,14 @@
-const mockCompleteJson = jest.fn();
+const mockCompleteJsonWithRetry = jest.fn();
 
 jest.mock("../../../utils/quiz/llm", () => ({
-  completeJson: mockCompleteJson,
+  completeJsonWithRetry: mockCompleteJsonWithRetry,
 }));
 
-const { extractQuizPlan, normalizePlan } = require("../../../utils/quiz/plan");
+const {
+  draftQuizPlan,
+  extractQuizPlan,
+  normalizePlan,
+} = require("../../../utils/quiz/plan");
 
 describe("quiz plan extraction", () => {
   beforeEach(() => {
@@ -56,7 +60,7 @@ describe("quiz plan extraction", () => {
   });
 
   it("uses deepseek-v4-flash with JSON response format for extraction", async () => {
-    mockCompleteJson.mockResolvedValue({
+    mockCompleteJsonWithRetry.mockResolvedValue({
       json: { topic: "Topic" },
       metrics: {},
       model: "deepseek-v4-flash",
@@ -64,11 +68,37 @@ describe("quiz plan extraction", () => {
 
     await extractQuizPlan({ userRequest: "生成测试", workspaceSlug: "ws" });
 
-    expect(mockCompleteJson).toHaveBeenCalledWith(
+    expect(mockCompleteJsonWithRetry).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "deepseek-v4-flash",
         temperature: 0.1,
+        maxAttempts: 1,
+        timeoutMs: 20_000,
       })
     );
+  });
+
+  it("persists an immediate deterministic plan for Chinese quiz prompts", () => {
+    const plan = draftQuizPlan("哈咯，给我出十道题，关于地理的");
+    expect(plan.topic).toBe("地理");
+    expect(plan.totalQuestions).toBe(10);
+    expect(plan.questionTypeCounts).toEqual({
+      single_choice: 5,
+      multiple_choice: 3,
+      fill_blank: 2,
+    });
+  });
+
+  it("falls back to the deterministic Responses plan when planning times out", async () => {
+    mockCompleteJsonWithRetry.mockRejectedValue(new Error("responses_timeout"));
+
+    const result = await extractQuizPlan({
+      userRequest: "出十道历史题给我",
+      workspaceSlug: "ws",
+    });
+
+    expect(result.plan.topic).toBe("历史");
+    expect(result.plan.totalQuestions).toBe(10);
+    expect(result.metrics.effective_protocol).toBe("responses");
   });
 });

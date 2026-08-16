@@ -107,6 +107,38 @@ describe("quiz evidence retrieval", () => {
     );
   });
 
+  it("exposes link metadata for each material-backed question source", async () => {
+    mockPerformSimilaritySearch.mockResolvedValue({
+      sources: [
+        {
+          id: "history-1",
+          text: "The source passage used by the question.",
+          title: "世界历史资料",
+          docId: "doc-history",
+          docpath: "custom-documents/world-history.txt",
+          chunkSource: "link://https://example.com/world-history",
+          score: 0.92,
+        },
+      ],
+      message: null,
+    });
+    const { retrieveQuizEvidence } = require("../../../utils/quiz/evidence");
+
+    const result = await retrieveQuizEvidence({
+      workspace: { id: 7, slug: "workspace-a" },
+      plan: { topic: "世界历史", searchQueries: ["世界历史"] },
+    });
+
+    expect(result.sourceRefs[0]).toMatchObject({
+      id: "evidence-1",
+      title: "世界历史资料",
+      docId: "doc-history",
+      docpath: "custom-documents/world-history.txt",
+      chunkSource: "link://https://example.com/world-history",
+      text: "The source passage used by the question.",
+    });
+  });
+
   it("can return node supplement evidence when the vector namespace is empty", async () => {
     mockHasNamespace.mockResolvedValue(false);
     mockResolveGraphContext.mockResolvedValue({
@@ -155,5 +187,39 @@ describe("quiz evidence retrieval", () => {
         sourceType: "general_knowledge",
       })
     );
+  });
+
+  it("falls back to general knowledge when remote RAG throws", async () => {
+    mockPerformSimilaritySearch.mockRejectedValue(
+      Object.assign(new Error("aicp_coordination_context_invalid"), {
+        code: "AICP_COORDINATION_CONTEXT_INVALID",
+      })
+    );
+    const { retrieveQuizEvidence } = require("../../../utils/quiz/evidence");
+
+    const result = await retrieveQuizEvidence({
+      workspace: { id: 7, slug: "workspace-a" },
+      plan: { topic: "世界历史", searchQueries: ["世界历史"] },
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.evidenceMode).toBe("general_knowledge");
+    expect(result.evidenceChunks[0].id).toBe("general-knowledge");
+  });
+
+  it("falls back to general knowledge when RAG reports an error message", async () => {
+    mockPerformSimilaritySearch.mockResolvedValue({
+      sources: [],
+      message: "workspace_rag_unavailable",
+    });
+    const { retrieveQuizEvidence } = require("../../../utils/quiz/evidence");
+
+    const result = await retrieveQuizEvidence({
+      workspace: { id: 7, slug: "workspace-a" },
+      plan: { topic: "中国历史", searchQueries: ["中国历史"] },
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.evidenceMode).toBe("general_knowledge");
   });
 });

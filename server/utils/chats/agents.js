@@ -1,11 +1,17 @@
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const Workspace = lazyDataAccessFacade("workspace");
-const pluralize = require("pluralize");
 const WorkspaceAgentInvocation = lazyDataAccessFacade(
   "workspaceAgentInvocation"
 );
+const {
+  createRemoteAgentInvocation,
+  remoteAgentInvocationEnabled,
+} = require("../agents/invocationClient");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { enrichOperationContext } = require("../observability/operationContext");
+const {
+  shouldBypassAutomaticAgentRouting,
+} = require("./automaticAgentRouting");
 
 /**
  * In-memory cache for attachments associated with agent invocations.
@@ -15,6 +21,7 @@ const { enrichOperationContext } = require("../observability/operationContext");
  */
 const invocationAttachmentsCache = new Map();
 const invocationFileAccessCache = new Map();
+const invocationExecutionTargetCache = new Map();
 
 /**
  * Store attachments for an invocation UUID
@@ -23,6 +30,7 @@ const invocationFileAccessCache = new Map();
  * @param {Array} payload.llmAttachments - Attachments passed to the agent model
  * @param {Array} payload.displayAttachments - Attachments stored in chat history
  * @param {string|null} payload.displayPrompt - Prompt stored in chat history
+ * @param {string|null} payload.reservedPublicChatId - Public message identity reserved by the Responses Runtime
  * @param {string|null} payload.visionAnalysisContext - Vision analysis stored with chat history
  */
 function cacheInvocationAttachments(
@@ -31,6 +39,7 @@ function cacheInvocationAttachments(
     llmAttachments = [],
     displayAttachments = llmAttachments,
     displayPrompt = null,
+    reservedPublicChatId = null,
     visionAnalysisContext = null,
   } = {}
 ) {
@@ -38,6 +47,7 @@ function cacheInvocationAttachments(
     llmAttachments,
     displayAttachments,
     displayPrompt,
+    reservedPublicChatId,
     visionAnalysisContext,
   });
 }
@@ -52,6 +62,7 @@ function getAndClearInvocationAttachments(uuid) {
     llmAttachments: [],
     displayAttachments: [],
     displayPrompt: null,
+    reservedPublicChatId: null,
     visionAnalysisContext: null,
   };
   invocationAttachmentsCache.delete(uuid);
@@ -68,6 +79,18 @@ function getInvocationFileAccess(uuid) {
 
 function clearInvocationFileAccess(uuid) {
   invocationFileAccessCache.delete(uuid);
+  invocationExecutionTargetCache.delete(uuid);
+}
+
+function cacheInvocationExecutionTarget(uuid, target = {}) {
+  const provider = String(target?.provider || "").trim();
+  const model = String(target?.model || "").trim();
+  if (!provider || !model) return;
+  invocationExecutionTargetCache.set(uuid, { provider, model });
+}
+
+function getInvocationExecutionTarget(uuid) {
+  return invocationExecutionTargetCache.get(uuid) || null;
 }
 
 async function grepAgents({
@@ -85,38 +108,75 @@ async function grepAgents({
   clientTurnId = null,
 }) {
   let nativeToolingEnabled = false;
+  const agentHandles = WorkspaceAgentInvocation.parseAgents(message);
+
+  if (
+    agentHandles.length === 0 &&
+    workspace?.chatMode === "automatic" &&
+    shouldBypassAutomaticAgentRouting(message)
+  )
+    return false;
 
   // If the workspace is in automatic mode, check if the workspace supports native tooling
   // to determine if the agent flow should be used or not.
   if (workspace?.chatMode === "automatic")
     nativeToolingEnabled = await Workspace.supportsNativeToolCalling(workspace);
 
-  const agentHandles = WorkspaceAgentInvocation.parseAgents(message);
   if (agentHandles.length > 0 || nativeToolingEnabled) {
-    const { invocation: newInvocation } = await WorkspaceAgentInvocation.new({
-      prompt: message,
-      workspace: workspace,
-      user: user,
-      thread: thread,
-      clientTurnId,
+    writeResponseChunk(response, {
+      id: uuid,
+      type: "agentProgress",
+      phase: "routing",
+      status: "running",
+      sequence: 1,
+      details: {
+        routeKind: agentHandles.length > 0 ? "explicit" : "automatic",
+      },
+      close: false,
     });
+    const submission = {
+      prompt: message,
+      workspace,
+      user,
+      thread,
+      clientTurnId,
+    };
+    let newInvocation = null;
+    try {
+      const result = remoteAgentInvocationEnabled()
+        ? await createRemoteAgentInvocation(submission)
+        : await WorkspaceAgentInvocation.new(submission);
+      newInvocation = result?.invocation || null;
+    } catch (error) {
+      const errorCode = String(error?.code || "unknown")
+        .replace(/[^a-zA-Z0-9_.-]/g, "_")
+        .slice(0, 96);
+      console.error("[AgentInvocation] submission failed", {
+        errorCode,
+        clientTurnId: clientTurnId || null,
+      });
+    }
 
     if (!newInvocation) {
       writeResponseChunk(response, {
         id: uuid,
-        type: "statusResponse",
-        textResponse: `${pluralize(
-          "Agent",
-          agentHandles.length
-        )} ${agentHandles.join(
-          ", "
-        )} could not be called. Chat will be handled as default chat.`,
+        type: "agentProgress",
+        phase: "routing",
+        status: "failed",
+        sequence: 1,
+        details: { errorCode: "agent_invocation_store_unavailable" },
+        close: false,
+      });
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "abort",
+        textResponse: null,
         sources: [],
         close: true,
         animate: false,
-        error: null,
+        error: "agent_invocation_store_unavailable",
       });
-      return;
+      return true;
     }
 
     enrichOperationContext({
@@ -125,6 +185,18 @@ async function grepAgents({
       workspaceId: workspace?.id || null,
       threadId: thread?.id || null,
       journey: "agent_tool",
+    });
+
+    writeResponseChunk(response, {
+      id: uuid,
+      type: "agentProgress",
+      phase: "routing",
+      status: "completed",
+      sequence: 1,
+      details: {
+        routeKind: agentHandles.length > 0 ? "explicit" : "automatic",
+      },
+      close: false,
     });
 
     // Cache attachments for the websocket handler to retrieve later
@@ -165,8 +237,11 @@ async function grepAgents({
 
 module.exports = {
   grepAgents,
+  cacheInvocationAttachments,
   getAndClearInvocationAttachments,
   cacheInvocationFileAccess,
   getInvocationFileAccess,
   clearInvocationFileAccess,
+  cacheInvocationExecutionTarget,
+  getInvocationExecutionTarget,
 };

@@ -2,6 +2,10 @@ const { getLLMProvider } = require("../helpers");
 const { MODEL_TIERS } = require("./modelTiers");
 const { TASK_REGISTRY } = require("./taskRegistry");
 
+const BACKGROUND_PROVIDER = "deepseek";
+const BACKGROUND_MODEL = "deepseek-v4-flash";
+const FOREGROUND_TASKS = new Set(["agent_task", "ephemeral_agent_task"]);
+
 class LLMTaskError extends Error {
   constructor(message, { taskName, code, cause = null, metadata = {} } = {}) {
     super(message);
@@ -120,6 +124,13 @@ function resolveDynamicTaskProviderModel(taskName, config = {}, context = {}) {
 
 function resolveTaskProviderModel(taskName, context = {}, overrides = {}) {
   const config = resolveTaskConfig(taskName, overrides);
+  if (!FOREGROUND_TASKS.has(taskName)) {
+    return {
+      provider: BACKGROUND_PROVIDER,
+      model: BACKGROUND_MODEL,
+      tier: config.tier || "rough",
+    };
+  }
   if (config.dynamic)
     return resolveDynamicTaskProviderModel(taskName, config, context);
 
@@ -165,7 +176,13 @@ function getTaskConnector(taskName, context = {}, overrides = {}) {
     if (
       process.env.NODE_ENV !== "test" &&
       resolved.provider === "deepseek" &&
-      !process.env.DEEPSEEK_API_KEY
+      !process.env.DEEPSEEK_API_KEY &&
+      ![
+        "chat-runtime",
+        "agent-runtime",
+        "background-worker",
+        "responses-runtime",
+      ].includes(String(process.env.ATHENA_RUNTIME_ROLE || ""))
     ) {
       throw new Error("No DeepSeek API key was set.");
     }
@@ -205,6 +222,8 @@ async function withTaskLogging(taskName, metadata = {}, fn) {
 }
 
 module.exports = {
+  BACKGROUND_MODEL,
+  BACKGROUND_PROVIDER,
   LLMTaskError,
   resolveTaskConfig,
   resolveTier,

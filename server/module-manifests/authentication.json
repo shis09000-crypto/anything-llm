@@ -64,6 +64,8 @@
       "browser-egress.grant.revoke",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
+      "key-custody.audit-descriptor",
+      "key-custody.audit-sign",
       "key-custody.unwrap",
       "key-custody.wrap",
       "sync.security.clients.reconcile",
@@ -441,6 +443,38 @@
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "internal"
+      },
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.audit-sign",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-sign/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-sign/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
       },
       {
         "id": "key-custody.unwrap",

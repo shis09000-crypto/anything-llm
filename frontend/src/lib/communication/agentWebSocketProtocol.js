@@ -340,6 +340,21 @@ export function normalizeAgentWebSocketEvent(raw = {}) {
     return withProtocol(normalized, raw, "waiting_on_input");
   }
 
+  if (raw.type === "response.completed") {
+    normalized = {
+      type: "assistant_final",
+      seq: raw.seq || raw.sequence_number,
+      content: "",
+      chatId: raw.response?.metadata?.chatId || null,
+      publicChatId: raw.response?.metadata?.publicChatId || null,
+      metrics: raw.response?.usage || {},
+      responseId: raw.response?.id || null,
+      responseStatus: raw.response?.status || "completed",
+      responseCompleted: true,
+    };
+    return withProtocol(normalized, raw, "response.completed");
+  }
+
   if (raw.type === "toolApprovalRequest") {
     if (!raw.requestId || !raw.skillName) return null;
     normalized = {

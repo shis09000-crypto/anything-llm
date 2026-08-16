@@ -1,0 +1,14 @@
+ARG BASE_IMAGE=anythingllm-v2-anythingllm:v2.5.44-browser-egress-r5
+FROM ${BASE_IMAGE}
+
+USER root
+COPY crypto-account-pair-detail.patch /tmp/crypto-account-pair-detail.patch
+RUN cd /app \
+  && patch -p1 --forward --batch < /tmp/crypto-account-pair-detail.patch \
+  && rm /tmp/crypto-account-pair-detail.patch \
+  && chown 1000:1000 /app/server/utils/cryptoAccount/accountHub.js \
+  && chown 1000:1000 /app/server/modules/crypto/httpHubHandlers.js \
+  && chmod 0644 /app/server/utils/cryptoAccount/accountHub.js \
+  && chmod 0644 /app/server/modules/crypto/httpHubHandlers.js
+
+USER 1000:1000

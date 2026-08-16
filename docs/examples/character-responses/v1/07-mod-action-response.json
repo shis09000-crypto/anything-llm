@@ -1,0 +1,44 @@
+{
+  "id": "chr_resp_mod_action",
+  "object": "character.response",
+  "protocol_version": "1.0",
+  "status": "completed",
+  "created_at": 1786406460000,
+  "completed_at": 1786406461400,
+  "character": {
+    "character_id": "xianxia.lingyun",
+    "instance_id": "char_inst_lingyun",
+    "capability_manifest": { "id": "xianxia.lingyun", "version": "1.0.0", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" }
+  },
+  "conversation": { "id": "ath_conv_mod", "previous_response_id": null },
+  "capability_manifest": { "id": "xianxia.lingyun", "version": "1.0.0", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+  "output": [
+    {
+      "id": "perf_mod",
+      "type": "performance_intent",
+      "status": "completed",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 3000 },
+      "interruptibility": "blend_out",
+      "affect": { "primary": "com.example.xianxia:emotion/serene", "secondary": null, "intensity": 0.4, "valence": 0.3, "arousal": 0.18 },
+      "source": "main_agent",
+      "transition": { "style": "blend", "duration_ms": 320 },
+      "persistence": "until_replaced",
+      "revision": 1
+    },
+    {
+      "id": "action_meditate",
+      "type": "action",
+      "status": "completed",
+      "intent_id": "perf_mod",
+      "required": true,
+      "timing": { "start": "immediate", "after_item_id": null, "offset_ms": 0, "duration_hint_ms": 3000 },
+      "interruptibility": "at_boundary",
+      "action": "com.example.xianxia:action/meditate",
+      "arguments": { "style": "lotus", "focus": "breath" }
+    }
+  ],
+  "warnings": [],
+  "usage": { "input_tokens": 12, "output_tokens": 26, "total_tokens": 38 },
+  "error": null
+}

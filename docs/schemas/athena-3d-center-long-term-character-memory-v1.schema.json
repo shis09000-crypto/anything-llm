@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-3d-center-long-term-character-memory-v1.schema.json",
+  "title": "Athena 3D Center Long-Term Character Memory v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "object",
+    "protocol_version",
+    "conversation_memory",
+    "relationship_transition",
+    "final_emotion",
+    "state_interpretation"
+  ],
+  "properties": {
+    "object": { "const": "athena.3d_center.character_memory" },
+    "protocol_version": { "const": "1.0" },
+    "conversation_memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "topics",
+        "facts",
+        "preferences",
+        "promises",
+        "open_threads",
+        "important_turn_refs"
+      ],
+      "properties": {
+        "summary": { "type": "string", "maxLength": 24000 },
+        "topics": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "type": "string", "maxLength": 240 }
+        },
+        "facts": { "$ref": "#/$defs/evidenceEntries" },
+        "preferences": { "$ref": "#/$defs/evidenceEntries" },
+        "promises": { "$ref": "#/$defs/evidenceEntries" },
+        "open_threads": { "$ref": "#/$defs/evidenceEntries" },
+        "important_turn_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 256,
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "relationship_transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "delta", "after", "narrative", "confidence"],
+      "properties": {
+        "before": { "$ref": "#/$defs/relationship" },
+        "delta": { "$ref": "#/$defs/relationshipDelta" },
+        "after": { "$ref": "#/$defs/relationship" },
+        "narrative": { "type": "string", "maxLength": 12000 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "final_emotion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "secondary",
+        "intensity",
+        "valence",
+        "arousal",
+        "attitude_toward_user",
+        "unresolved_feelings",
+        "persistence"
+      ],
+      "properties": {
+        "primary": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "secondary": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "minLength": 1, "maxLength": 240 }
+          ]
+        },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "valence": { "type": "number", "minimum": -1, "maximum": 1 },
+        "arousal": { "type": "number", "minimum": 0, "maximum": 1 },
+        "attitude_toward_user": { "type": "string", "maxLength": 4000 },
+        "unresolved_feelings": {
+          "type": "array",
+          "maxItems": 128,
+          "items": { "type": "string", "maxLength": 1200 }
+        },
+        "persistence": { "enum": ["transient", "short", "durable"] }
+      }
+    },
+    "state_interpretation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "facial_signal",
+        "gaze_signal",
+        "body_signal",
+        "action_signal",
+        "social_meaning",
+        "evidence_paths"
+      ],
+      "properties": {
+        "facial_signal": { "type": "string", "maxLength": 4000 },
+        "gaze_signal": { "type": "string", "maxLength": 4000 },
+        "body_signal": { "type": "string", "maxLength": 4000 },
+        "action_signal": { "type": "string", "maxLength": 4000 },
+        "social_meaning": { "type": "string", "maxLength": 8000 },
+        "evidence_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 256,
+          "items": {
+            "type": "string",
+            "pattern": "^authoritative_final_state(\\.|$)"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["affection", "trust", "closeness", "comfort", "guardedness"],
+      "properties": {
+        "affection": { "type": "number", "minimum": 0, "maximum": 1 },
+        "trust": { "type": "number", "minimum": 0, "maximum": 1 },
+        "closeness": { "type": "number", "minimum": 0, "maximum": 1 },
+        "comfort": { "type": "number", "minimum": 0, "maximum": 1 },
+        "guardedness": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "relationshipDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["affection", "trust", "closeness", "comfort", "guardedness"],
+      "properties": {
+        "affection": { "type": "number", "minimum": -1, "maximum": 1 },
+        "trust": { "type": "number", "minimum": -1, "maximum": 1 },
+        "closeness": { "type": "number", "minimum": -1, "maximum": 1 },
+        "comfort": { "type": "number", "minimum": -1, "maximum": 1 },
+        "guardedness": { "type": "number", "minimum": -1, "maximum": 1 }
+      }
+    },
+    "evidenceEntries": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "turn_refs"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "turn_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    }
+  }
+}
+

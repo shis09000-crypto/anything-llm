@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-3d-center-frame-v1.schema.json",
+  "title": "Athena 3D Center Frame v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "object",
+    "protocol_version",
+    "frame_id",
+    "center",
+    "conversation",
+    "turn",
+    "character",
+    "timeline",
+    "performance_plan",
+    "warnings"
+  ],
+  "properties": {
+    "object": { "const": "athena.3d_center.frame" },
+    "protocol_version": { "const": "1.0" },
+    "frame_id": { "type": "string", "pattern": "^chr_3d_frame_[A-Za-z0-9_]+$" },
+    "center": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "const": "athena.3d-center" },
+        "version": { "const": "1.0" }
+      }
+    },
+    "conversation": { "type": ["object", "null"] },
+    "turn": { "type": ["object", "null"] },
+    "character": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "response_id",
+        "performance_intent",
+        "conversation_horizon",
+        "model_handoff",
+        "effective_handoff",
+        "state"
+      ],
+      "properties": {
+        "response_id": { "type": ["string", "null"] },
+        "performance_intent": { "type": ["object", "null"] },
+        "conversation_horizon": { "type": ["object", "null"] },
+        "model_handoff": { "type": ["object", "null"] },
+        "effective_handoff": { "type": ["object", "null"] },
+        "state": { "type": ["object", "null"] },
+        "persistent_state_window": { "type": ["object", "null"] }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "commit"],
+      "properties": {
+        "status": {
+          "type": ["string", "null"],
+          "enum": ["preparing", "pending", "committed", "not_required", null]
+        },
+        "commit": { "type": ["object", "null"] }
+      }
+    },
+    "timeline": { "$ref": "#/$defs/timeline" },
+    "performance_plan": { "type": "object" },
+    "warnings": { "type": "array", "items": { "type": "object" } }
+  },
+  "$defs": {
+    "nullableTime": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 600000
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "planned_start_ms",
+        "planned_duration_ms",
+        "resolved_start_ms",
+        "resolved_duration_ms",
+        "actual_start_ms",
+        "actual_duration_ms"
+      ],
+      "properties": {
+        "planned_start_ms": { "$ref": "#/$defs/nullableTime" },
+        "planned_duration_ms": { "$ref": "#/$defs/nullableTime" },
+        "resolved_start_ms": { "$ref": "#/$defs/nullableTime" },
+        "resolved_duration_ms": { "$ref": "#/$defs/nullableTime" },
+        "actual_start_ms": { "$ref": "#/$defs/nullableTime" },
+        "actual_duration_ms": { "$ref": "#/$defs/nullableTime" }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "cue_id",
+        "track",
+        "primitive",
+        "target",
+        "easing",
+        "intensity",
+        "timing",
+        "binding"
+      ],
+      "properties": {
+        "command_id": { "type": "string", "minLength": 1 },
+        "cue_id": { "type": "string", "minLength": 1 },
+        "track": {
+          "enum": [
+            "face",
+            "gaze",
+            "head_neck",
+            "shoulders",
+            "torso",
+            "left_arm",
+            "right_arm",
+            "left_hand",
+            "right_hand",
+            "left_leg",
+            "right_leg",
+            "action",
+            "speech"
+          ]
+        },
+        "primitive": {
+          "enum": [
+            "face.region_state",
+            "gaze.target",
+            "body.motion",
+            "limb.motion",
+            "world.action",
+            "speech.text"
+          ]
+        },
+        "target": { "type": "string", "minLength": 1 },
+        "easing": { "type": "string", "minLength": 1 },
+        "intensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "timing": { "$ref": "#/$defs/timing" },
+        "binding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "parameters"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "parameters": { "type": "object" }
+          }
+        }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["face", "gaze", "body", "action", "speech"],
+      "properties": {
+        "face": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "gaze": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "body": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "action": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+        "speech": { "type": "array", "items": { "$ref": "#/$defs/command" } }
+      }
+    },
+    "timeBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["block_id", "start_ms", "end_ms", "duration_ms", "modules"],
+      "properties": {
+        "block_id": { "type": "string", "pattern": "^chr_3d_block_[0-9]{4}$" },
+        "start_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "end_ms": { "type": "integer", "minimum": 1, "maximum": 600000 },
+        "duration_ms": { "type": "integer", "minimum": 1, "maximum": 600000 },
+        "modules": { "$ref": "#/$defs/modules" }
+      }
+    },
+    "timeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clock", "planned_duration_ms", "resolved_duration_ms", "time_blocks"],
+      "properties": {
+        "clock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unit", "origin"],
+          "properties": {
+            "unit": { "const": "ms" },
+            "origin": { "const": "plan_dispatch" }
+          }
+        },
+        "planned_duration_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "resolved_duration_ms": { "type": "integer", "minimum": 0, "maximum": 600000 },
+        "time_blocks": { "type": "array", "items": { "$ref": "#/$defs/timeBlock" } }
+      }
+    }
+  }
+}

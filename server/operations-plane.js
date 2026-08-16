@@ -40,6 +40,7 @@ const {
 const {
   buildInfrastructureProbeProviders,
 } = require("./utils/operations/infrastructureProbes");
+const { operationsServiceReady } = require("./utils/operations/readiness");
 const { distributedTopology } = require("./utils/microModules/serviceHost");
 const { expectedServiceId } = require("./utils/security/serviceIdentity");
 
@@ -95,6 +96,9 @@ const host = new MicroModuleServiceHost({
   manifestId: "operations-plane",
   role: "operations-plane",
   port,
+  internalRouteCapabilities: {
+    "/internal/v1/operations/ingest-batch": "operations.ingest-batch",
+  },
   readiness: () => {
     const plane = operationsPlane.health();
     const moduleHealth = moduleHealthMonitor.snapshot();
@@ -105,11 +109,15 @@ const host = new MicroModuleServiceHost({
       moduleHealth: moduleHealth.summary,
       infrastructureHealth: infrastructureHealth.summary,
       coverage,
-      ready:
-        plane.ready &&
-        moduleHealth.summary.complete &&
-        infrastructureHealth.summary.complete &&
-        coverage.complete,
+      // Readiness is the Operations Plane's ability to receive and persist
+      // telemetry. The health of observed modules remains part of the public
+      // health snapshot, but must not make the observer itself unavailable.
+      // Otherwise adding or restarting a module creates a readiness cycle:
+      // Operations waits for the module while the module waits for Operations.
+      ready: operationsServiceReady({
+        plane,
+        infrastructureHealth: infrastructureHealth.summary,
+      }),
     };
   },
   onStart: async () => {
@@ -333,6 +341,24 @@ const host = new MicroModuleServiceHost({
         response.json({
           success: true,
           ...(await localOperationsAccess.stateGraph(request.body || {})),
+        });
+      }
+    );
+    app.get(
+      "/internal/v1/operations/aicp/topology",
+      async (_request, response) => {
+        response.json({
+          success: true,
+          ...(await localOperationsAccess.aicpTopology()),
+        });
+      }
+    );
+    app.get(
+      "/internal/v1/operations/aicp/traces/:traceId",
+      async (request, response) => {
+        response.json({
+          success: true,
+          ...(await localOperationsAccess.aicpTrace(request.params.traceId)),
         });
       }
     );

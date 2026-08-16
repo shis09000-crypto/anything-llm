@@ -1,0 +1,28 @@
+services:
+  browser-egress-gateway:
+    container_name: athena-browser-egress-gateway
+    build:
+      context: ..
+      dockerfile: docker/browser-egress-gateway/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "${ATHENA_BROWSER_EGRESS_BIND_ADDRESS:-0.0.0.0}:${ATHENA_BROWSER_EGRESS_PORT:-8443}:${ATHENA_BROWSER_EGRESS_PORT:-8443}/tcp"
+    environment:
+      ATHENA_BROWSER_EGRESS_CONFIG_DIR: /config
+      ATHENA_BROWSER_EGRESS_PROBE_PORT: "18443"
+    volumes:
+      - "${ATHENA_BROWSER_EGRESS_CONFIG_HOST_DIR:?required}:/config"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,mode=0700,uid=1000,gid=1000
+    healthcheck:
+      test: ["CMD-SHELL", "jq -e '.ready == true' /config/status.json >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s

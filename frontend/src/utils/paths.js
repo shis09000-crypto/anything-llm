@@ -167,6 +167,12 @@ export default {
     mobilePageExperiment: () => {
       return "/settings/mobile-page-experiment";
     },
+    characterPerformanceLab: () => {
+      return "/3d-center";
+    },
+    athena3dCenter: () => {
+      return "/3d-center";
+    },
     cryptoComponentExperiment: () => {
       return "/settings/crypto-component-experiment";
     },

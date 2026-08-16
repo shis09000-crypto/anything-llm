@@ -24,17 +24,19 @@ function detailedReadinessSnapshot() {
   const authSessions =
     require("./security/authSessionSyncReconciler").authSessionSyncReconcilerSnapshot();
   const outboxRequired = localOutboxReadinessRequired();
+  const identityMaintenanceRequired =
+    require("./security/identityMaintenanceOwnership").identityMaintenanceOwnedLocally();
   const controlPlaneReady =
     keyCustody.status === "ready" &&
     !keyCustody.quarantined &&
     !keyCustody.writeBarrier &&
     receipts.running &&
     receipts.healthy &&
-    authSessions.running &&
-    authSessions.healthy &&
+    (!identityMaintenanceRequired ||
+      (authSessions.running && authSessions.healthy)) &&
     (!outboxRequired || (outbox.running && outbox.healthy)) &&
-    securityAudit.running &&
-    securityAudit.healthy;
+    (!identityMaintenanceRequired ||
+      (securityAudit.running && securityAudit.healthy));
   return {
     ...snapshot,
     ready: snapshot.ready && controlPlaneReady,
@@ -44,6 +46,7 @@ function detailedReadinessSnapshot() {
       receipts,
       authSessions,
       securityAudit,
+      identityMaintenanceRequired,
     },
   };
 }

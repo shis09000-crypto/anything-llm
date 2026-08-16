@@ -1,0 +1,961 @@
+{
+  "auditSchemaVersion": "athena.crypto.real-environment-public-output.v1",
+  "environment": "production",
+  "capturedAt": "2026-07-31T09:34:42.367Z",
+  "invocation": {
+    "tool": "crypto_market_snapshot",
+    "args": {
+      "symbol": "BTC",
+      "quote": "USDT",
+      "exchange_mode": "dual",
+      "mode": "analysis"
+    }
+  },
+  "toolDurationMs": 410,
+  "totalDurationMs": 416,
+  "resultSha256": "92de1d14a6180adddeb306fe121547549686de9efe1c6e2a781ff2b3ad6c369f",
+  "modelView": {
+    "tool": "crypto_market_snapshot",
+    "mode": "analysis",
+    "symbol": "BTC",
+    "quote": "USDT",
+    "timestamp": "2026-07-31T09:34:42.360Z",
+    "formulaVersion": "crypto-quant-v2",
+    "analysisStatus": "complete",
+    "analysisPolicy": {
+      "mode": "monitoring_only",
+      "directDirectionalPrediction": false,
+      "directionalProbabilitiesExposed": false,
+      "returnTargetsExposed": false,
+      "tradeInstructionsExposed": false,
+      "researchArtifactsRetained": true,
+      "reason": "forecast_models_not_promoted"
+    },
+    "interpretationContract": {
+      "mandatory": true,
+      "rules": [
+        "This is monitoring-only; never output a future direction, directional probability, return target, price target, trade instruction, or investment recommendation.",
+        "regime.state describes already-closed data exactly and is not a forecast; formingCandle is excluded.",
+        "Monitoring signals are observed event conditions; only confirmedByClosedData=true confirms one.",
+        "Use fib.currentPosition; Fibonacci levels have no implied support/resistance role.",
+        "Do not invent values, probabilities, failures, divergence, crossovers, causality, or calendar timing.",
+        "MA/MACD comparisons must match relations; crossovers require an events entry.",
+        "Event timing is closed-bar-relative, never calendar-relative.",
+        "Volume, OBV, supporting evidence, and derivatives cannot identify institutions or create a price direction.",
+        "Disclose source degradation and supportVerdict conflicts.",
+        "Forecast research status and hashes are provenance only; prediction outputs are intentionally redacted."
+      ],
+      "requiredCoverage": {
+        "timeframeIds": [
+          "1h",
+          "4h",
+          "1d",
+          "1w"
+        ],
+        "monitoringSignalIds": [
+          "upper_breakout_condition",
+          "lower_breakdown_condition",
+          "range_condition"
+        ],
+        "includeEveryObservedCondition": true,
+        "distinguishObservedFromClosedDataConfirmation": true
+      }
+    },
+    "snapshot": {
+      "gate": {
+        "ok": true,
+        "exchange": "gate",
+        "pair": "BTC_USDT",
+        "price": "63674.8",
+        "volume24h": "6443.800486",
+        "quoteVolume24h": "416414510.2862233",
+        "high24h": "65432.2",
+        "low24h": "63643.6",
+        "changePercent": "-1.43"
+      },
+      "binance": {
+        "ok": true,
+        "exchange": "binance",
+        "pair": "BTCUSDT",
+        "price": "63681.68000000",
+        "volume24h": "18063.60157000",
+        "quoteVolume24h": "1165983101.12118110",
+        "high24h": "65409.56000000",
+        "low24h": "63638.18000000",
+        "changePercent": "-1.422"
+      },
+      "comparison": {
+        "reference_exchange": "binance",
+        "preferred_exchange": "gate",
+        "price_diff": "-6.88",
+        "price_diff_percent": "-0.01080374"
+      },
+      "sourceSelection": "dual"
+    },
+    "sourceQuality": {
+      "status": "complete",
+      "tickerCrosscheck": {
+        "required": true,
+        "gate": true,
+        "binance": true
+      },
+      "supportingEvidence": "complete",
+      "forecasting": "shadow"
+    },
+    "timeframes": {
+      "1h": {
+        "latestClosedCandle": {
+          "close": "63836.4",
+          "timing": "latest_closed_bar"
+        },
+        "formingCandle": {
+          "close": "63674.8",
+          "excludedFromIndicators": true,
+          "timing": "current_unclosed_bar"
+        },
+        "regime": {
+          "state": "bearish_trend",
+          "volatility": "normal",
+          "reasons": [
+            "price_and_ma_bearish_alignment",
+            "negative_directional_movement"
+          ]
+        },
+        "indicators": {
+          "ma": {
+            "ma5": 64136.08,
+            "ma10": 64342.44,
+            "ma30": 64493.8866666667,
+            "ema12": 64311.3257944032,
+            "ema26": 64401.3654501662,
+            "relations": {
+              "ma5VsMa10": "below",
+              "ma10VsMa30": "below",
+              "alignment": "bearish",
+              "closeVsMa5": "below",
+              "closeVsMa10": "below",
+              "closeVsMa30": "below",
+              "ema12VsEma26": "below"
+            }
+          },
+          "macd": {
+            "value": -90.039655763,
+            "signal": 22.0022324233,
+            "histogram": -112.0418881863,
+            "relations": {
+              "histogramSign": "negative",
+              "valueVsSignal": "below"
+            }
+          },
+          "rsi14": 34.0060178498,
+          "atr14": {
+            "value": 302.6610563937,
+            "percentOfPrice": 0.4741198695
+          },
+          "adx14": {
+            "value": 25.4928955011,
+            "plusDi": 20.118444909,
+            "minusDi": 20.5472438284
+          },
+          "volume": {
+            "ratioToSma20": 0.8558046263,
+            "zScore20": -0.2221886154
+          },
+          "moneyFlow": {
+            "cmf20": -0.3912895837,
+            "cmf20Slope3": -0.1187349659,
+            "mfi14": 42.9962139709,
+            "accumulationDistributionSlope": -0.6428431661
+          },
+          "trendStructure": {
+            "regressionSlopePctPerBar": -0.0726618573,
+            "regressionR2": 0.7490856536,
+            "efficiencyRatio20": 0.4634896234,
+            "pivots": {
+              "state": "bearish",
+              "highState": "lower_high",
+              "lowState": "lower_low"
+            }
+          }
+        },
+        "levels": {
+          "prev20": {
+            "support": 63872.6,
+            "resistance": 65432.2
+          },
+          "prev50": {
+            "support": 63267.6,
+            "resistance": 65432.2
+          },
+          "fib": {
+            "status": "available",
+            "lookback": 100,
+            "direction": "downswing",
+            "swing": {
+              "start": 65744,
+              "end": 62744.9,
+              "range": 2999.1
+            },
+            "currentPosition": {
+              "close": 63836.4,
+              "relation": "between_nearest_levels",
+              "below": 63452.6876,
+              "above": 63890.5562
+            }
+          }
+        },
+        "events": [
+          {
+            "name": "ma10_ma30_cross_bearish",
+            "closedBarsAgo": 1,
+            "timing": "1_closed_bars_ago"
+          },
+          {
+            "name": "stochastic_cross_bearish",
+            "closedBarsAgo": 2,
+            "timing": "2_closed_bars_ago"
+          }
+        ],
+        "dataQuality": {
+          "status": "complete",
+          "reason": null,
+          "calculationInput": {
+            "barsUsed": 499,
+            "closedCandlesSha256": "896724c1201b8647002ee0b246f44a4b1f1190cefc201fdf1061bee87b49482b"
+          }
+        }
+      },
+      "4h": {
+        "latestClosedCandle": {
+          "close": "63946",
+          "timing": "latest_closed_bar"
+        },
+        "formingCandle": {
+          "close": "63674.8",
+          "excludedFromIndicators": true,
+          "timing": "current_unclosed_bar"
+        },
+        "regime": {
+          "state": "range",
+          "volatility": "normal",
+          "reasons": [
+            "low_adx"
+          ]
+        },
+        "indicators": {
+          "ma": {
+            "ma5": 64527.62,
+            "ma10": 64317.88,
+            "ma30": 64343.46,
+            "ema12": 64332.6744396017,
+            "ema26": 64342.8414225211,
+            "relations": {
+              "ma5VsMa10": "above",
+              "ma10VsMa30": "below",
+              "alignment": "mixed",
+              "closeVsMa5": "below",
+              "closeVsMa10": "below",
+              "closeVsMa30": "below",
+              "ema12VsEma26": "below"
+            }
+          },
+          "macd": {
+            "value": -10.1669829194,
+            "signal": -57.2580019834,
+            "histogram": 47.091019064,
+            "relations": {
+              "histogramSign": "positive",
+              "valueVsSignal": "above"
+            }
+          },
+          "rsi14": 44.6955901046,
+          "atr14": {
+            "value": 664.5270663057,
+            "percentOfPrice": 1.0392003664
+          },
+          "adx14": {
+            "value": 19.7651872232,
+            "plusDi": 16.81385041,
+            "minusDi": 22.7475478849
+          },
+          "volume": {
+            "ratioToSma20": 0.8816608146,
+            "zScore20": -0.2556402382
+          },
+          "moneyFlow": {
+            "cmf20": -0.0839594616,
+            "cmf20Slope3": 0.0129871295,
+            "mfi14": 43.0309002311,
+            "accumulationDistributionSlope": -0.6596300257
+          },
+          "trendStructure": {
+            "regressionSlopePctPerBar": 0.084796635,
+            "regressionR2": 0.4722017342,
+            "efficiencyRatio20": 0.0334200377,
+            "pivots": {
+              "state": "bullish",
+              "highState": "higher_high",
+              "lowState": "higher_low"
+            }
+          }
+        },
+        "levels": {
+          "prev20": {
+            "support": 62744.9,
+            "resistance": 65432.2
+          },
+          "prev50": {
+            "support": 62744.9,
+            "resistance": 66314.9
+          },
+          "fib": {
+            "status": "available",
+            "lookback": 100,
+            "direction": "upswing",
+            "swing": {
+              "start": 62532.9,
+              "end": 66954.1,
+              "range": 4421.2
+            },
+            "currentPosition": {
+              "close": 63946,
+              "relation": "between_nearest_levels",
+              "below": 63479.0368,
+              "above": 64221.7984
+            }
+          }
+        },
+        "events": [
+          {
+            "name": "stochastic_cross_bearish",
+            "closedBarsAgo": 2,
+            "timing": "2_closed_bars_ago"
+          }
+        ],
+        "dataQuality": {
+          "status": "complete",
+          "reason": null,
+          "calculationInput": {
+            "barsUsed": 499,
+            "closedCandlesSha256": "08e1c81001aad3ec1ea9707f3e9009d0db507f3e0d88d2c75c806709e9fa6433"
+          }
+        }
+      },
+      "1d": {
+        "latestClosedCandle": {
+          "close": "64783.8",
+          "timing": "latest_closed_bar"
+        },
+        "formingCandle": {
+          "close": "63674.8",
+          "excludedFromIndicators": true,
+          "timing": "current_unclosed_bar"
+        },
+        "regime": {
+          "state": "range",
+          "volatility": "normal",
+          "reasons": [
+            "low_adx"
+          ]
+        },
+        "indicators": {
+          "ma": {
+            "ma5": 64369.9,
+            "ma10": 64813.9800000001,
+            "ma30": 63949.8499999999,
+            "ema12": 64483.1690768655,
+            "ema26": 64278.9005431525,
+            "relations": {
+              "ma5VsMa10": "below",
+              "ma10VsMa30": "above",
+              "alignment": "mixed",
+              "closeVsMa5": "above",
+              "closeVsMa10": "below",
+              "closeVsMa30": "above",
+              "ema12VsEma26": "above"
+            }
+          },
+          "macd": {
+            "value": 204.268533713,
+            "signal": 283.142822777,
+            "histogram": -78.874289064,
+            "relations": {
+              "histogramSign": "negative",
+              "valueVsSignal": "below"
+            }
+          },
+          "rsi14": 52.5232898085,
+          "atr14": {
+            "value": 1646.0185381484,
+            "percentOfPrice": 2.5407872619
+          },
+          "adx14": {
+            "value": 15.429213918,
+            "plusDi": 19.9724269781,
+            "minusDi": 22.1111608563
+          },
+          "volume": {
+            "ratioToSma20": 0.9229901172,
+            "zScore20": -0.182168912
+          },
+          "moneyFlow": {
+            "cmf20": 0.0165200114,
+            "cmf20Slope3": 0.0126963955,
+            "mfi14": 46.9144461208,
+            "accumulationDistributionSlope": 0.3816889052
+          },
+          "trendStructure": {
+            "regressionSlopePctPerBar": 0.0572831569,
+            "regressionR2": 0.0538446986,
+            "efficiencyRatio20": 0.0412273569,
+            "pivots": {
+              "state": "bearish",
+              "highState": "lower_high",
+              "lowState": "lower_low"
+            }
+          }
+        },
+        "levels": {
+          "prev20": {
+            "support": 61826.5,
+            "resistance": 66954.1
+          },
+          "prev50": {
+            "support": 57813.4,
+            "resistance": 67297.6
+          },
+          "fib": {
+            "status": "available",
+            "lookback": 100,
+            "direction": "downswing",
+            "swing": {
+              "start": 82828.2,
+              "end": 57813.4,
+              "range": 25014.8
+            },
+            "currentPosition": {
+              "close": 64783.8,
+              "relation": "between_nearest_levels",
+              "below": 63716.8928,
+              "above": 67369.0536
+            }
+          }
+        },
+        "events": [
+          {
+            "name": "stochastic_cross_bullish",
+            "closedBarsAgo": 0,
+            "timing": "latest_closed_bar"
+          }
+        ],
+        "dataQuality": {
+          "status": "complete",
+          "reason": null,
+          "calculationInput": {
+            "barsUsed": 499,
+            "closedCandlesSha256": "77ba708fdcff3bad3d28ec4e0b7ba4014082b342359fc343d48bf2c90e85327d"
+          }
+        }
+      },
+      "1w": {
+        "latestClosedCandle": {
+          "close": "65399.4",
+          "timing": "latest_closed_bar"
+        },
+        "formingCandle": {
+          "close": "63674.8",
+          "excludedFromIndicators": true,
+          "timing": "current_unclosed_bar"
+        },
+        "regime": {
+          "state": "volatile",
+          "volatility": "high",
+          "reasons": [
+            "elevated_atr_or_bollinger_width"
+          ]
+        },
+        "indicators": {
+          "ma": {
+            "ma5": 63426.0400000001,
+            "ma10": 66026.22,
+            "ma30": 72525.7866666667,
+            "ema12": 67023.860631106,
+            "ema26": 72414.9039524649,
+            "relations": {
+              "ma5VsMa10": "below",
+              "ma10VsMa30": "below",
+              "alignment": "bearish",
+              "closeVsMa5": "above",
+              "closeVsMa10": "below",
+              "closeVsMa30": "below",
+              "ema12VsEma26": "below"
+            }
+          },
+          "macd": {
+            "value": -5391.0433213589,
+            "signal": -5581.1498126918,
+            "histogram": 190.1064913329,
+            "relations": {
+              "histogramSign": "positive",
+              "valueVsSignal": "above"
+            }
+          },
+          "rsi14": 40.6493431988,
+          "atr14": {
+            "value": 6458.015771904,
+            "percentOfPrice": 9.8747324469
+          },
+          "adx14": {
+            "value": 31.091990631,
+            "plusDi": 14.1845315275,
+            "minusDi": 26.5742933742
+          },
+          "volume": {
+            "ratioToSma20": 0.5761367899,
+            "zScore20": -1.0377240911
+          },
+          "moneyFlow": {
+            "cmf20": 0.0486183588,
+            "cmf20Slope3": 0.1177378403,
+            "mfi14": 45.4016693624,
+            "accumulationDistributionSlope": 0.3601875205
+          },
+          "trendStructure": {
+            "regressionSlopePctPerBar": -0.7610590144,
+            "regressionR2": 0.2337953655,
+            "efficiencyRatio20": 0.0090497666,
+            "pivots": {
+              "state": "mixed",
+              "highState": "higher_high",
+              "lowState": "lower_low"
+            }
+          }
+        },
+        "levels": {
+          "prev20": {
+            "support": 57813.4,
+            "resistance": 82828.2
+          },
+          "prev50": {
+            "support": 57813.4,
+            "resistance": 126193
+          },
+          "fib": {
+            "status": "available",
+            "lookback": 100,
+            "direction": "upswing",
+            "swing": {
+              "start": 52549.4,
+              "end": 126193,
+              "range": 73643.6
+            },
+            "currentPosition": {
+              "close": 65399.4,
+              "relation": "between_nearest_levels",
+              "below": 52549.4,
+              "above": 68309.1304
+            }
+          }
+        },
+        "events": [
+          {
+            "name": "macd_signal_cross_bullish",
+            "closedBarsAgo": 0,
+            "timing": "latest_closed_bar"
+          },
+          {
+            "name": "stochastic_cross_bullish",
+            "closedBarsAgo": 2,
+            "timing": "2_closed_bars_ago"
+          }
+        ],
+        "dataQuality": {
+          "status": "complete",
+          "reason": null,
+          "calculationInput": {
+            "barsUsed": 499,
+            "closedCandlesSha256": "5c03a38c8568a26c0131291d53af625823e1c9a0cea2788e64a7a710d45e69b4"
+          }
+        }
+      }
+    },
+    "supportingEvidence": {
+      "formulaVersion": "crypto-market-evidence-v1",
+      "status": "complete",
+      "spotMicrostructure": {
+        "status": "available",
+        "orderBookSynchronized": null,
+        "tradeFlow5m": {
+          "status": "available",
+          "tradeCount": 3638,
+          "takerBuyRatio": 0.3767819594764491,
+          "cumulativeVolumeDelta": -1277861.9908363996,
+          "sampleCount": 5,
+          "imbalance25bps": 0.04340582090889726,
+          "positiveSampleRatio25bps": 1,
+          "negativeSampleRatio25bps": 0
+        },
+        "tradeFlow15m": {
+          "status": "available",
+          "tradeCount": 6535,
+          "takerBuyRatio": 0.38835137009014586,
+          "cumulativeVolumeDelta": -1783859.9897693004,
+          "sampleCount": 15,
+          "imbalance25bps": 0.0572407971241315,
+          "positiveSampleRatio25bps": 0.9333333333333333,
+          "negativeSampleRatio25bps": 0.06666666666666667
+        },
+        "orderBook5m": {
+          "status": "available",
+          "tradeCount": 3638,
+          "takerBuyRatio": 0.3767819594764491,
+          "cumulativeVolumeDelta": -1277861.9908363996,
+          "sampleCount": 5,
+          "imbalance25bps": 0.04340582090889726,
+          "positiveSampleRatio25bps": 1,
+          "negativeSampleRatio25bps": 0
+        }
+      },
+      "derivatives": {
+        "status": "complete",
+        "market": {
+          "markVsSpotBasisPct": -0.042088864,
+          "markVsIndexPremiumPct": -0.0355422901
+        },
+        "openInterest": {
+          "currentUsd": 4095805907.26944,
+          "changePct": {
+            "1h": 1.5341601167,
+            "4h": -0.1674486398,
+            "24h": 2.4631826947
+          }
+        },
+        "funding": {
+          "latestRate": 0.00007,
+          "zScore30": 1.3573940501,
+          "sampleCount": 30
+        },
+        "positioning": {
+          "takerLongShortRatio": 2.3947498933,
+          "accountLongShortRatio": 1.274656306
+        },
+        "liquidations4h": {
+          "longLiquidationUsd": 1161573.4957710002,
+          "shortLiquidationUsd": 19540.036881
+        },
+        "dataQuality": {
+          "statsSampleCount": 290,
+          "newestStatsTimestampMs": 1785490200000
+        }
+      },
+      "monitoringSignalVerdicts": [
+        {
+          "supportVerdict": "mixed",
+          "supportingFamilies": [
+            "price_volume"
+          ],
+          "conflictingFamilies": [
+            "spot_microstructure"
+          ],
+          "families": [
+            {
+              "family": "price_trend",
+              "state": "neutral"
+            },
+            {
+              "family": "price_volume",
+              "state": "supports"
+            },
+            {
+              "family": "spot_microstructure",
+              "state": "conflicts"
+            },
+            {
+              "family": "derivatives_positioning",
+              "state": "neutral"
+            }
+          ],
+          "monitoringSignalId": "upper_breakout_condition"
+        },
+        {
+          "supportVerdict": "conflicts",
+          "supportingFamilies": [
+            "spot_microstructure"
+          ],
+          "conflictingFamilies": [
+            "price_volume",
+            "derivatives_positioning"
+          ],
+          "families": [
+            {
+              "family": "price_trend",
+              "state": "neutral"
+            },
+            {
+              "family": "price_volume",
+              "state": "conflicts"
+            },
+            {
+              "family": "spot_microstructure",
+              "state": "supports"
+            },
+            {
+              "family": "derivatives_positioning",
+              "state": "conflicts"
+            }
+          ],
+          "monitoringSignalId": "lower_breakdown_condition"
+        },
+        {
+          "supportVerdict": "supports",
+          "supportingFamilies": [
+            "price_trend",
+            "price_volume"
+          ],
+          "conflictingFamilies": [],
+          "families": [
+            {
+              "family": "price_trend",
+              "state": "supports"
+            },
+            {
+              "family": "price_volume",
+              "state": "supports"
+            },
+            {
+              "family": "spot_microstructure",
+              "state": "neutral"
+            },
+            {
+              "family": "derivatives_positioning",
+              "state": "neutral"
+            }
+          ],
+          "monitoringSignalId": "range_condition"
+        }
+      ]
+    },
+    "forecasting": {
+      "status": "shadow",
+      "publicMode": "monitoring_only",
+      "analysisPolicy": {
+        "mode": "monitoring_only",
+        "directDirectionalPrediction": false,
+        "directionalProbabilitiesExposed": false,
+        "returnTargetsExposed": false,
+        "tradeInstructionsExposed": false,
+        "researchArtifactsRetained": true,
+        "reason": "forecast_models_not_promoted"
+      },
+      "modelVersion": "crypto-forecast-v3-20260729",
+      "featureSchemaVersion": "crypto-forecast-features-v3",
+      "asOf": "2026-07-31T08:59:59.999Z",
+      "datasetManifestSha256": "6b13e8199908a421b52a016a34f5d31d7358d1ac696fd6c5acbf556dfdc46905",
+      "modelArtifactSha256": "22c10250d4828948ce94e63cd7ab546c5fcdb05d98c67bb30f1a6bc6c50b16cc",
+      "horizons": {
+        "4h": {
+          "status": "shadow",
+          "publicMode": "monitoring_only",
+          "abstained": true,
+          "abstainReasons": [
+            "monitoring_only_policy",
+            "model_shadow",
+            "low_direction_confidence"
+          ],
+          "evidenceCoverage": 1,
+          "dataFreshnessMs": 56140,
+          "asOf": "2026-07-31T08:59:59.999Z",
+          "outcomeDueAt": "2026-07-31T12:59:59.999Z",
+          "predictionId": "541ee8300c2d5a5014e97150e53da9de5c2ae7affefe2ad5105ef0833c0d9c23",
+          "passportRef": "541ee8300c2d5a5014e97150e53da9de5c2ae7affefe2ad5105ef0833c0d9c23",
+          "governanceState": "shadow",
+          "costModelVersion": "crypto-cost-model-v3",
+          "modelArtifactSha256": "22c10250d4828948ce94e63cd7ab546c5fcdb05d98c67bb30f1a6bc6c50b16cc",
+          "resolved": false
+        },
+        "24h": {
+          "status": "shadow",
+          "publicMode": "monitoring_only",
+          "abstained": true,
+          "abstainReasons": [
+            "monitoring_only_policy",
+            "model_shadow",
+            "low_direction_confidence"
+          ],
+          "evidenceCoverage": 1,
+          "dataFreshnessMs": 56194,
+          "asOf": "2026-07-31T08:59:59.999Z",
+          "outcomeDueAt": "2026-08-01T08:59:59.999Z",
+          "predictionId": "0d00ee7a490fee261c5d200309d65851da4781c462cb8cb8cda7d81c0843c44d",
+          "passportRef": "0d00ee7a490fee261c5d200309d65851da4781c462cb8cb8cda7d81c0843c44d",
+          "governanceState": "shadow",
+          "costModelVersion": "crypto-cost-model-v3",
+          "modelArtifactSha256": "1dc15207e30bc9c79233f26fa9b290819fb9c49eae2cfba9a66a8c146c37da2a",
+          "resolved": false
+        },
+        "4d": {
+          "status": "shadow",
+          "publicMode": "monitoring_only",
+          "abstained": true,
+          "abstainReasons": [
+            "monitoring_only_policy",
+            "model_shadow",
+            "low_confidence",
+            "low_probability_margin"
+          ],
+          "evidenceCoverage": 1,
+          "dataFreshnessMs": 27781,
+          "asOf": "2026-07-30T23:59:59.999Z",
+          "outcomeDueAt": "2026-08-03T23:59:59.999Z",
+          "predictionId": "1b8111cd2173f57c8e600a57c21e2de5ed1a067677b7d060a60101ab18434e20",
+          "passportRef": "1b8111cd2173f57c8e600a57c21e2de5ed1a067677b7d060a60101ab18434e20",
+          "governanceState": "shadow",
+          "costModelVersion": "crypto-cost-model-v3",
+          "modelArtifactSha256": "a5023dbd29c97e8f1b35d0b0a95a5cb149d2728a621643399ccfd40f92f26e62",
+          "resolved": false
+        },
+        "12d": {
+          "status": "shadow",
+          "publicMode": "monitoring_only",
+          "abstained": true,
+          "abstainReasons": [
+            "monitoring_only_policy",
+            "model_shadow"
+          ],
+          "evidenceCoverage": 1,
+          "dataFreshnessMs": 27803,
+          "asOf": "2026-07-30T23:59:59.999Z",
+          "outcomeDueAt": "2026-08-11T23:59:59.999Z",
+          "predictionId": "6632e3d8a2f13be1b3a90b837e468d1d5d1f383fcecf8194ac6268664991feeb",
+          "passportRef": "6632e3d8a2f13be1b3a90b837e468d1d5d1f383fcecf8194ac6268664991feeb",
+          "governanceState": "shadow",
+          "costModelVersion": "crypto-cost-model-v3",
+          "modelArtifactSha256": "3cedb1fb5f3bf2bf073e6753da8bd73f2f15c5d4b23efadd5c3b3abfc4b70959",
+          "resolved": false
+        },
+        "24d": {
+          "status": "shadow",
+          "publicMode": "monitoring_only",
+          "abstained": true,
+          "abstainReasons": [
+            "monitoring_only_policy",
+            "model_shadow"
+          ],
+          "evidenceCoverage": 1,
+          "dataFreshnessMs": 27818,
+          "asOf": "2026-07-30T23:59:59.999Z",
+          "outcomeDueAt": "2026-08-23T23:59:59.999Z",
+          "predictionId": "4edb19d96a907d889f37d06bdcfe8b73af08ee6d6d70420f9dd299e0dda7146c",
+          "passportRef": "4edb19d96a907d889f37d06bdcfe8b73af08ee6d6d70420f9dd299e0dda7146c",
+          "governanceState": "shadow",
+          "costModelVersion": "crypto-cost-model-v3",
+          "modelArtifactSha256": "7e14c0cdd75baeab9f5450288a47210e70047f3ab83e70f05958fcfc30756ad2",
+          "resolved": false
+        }
+      }
+    },
+    "monitoringSignals": [
+      {
+        "id": "upper_breakout_condition",
+        "observed": false,
+        "confirmedByClosedData": false,
+        "supportVerdict": "mixed",
+        "confirmationChecks": [
+          {
+            "id": "daily_macd_histogram_positive",
+            "met": false,
+            "actual": -78.874289064,
+            "operator": ">",
+            "threshold": 0,
+            "source": "1d.ind.macd.histogram"
+          },
+          {
+            "id": "at_least_two_bullish_timeframes",
+            "met": false,
+            "actual": 0,
+            "operator": ">=",
+            "threshold": 2,
+            "source": "conf.bullish.length"
+          },
+          {
+            "id": "volume_ratio_above_one",
+            "met": false,
+            "actual": 0.9229901172,
+            "operator": ">",
+            "threshold": 1,
+            "source": "1d.ind.volume.ratioToSma20"
+          }
+        ]
+      },
+      {
+        "id": "lower_breakdown_condition",
+        "observed": false,
+        "confirmedByClosedData": false,
+        "supportVerdict": "conflicts",
+        "confirmationChecks": [
+          {
+            "id": "daily_macd_histogram_negative",
+            "met": true,
+            "actual": -78.874289064,
+            "operator": "<",
+            "threshold": 0,
+            "source": "1d.ind.macd.histogram"
+          },
+          {
+            "id": "at_least_two_bearish_timeframes",
+            "met": false,
+            "actual": 1,
+            "operator": ">=",
+            "threshold": 2,
+            "source": "conf.bearish.length"
+          },
+          {
+            "id": "volume_ratio_above_one",
+            "met": false,
+            "actual": 0.9229901172,
+            "operator": ">",
+            "threshold": 1,
+            "source": "1d.ind.volume.ratioToSma20"
+          }
+        ]
+      },
+      {
+        "id": "range_condition",
+        "observed": true,
+        "confirmedByClosedData": true,
+        "supportVerdict": "supports",
+        "confirmationChecks": [
+          {
+            "id": "daily_adx_below_20",
+            "met": true,
+            "actual": 15.429213918,
+            "operator": "<",
+            "threshold": 20,
+            "source": "1d.ind.adx14.value"
+          },
+          {
+            "id": "daily_close_inside_previous20_range",
+            "met": true,
+            "actual": 64783.8,
+            "operator": "between_inclusive",
+            "lower": 61826.5,
+            "upper": 66954.1,
+            "source": "1d.candles.latest.close"
+          }
+        ]
+      }
+    ],
+    "partialFailures": [],
+    "provenance": {
+      "fullToolRunId": "production-audit-20260731",
+      "fullResultSha256": "92de1d14a6180adddeb306fe121547549686de9efe1c6e2a781ff2b3ad6c369f",
+      "fullResultStored": true
+    }
+  },
+  "continuation": {
+    "handled": true,
+    "text": "# BTC/USDT 公开市场量化监测\n\n当前模式：仅数据监测。直接方向判断、方向概率、收益或价格目标、交易指令和投资建议均已在服务端关闭。\n\n数据质量：完整。公式版本：crypto-quant-v2；证据版本：crypto-market-evidence-v1。\n\n## 多周期已收盘数据\n\n### 1h\n\n状态：空头趋势；最后收盘价：63836.4。〔价格趋势｜timeframes.1h.regime.state；timeframes.1h.candles[-1][4]〕\n\nMA5/10/30：64136.08 / 64342.44 / 64493.8866666667；MACD 柱：-112.0418881863；RSI14：34.0060178498；ADX14：25.4928955011。〔价格趋势｜timeframes.1h.indicators〕\n\n量价：量比 0.8558046263，CMF20 -0.3912895837，MFI14 42.9962139709，A/D 三根归一化斜率 -0.6428431661。〔量价资金流｜timeframes.1h.indicators.volume；timeframes.1h.indicators.moneyFlow〕\n\n结构：高点与低点同步下移；回归斜率 -0.0726618573%/根，R² 0.7490856536，效率比 0.4634896234。〔价格趋势｜timeframes.1h.indicators.trendStructure〕\n\n### 4h\n\n状态：区间；最后收盘价：63946。〔价格趋势｜timeframes.4h.regime.state；timeframes.4h.candles[-1][4]〕\n\nMA5/10/30：64527.62 / 64317.88 / 64343.46；MACD 柱：47.091019064；RSI14：44.6955901046；ADX14：19.7651872232。〔价格趋势｜timeframes.4h.indicators〕\n\n量价：量比 0.8816608146，CMF20 -0.0839594616，MFI14 43.0309002311，A/D 三根归一化斜率 -0.6596300257。〔量价资金流｜timeframes.4h.indicators.volume；timeframes.4h.indicators.moneyFlow〕\n\n结构：高点与低点同步抬高；回归斜率 0.084796635%/根，R² 0.4722017342，效率比 0.0334200377。〔价格趋势｜timeframes.4h.indicators.trendStructure〕\n\n### 1d\n\n状态：区间；最后收盘价：64783.8。〔价格趋势｜timeframes.1d.regime.state；timeframes.1d.candles[-1][4]〕\n\nMA5/10/30：64369.9 / 64813.9800000001 / 63949.8499999999；MACD 柱：-78.874289064；RSI14：52.5232898085；ADX14：15.429213918。〔价格趋势｜timeframes.1d.indicators〕\n\n量价：量比 0.9229901172，CMF20 0.0165200114，MFI14 46.9144461208，A/D 三根归一化斜率 0.3816889052。〔量价资金流｜timeframes.1d.indicators.volume；timeframes.1d.indicators.moneyFlow〕\n\n结构：高点与低点同步下移；回归斜率 0.0572831569%/根，R² 0.0538446986，效率比 0.0412273569。〔价格趋势｜timeframes.1d.indicators.trendStructure〕\n\n### 1w\n\n状态：高波动；最后收盘价：65399.4。〔价格趋势｜timeframes.1w.regime.state；timeframes.1w.candles[-1][4]〕\n\nMA5/10/30：63426.0400000001 / 66026.22 / 72525.7866666667；MACD 柱：190.1064913329；RSI14：40.6493431988；ADX14：31.091990631。〔价格趋势｜timeframes.1w.indicators〕\n\n量价：量比 0.5761367899，CMF20 0.0486183588，MFI14 45.4016693624，A/D 三根归一化斜率 0.3601875205。〔量价资金流｜timeframes.1w.indicators.volume；timeframes.1w.indicators.moneyFlow〕\n\n结构：混合；回归斜率 -0.7610590144%/根，R² 0.2337953655，效率比 0.0090497666。〔价格趋势｜timeframes.1w.indicators.trendStructure〕\n\n## 现货微观结构\n\n现货微观结构状态：available；订单簿同步：否。〔现货微观结构｜supportingEvidence.spotMicrostructure.status；supportingEvidence.spotMicrostructure.orderBook.synchronized〕\n\n5 分钟 taker 买入占比 0.3767819594764491，15 分钟 0.38835137009014586；5 分钟 CVD -1277861.9908363996。〔现货微观结构｜supportingEvidence.spotMicrostructure.tradeFlow.windows〕\n\n5 分钟 25bps 深度失衡中位数 0.04340582090889726，样本数 5。〔现货微观结构｜supportingEvidence.spotMicrostructure.orderBook.windows.5m〕\n\n## 永续合约旁证\n\n衍生品旁证状态：complete；4 小时 OI 变化 -0.1674486398%，24 小时 2.4631826947%。〔衍生品仓位｜supportingEvidence.derivatives.openInterest〕\n\n资金费率 0.00007，30 期 Z-Score 1.3573940501；taker 多空比 2.3947498933。〔衍生品仓位｜supportingEvidence.derivatives.funding；supportingEvidence.derivatives.positioning〕\n\n标记价相对现货基差 -0.042088864%；4 小时多头/空头爆仓额 1161573.4957710002 / 19540.036881 USD。〔衍生品仓位｜supportingEvidence.derivatives.market；supportingEvidence.derivatives.liquidations.4h〕\n\n## 研究治理与回溯\n\n公开模式：仅数据监测；研究状态 shadow；模型 crypto-forecast-v3-20260729；数据时间 2026-07-31T08:59:59.999Z。方向、方向概率、收益目标和交易指令已由服务端删除。〔研究治理｜forecasting.publicMode；forecasting.status；forecasting.asOf〕\n\n4h：公开弃权；原因 monitoring_only_policy、model_shadow、low_direction_confidence；证据覆盖 1；数据新鲜度 56140 ms。〔研究治理｜forecasting.horizons.4h.abstained；forecasting.horizons.4h.abstainReasons；forecasting.horizons.4h.dataFreshnessMs〕\n\n24h：公开弃权；原因 monitoring_only_policy、model_shadow、low_direction_confidence；证据覆盖 1；数据新鲜度 56194 ms。〔研究治理｜forecasting.horizons.24h.abstained；forecasting.horizons.24h.abstainReasons；forecasting.horizons.24h.dataFreshnessMs〕\n\n4d：公开弃权；原因 monitoring_only_policy、model_shadow、low_confidence、low_probability_margin；证据覆盖 1；数据新鲜度 27781 ms。〔研究治理｜forecasting.horizons.4d.abstained；forecasting.horizons.4d.abstainReasons；forecasting.horizons.4d.dataFreshnessMs〕\n\n12d：公开弃权；原因 monitoring_only_policy、model_shadow；证据覆盖 1；数据新鲜度 27803 ms。〔研究治理｜forecasting.horizons.12d.abstained；forecasting.horizons.12d.abstainReasons；forecasting.horizons.12d.dataFreshnessMs〕\n\n24d：公开弃权；原因 monitoring_only_policy、model_shadow；证据覆盖 1；数据新鲜度 27818 ms。〔研究治理｜forecasting.horizons.24d.abstained；forecasting.horizons.24d.abstainReasons；forecasting.horizons.24d.dataFreshnessMs〕\n\n数据集 SHA-256：6b13e8199908a421b52a016a34f5d31d7358d1ac696fd6c5acbf556dfdc46905；模型工件 SHA-256：22c10250d4828948ce94e63cd7ab546c5fcdb05d98c67bb30f1a6bc6c50b16cc。这些标识只用于审计重放，不代表模型已获准预测。〔研究回溯｜forecasting.datasetManifestSha256；forecasting.modelArtifactSha256〕\n\n## 条件状态监测\n\n### 上轨突破条件\n\n当前观测：未触发；已收盘数据确认：否；旁证：混合。这是事件状态，不是未来方向判断。〔条件监测｜scenarios.bullish_breakout.triggerMet；scenarios.bullish_breakout.confirmed；supportingEvidence.scenarioVerdicts.bullish_breakout.supportVerdict〕\n\n核对项：daily_macd_histogram_positive=未满足（当前 -78.874289064；阈值 0）；at_least_two_bullish_timeframes=未满足（当前 0；阈值 2）；volume_ratio_above_one=未满足（当前 0.9229901172；阈值 1）。〔条件监测｜scenarios.bullish_breakout.confirmationChecks〕\n\n### 下轨跌破条件\n\n当前观测：未触发；已收盘数据确认：否；旁证：冲突。这是事件状态，不是未来方向判断。〔条件监测｜scenarios.bearish_breakdown.triggerMet；scenarios.bearish_breakdown.confirmed；supportingEvidence.scenarioVerdicts.bearish_breakdown.supportVerdict〕\n\n核对项：daily_macd_histogram_negative=满足（当前 -78.874289064；阈值 0）；at_least_two_bearish_timeframes=未满足（当前 1；阈值 2）；volume_ratio_above_one=未满足（当前 0.9229901172；阈值 1）。〔条件监测｜scenarios.bearish_breakdown.confirmationChecks〕\n\n### 区间延续条件\n\n当前观测：已触发；已收盘数据确认：是；旁证：支持。这是事件状态，不是未来方向判断。〔条件监测｜scenarios.range_continuation.triggerMet；scenarios.range_continuation.confirmed；supportingEvidence.scenarioVerdicts.range_continuation.supportVerdict〕\n\n核对项：daily_adx_below_20=满足（当前 15.429213918；阈值 20）；daily_close_inside_previous20_range=满足（当前 64783.8；阈值 不可用）。〔条件监测｜scenarios.range_continuation.confirmationChecks〕\n\n## 使用边界\n\n趋势、量能、订单流、资金费率、持仓量和爆仓数据仅描述当前及历史状态，不能识别机构身份，也不能单独证明未来反转或延续。斐波那契仅保留为可复算参考位。\n\nrunId：production-audit-20260731；完整结果 SHA-256：92de1d14a6180adddeb306fe121547549686de9efe1c6e2a781ff2b3ad6c369f。内部研究资产继续保留用于审计，但公开报告不包含预测结果。",
+    "validationStatus": "monitoring_only",
+    "validationErrorCodes": []
+  }
+}

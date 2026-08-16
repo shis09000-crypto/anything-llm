@@ -4,8 +4,17 @@ import { streamThreadTitleEvents } from "@/lib/communication/workspaceRealtimeCl
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { submitProjectedSyncMutation } from "@/utils/syncV2/syncV2ProjectedMutation";
+import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";
 
-const SYNC_V2_THREAD_METADATA_FIELDS = ["name", "chatModel"];
+const SYNC_V2_THREAD_METADATA_FIELDS = [
+  "name",
+  "chatModel",
+  "title",
+  "isUntitled",
+  "titleSource",
+  "titleGenerationStatus",
+  "titleVersion",
+];
 const CHAT_PAYLOAD_HEADERS = { "X-Athena-Chat-Payload-Version": "2" };
 
 function cachedThread(workspaceSlug, threadSlug) {
@@ -155,6 +164,20 @@ const WorkspaceThread = {
       .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
+        if (shouldPreserveLocalAuthOnFailure(error)) {
+          workspaceNavigationCache.markThreadsStale(
+            workspaceSlug,
+            "workspace-threads-temporarily-unavailable"
+          );
+          if (options.throwOnError === true) throw error;
+          const cached = workspaceNavigationCache.getThreads(workspaceSlug, {
+            allowStale: true,
+          });
+          if (Array.isArray(cached)) {
+            return { threads: cached, defaultThreads: null };
+          }
+        }
+        if (options.throwOnError === true) throw error;
         return { threads: [], defaultThreads: null };
       });
     if (Array.isArray(threads) && !options.includeArchived)

@@ -142,6 +142,25 @@ const ChatStreamRun = {
     }
   },
 
+  getScopedById: async function ({
+    id,
+    workspaceId,
+    threadId = null,
+    userId = null,
+  } = {}) {
+    try {
+      const row = await prisma.chat_stream_runs.findFirst({
+        where: {
+          id: String(id || "").trim(),
+          ...scopeWhere({ workspaceId, threadId, userId }),
+        },
+      });
+      return await hydrate(row);
+    } catch (error) {
+      throwModelDataAccessError("chatStreamRun.getScopedById", error);
+    }
+  },
+
   checkpoint: async function ({
     id,
     workspaceId,

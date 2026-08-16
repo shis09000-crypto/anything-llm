@@ -10,6 +10,13 @@ import type {
   CryptoTrendPoint,
 } from "./cryptoTotalAssetTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import {
+  EQUITY_CHART_WINDOW_MS,
+  equityTooltipPlacement,
+  interpolateEquityDisplayValue,
+  monotoneCurvePath,
+  prepareEquityDisplaySeries,
+} from "./cryptoTotalAssetChartRuntime.js";
 
 const statusMeta: Record<
   CryptoConnectionStatus,
@@ -365,25 +372,79 @@ function mergeAmountSlots(
   );
 }
 
-function chartGeometry(points: CryptoTrendPoint[], baseline: number) {
+function chartGeometry(
+  points: CryptoTrendPoint[],
+  baseline: number,
+  latestSampleAt?: number | null
+) {
   const width = 700;
   const height = 500;
   const padding = { top: 58, right: 26, bottom: 60, left: 64 };
-  const values = [...points.map((point) => point.value), baseline];
-  const min = Math.min(...values) - 280;
-  const max = Math.max(...values) + 280;
   const xSpan = width - padding.left - padding.right;
   const ySpan = height - padding.top - padding.bottom;
   const offsets = trendWindowOffsets(points);
+  const latestPoint = points[points.length - 1];
+  const latestPointTs = latestPoint?.ts || null;
+  const canAppendDisplayHold =
+    latestPoint &&
+    latestSampleAt &&
+    Number.isFinite(latestSampleAt) &&
+    (!latestPointTs || latestSampleAt > latestPointTs);
+  const displaySourcePoints = canAppendDisplayHold
+    ? [
+        ...points.map((point, index) => ({
+          point,
+          timeMs: offsets[index] * 60_000,
+          value: point.value,
+        })),
+        {
+          point: latestPoint,
+          timeMs:
+            trendWindowOffsets([
+              ...points,
+              { ...latestPoint, ts: latestSampleAt, time: "" },
+            ]).at(-1)! * 60_000,
+          value: latestPoint.value,
+          displayHold: true,
+        },
+      ]
+    : points.map((point, index) => ({
+        point,
+        timeMs: offsets[index] * 60_000,
+        value: point.value,
+      }));
+  const displaySeries = prepareEquityDisplaySeries(displaySourcePoints, {
+    windowMs: EQUITY_CHART_WINDOW_MS,
+  });
+  const displayValues = displaySeries.map((point) => point.value);
+  const maxDeviation = Math.max(
+    ...displayValues.map((value) => Math.abs(value - baseline)),
+    Math.abs(baseline) * 0.0025,
+    0.5
+  );
+  const paddedDeviation = maxDeviation * 1.12;
+  const min = baseline - paddedDeviation;
+  const max = baseline + paddedDeviation;
   const coords = points.map((point, index) => {
     const x = padding.left + (offsets[index] / trendAxisWindowMinutes) * xSpan;
-    const y = padding.top + ((max - point.value) / (max - min)) * ySpan;
-    return { ...point, offsetMinutes: offsets[index], x, y };
+    const displayValue =
+      interpolateEquityDisplayValue(displaySeries, offsets[index] * 60_000) ??
+      point.value;
+    const y = padding.top + ((max - displayValue) / (max - min)) * ySpan;
+    return {
+      ...point,
+      displayValue,
+      offsetMinutes: offsets[index],
+      x,
+      y,
+    };
   });
-  const displayCoords = downsampleCoords(coords);
-  const linePath = displayCoords
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-    .join(" ");
+  const displayCoords = displaySeries.map((point) => ({
+    ...point,
+    x: padding.left + (point.timeMs / EQUITY_CHART_WINDOW_MS) * xSpan,
+    y: padding.top + ((max - point.value) / (max - min)) * ySpan,
+  }));
+  const linePath = monotoneCurvePath(displayCoords);
   const baselineY = padding.top + ((max - baseline) / (max - min)) * ySpan;
   const baselineAreaPath = displayCoords.length
     ? `${linePath} L ${
@@ -413,28 +474,6 @@ function chartGeometry(points: CryptoTrendPoint[], baseline: number) {
 type ChartGeometry = ReturnType<typeof chartGeometry>;
 type ChartCoord = ChartGeometry["coords"][number];
 
-function clampNumber(value: number, min: number, max: number) {
-  if (max < min) return min;
-  return Math.min(Math.max(value, min), max);
-}
-
-function downsampleCoords<T extends { x: number; y: number }>(
-  coords: T[],
-  maxPoints = 1400
-) {
-  if (coords.length <= maxPoints) return coords;
-
-  const sampled: T[] = [];
-  const stride = Math.ceil(coords.length / maxPoints);
-  for (let index = 0; index < coords.length; index += stride) {
-    sampled.push(coords[index]);
-  }
-
-  const last = coords[coords.length - 1];
-  if (sampled[sampled.length - 1] !== last) sampled.push(last);
-  return sampled;
-}
-
 function findNearestCoordIndex(coords: ChartCoord[], x: number) {
   if (!coords.length) return null;
   let left = 0;
@@ -460,6 +499,7 @@ export default function CryptoTotalAssetCard({
   connectionStatus,
   lastUpdatedAt,
   lastUpdatedDate,
+  latestSampleAt,
   cardHeight,
   borderRadius,
   backgroundMode,
@@ -615,6 +655,7 @@ export default function CryptoTotalAssetCard({
               baseline={safeBaseline}
               profitColor={profitColor}
               lossColor={lossColor}
+              latestSampleAt={latestSampleAt}
             />
           )}
         </div>
@@ -837,36 +878,42 @@ const TrendChart = React.memo(function TrendChart({
   baseline,
   profitColor,
   lossColor,
+  latestSampleAt,
 }: {
   points: CryptoTrendPoint[];
   baseline: number;
   profitColor: string;
   lossColor: string;
+  latestSampleAt?: number | null;
 }) {
   const gradientId = useId().replace(/:/g, "");
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [compactTooltip, setCompactTooltip] = useState(false);
+  const [tooltipPlacementKey, setTooltipPlacementKey] = useState<string | null>(
+    null
+  );
   const svgRef = useRef<SVGSVGElement | null>(null);
   const hoverFrameRef = useRef<number | null>(null);
   const pendingHoverXRef = useRef<number | null>(null);
   const chart = useMemo(
-    () => chartGeometry(points, baseline),
-    [baseline, points]
+    () => chartGeometry(points, baseline, latestSampleAt),
+    [baseline, latestSampleAt, points]
   );
   const hoveredPoint =
     hoveredIndex === null ? null : chart.coords[hoveredIndex] || null;
-  const tooltipWidth = 390;
-  const tooltipHeight = 190;
-  const tooltipGap = 18;
-  const tooltipMinX = chart.padding.left + 4;
-  const tooltipMaxX = chart.width - chart.padding.right - tooltipWidth;
-  const tooltipMinY = chart.padding.top + 4;
-  const tooltipMaxY = chart.height - chart.padding.bottom - tooltipHeight;
-  const tooltipX = hoveredPoint
-    ? clampNumber(hoveredPoint.x + tooltipGap, tooltipMinX, tooltipMaxX)
-    : 0;
-  const tooltipY = hoveredPoint
-    ? clampNumber(hoveredPoint.y + tooltipGap, tooltipMinY, tooltipMaxY)
-    : 0;
+  const tooltipWidth = compactTooltip ? 300 : 330;
+  const tooltipHeight = compactTooltip ? 150 : 164;
+  const tooltipPlacement = hoveredPoint
+    ? equityTooltipPlacement({
+        chartHeight: chart.height,
+        chartWidth: chart.width,
+        pointX: hoveredPoint.x,
+        pointY: hoveredPoint.y,
+        previousPlacement: tooltipPlacementKey,
+        tooltipHeight,
+        tooltipWidth,
+      })
+    : { placement: null, x: 0, y: 0 };
   const hoveredDelta = hoveredPoint ? hoveredPoint.value - baseline : 0;
   const hoveredDeltaPct = baseline ? (hoveredDelta / baseline) * 100 : 0;
   const hoveredTone = hoveredDelta >= 0 ? profitColor : lossColor;
@@ -885,6 +932,15 @@ const TrendChart = React.memo(function TrendChart({
     };
   }, []);
 
+  useEffect(() => {
+    if (!hoveredPoint || !tooltipPlacement.placement) return;
+    setTooltipPlacementKey((current) =>
+      current === tooltipPlacement.placement
+        ? current
+        : tooltipPlacement.placement
+    );
+  }, [hoveredPoint, tooltipPlacement.placement]);
+
   function flushHoverPosition() {
     hoverFrameRef.current = null;
     const x = pendingHoverXRef.current;
@@ -900,6 +956,10 @@ const TrendChart = React.memo(function TrendChart({
     if (!hasDrawablePoints || !svgRef.current) return;
 
     const rect = svgRef.current.getBoundingClientRect();
+    const nextCompactTooltip = rect.width < 480;
+    setCompactTooltip((current) =>
+      current === nextCompactTooltip ? current : nextCompactTooltip
+    );
     const x = ((event.clientX - rect.left) / rect.width) * chart.width;
     pendingHoverXRef.current = Math.max(
       chart.padding.left,
@@ -916,6 +976,7 @@ const TrendChart = React.memo(function TrendChart({
       hoverFrameRef.current = null;
     }
     pendingHoverXRef.current = null;
+    setTooltipPlacementKey(null);
     setHoveredIndex(null);
   }
 
@@ -979,8 +1040,9 @@ const TrendChart = React.memo(function TrendChart({
             hoveredTone={hoveredTone}
             tooltipHeight={tooltipHeight}
             tooltipWidth={tooltipWidth}
-            tooltipX={tooltipX}
-            tooltipY={tooltipY}
+            tooltipX={tooltipPlacement.x}
+            tooltipY={tooltipPlacement.y}
+            compact={compactTooltip}
           />
         )}
       </svg>
@@ -1148,6 +1210,7 @@ function TrendHoverLayer({
   tooltipWidth,
   tooltipX,
   tooltipY,
+  compact,
 }: {
   chart: ChartGeometry;
   gradientId: string;
@@ -1160,7 +1223,13 @@ function TrendHoverLayer({
   tooltipWidth: number;
   tooltipX: number;
   tooltipY: number;
+  compact: boolean;
 }) {
+  const amountFontSize = compact ? 26 : 29;
+  const metricFontSize = compact ? 18 : 20;
+  const timeFontSize = compact ? 16 : 17;
+  const dateFontSize = compact ? 15 : 16;
+  const insetX = compact ? 20 : 22;
   return (
     <g pointerEvents="none">
       <line
@@ -1188,47 +1257,47 @@ function TrendHoverLayer({
         stroke="rgba(255,255,255,.16)"
       />
       <text
-        x={tooltipX + 28}
-        y={tooltipY + 52}
+        x={tooltipX + insetX}
+        y={tooltipY + (compact ? 40 : 44)}
         fill="#F8FAFC"
-        fontSize="34"
+        fontSize={amountFontSize}
         fontWeight="800"
       >
         {formatUsd(hoveredPoint.value)}
       </text>
       <text
-        x={tooltipX + 28}
-        y={tooltipY + 100}
+        x={tooltipX + insetX}
+        y={tooltipY + (compact ? 76 : 84)}
         fill={hoveredTone}
-        fontSize="23"
+        fontSize={metricFontSize}
         fontWeight="800"
       >
         {formatDeltaUsd(hoveredDelta)}
       </text>
       <text
-        x={tooltipX + tooltipWidth - 28}
-        y={tooltipY + 100}
+        x={tooltipX + tooltipWidth - insetX}
+        y={tooltipY + (compact ? 76 : 84)}
         fill={hoveredTone}
-        fontSize="23"
+        fontSize={metricFontSize}
         fontWeight="800"
         textAnchor="end"
       >
         {formatDeltaPct(hoveredDeltaPct)}
       </text>
       <text
-        x={tooltipX + 28}
-        y={tooltipY + 146}
+        x={tooltipX + insetX}
+        y={tooltipY + (compact ? 112 : 124)}
         fill="#D1D5DB"
-        fontSize="20"
+        fontSize={timeFontSize}
         fontWeight="700"
       >
         {hoveredDateTime.time}
       </text>
       <text
-        x={tooltipX + 28}
-        y={tooltipY + 174}
+        x={tooltipX + insetX}
+        y={tooltipY + (compact ? 134 : 148)}
         fill="#8B9099"
-        fontSize="18"
+        fontSize={dateFontSize}
         fontWeight="700"
       >
         {hoveredDateTime.date}

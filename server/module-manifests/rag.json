@@ -14,17 +14,10 @@
     "server/utils/vectorDbProviders/",
     "server/utils/chats/"
   ],
-  "capabilities": [
-    "retrieval",
-    "rerank",
-    "citations"
-  ],
+  "capabilities": ["retrieval", "rerank", "citations"],
   "routes": {
     "public": [],
-    "internal": [
-      "/internal/v1/rag/dependencies",
-      "/internal/v1/rag/retrieve"
-    ]
+    "internal": ["/internal/v1/rag/dependencies", "/internal/v1/rag/retrieve"]
   },
   "rpc": {
     "provides": [
@@ -45,31 +38,21 @@
     ]
   },
   "events": {
-    "publishes": [
-      "rag.result.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "knowledge.index.*"
-    ]
+    "publishes": ["rag.result.*", "module.lifecycle.*"],
+    "subscribes": ["knowledge.index.*"]
   },
   "data": {
-    "schemas": [
-      "knowledge_query"
-    ],
-    "objectPrefixes": [
-      "knowledge/index"
-    ]
+    "schemas": ["knowledge_query"],
+    "objectPrefixes": ["knowledge/index"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/rag",
-    "keyDomains": [
-      "file"
-    ],
+    "keyDomains": ["file"],
     "allowedCallers": [
       "chat-runtime",
       "agent-runtime",
       "athena-api",
+      "responses-runtime",
       "operations-plane",
       "coordination-plane"
     ],
@@ -92,11 +75,7 @@
     "infra:object-store"
   ],
   "domain": "knowledge",
-  "responsibilities": [
-    "retrieval",
-    "rerank",
-    "citations"
-  ],
+  "responsibilities": ["retrieval", "rerank", "citations"],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
@@ -300,34 +279,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "knowledge_query"
-    ],
-    "objectPrefixes": [
-      "knowledge/index"
-    ],
-    "keyDomains": [
-      "file"
-    ],
-    "configuration": [
-      "runtime:rag"
-    ],
-    "runtimeState": [
-      "module-instance:rag"
-    ]
+    "dataSchemas": ["knowledge_query"],
+    "objectPrefixes": ["knowledge/index"],
+    "keyDomains": ["file"],
+    "configuration": ["runtime:rag"],
+    "runtimeState": ["module-instance:rag"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data",
-      "cache"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data", "cache"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -355,11 +315,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

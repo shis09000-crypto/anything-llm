@@ -1,0 +1,50 @@
+{
+  "success": true,
+  "object": "athena.3d_center.response",
+  "protocol_version": "1.0",
+  "response": {
+    "id": "chr_resp_incremental_fixture_01",
+    "status": "completed",
+    "previous_response_id": "chr_resp_incremental_fixture_00"
+  },
+  "context": {
+    "mode": "incremental",
+    "previous_ref": {
+      "cursor_id": "chr_ctx_0123456789abcdef0123456789abcdef",
+      "memory_revision": 4,
+      "state_revision": 4,
+      "checkpoint_revision": 1,
+      "last_turn_ordinal": 4,
+      "expires_at": 1786500000000
+    },
+    "current_ref": {
+      "cursor_id": "chr_ctx_fedcba9876543210fedcba9876543210",
+      "memory_revision": 5,
+      "state_revision": 5,
+      "checkpoint_revision": 1,
+      "last_turn_ordinal": 5,
+      "expires_at": 1786500900000
+    },
+    "advance_status": "committed",
+    "gateway_cache": {
+      "slot_hit": true,
+      "rebuild_reason": null
+    },
+    "provider_cache": {
+      "hit_tokens": 12000,
+      "miss_tokens": 900,
+      "hit_rate": 0.9302
+    },
+    "generation_contract": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "response_format": {
+        "type": "json_object"
+      },
+      "raw_output_type": "json_object",
+      "selection_retries": 0
+    }
+  },
+  "frame": {},
+  "warnings": []
+}

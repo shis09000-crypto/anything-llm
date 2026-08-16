@@ -5,6 +5,9 @@ const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
 const WorkspaceAgentInvocation = lazyDataAccessFacade(
   "workspaceAgentInvocation"
 );
+const {
+  shouldBypassAutomaticAgentRouting,
+} = require("../chats/automaticAgentRouting");
 const AIbitat = require("./aibitat");
 const AgentPlugins = require("./aibitat/plugins");
 const ImportedPlugin = require("./imported");
@@ -610,6 +613,7 @@ If the user asks about book structure, reading order, timeline, person relations
   }) {
     if (this.#isAgentCommandInvocation({ message })) return true;
     if (chatMode === "automatic") {
+      if (shouldBypassAutomaticAgentRouting(message)) return false;
       if (!workspace) return false;
       if (await Workspace.supportsNativeToolCalling(workspace)) return true;
       return false;

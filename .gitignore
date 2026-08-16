@@ -20,6 +20,9 @@ yarn.lock
 frontend/public/athena-mobile-dev-ca.crt
 anythingllm-data-sync-backups/
 dist-desktop/
+# Browser-egress cores and signed manifests are generated during desktop
+# packaging from desktop/browser-egress-core-lock.json.
+desktop/browser-egress/
 server/public/
 desktop/*.env
 server/storage/reader-documents/

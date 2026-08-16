@@ -6,12 +6,26 @@ import useLogo from "../../../hooks/useLogo";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 import { getAuthToken } from "@/utils/authTokenStorage";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
+import {
+  SESSION_VALIDATION_STATE,
+  validateSessionTokenForUserDetailed,
+} from "@/utils/session";
+import {
+  hardReloadForRelease,
+  redirectToLogin,
+} from "@/utils/authLifecycleCoordinator";
 export { default as AuthBootstrapError } from "./AuthBootstrapError";
 
-export default function PasswordModal({ mode = "single" }) {
+export default function PasswordModal({ mode = "single", bootstrap = null }) {
   const { loginLogo, isCustomLogo } = useLogo();
   if (mode === "multi") {
-    return <MultiUserAuth loginLogo={loginLogo} isCustomLogo={isCustomLogo} />;
+    return (
+      <MultiUserAuth
+        loginLogo={loginLogo}
+        isCustomLogo={isCustomLogo}
+        authBootstrap={bootstrap}
+      />
+    );
   }
 
   return (
@@ -27,9 +41,13 @@ export function usePasswordModal(notry = false) {
     requiresAuth: false,
     mode: "single",
     error: null,
+    bootstrap: null,
+    reconnecting: false,
   });
 
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer = null;
     async function checkAuthReq() {
       try {
         if (!window) return;
@@ -40,121 +58,105 @@ export function usePasswordModal(notry = false) {
             requiresAuth: false,
             mode: "multi",
             error: null,
+            bootstrap: null,
+            reconnecting: false,
           });
           return;
         }
 
-        // If the last validity check is still valid
-        // we can skip the loading.
-        if (!System.needsAuthCheck() && notry === false) {
+        const bootstrap = await System.authBootstrap();
+        if (cancelled) return;
+        if (bootstrap.nextAction === "hard_reload") {
+          hardReloadForRelease(bootstrap.deployment?.releaseId);
+          return;
+        }
+        const mode = bootstrap.authMode === "multi" ? "multi" : "single";
+        const currentToken = getAuthToken();
+        if (bootstrap.nextAction === "login" && currentToken) {
+          clearSensitiveClientSession({
+            includeDurableCaches: false,
+            preserveRecovery: true,
+          });
+        }
+        const explicitlyRequiresLogin =
+          notry ||
+          bootstrap.nextAction === "login" ||
+          (bootstrap.authMode !== "public" && !currentToken);
+        if (bootstrap.authMode === "public") {
           setAuth({
             loading: false,
             requiresAuth: false,
-            mode: "multi",
+            mode,
             error: null,
+            bootstrap,
+            reconnecting: bootstrap.serviceStatus !== "ready",
           });
           return;
         }
-
-        const settings = await System.keys();
-        if (!settings) {
+        if (explicitlyRequiresLogin) {
           setAuth({
             loading: false,
-            requiresAuth: null,
-            mode: "multi",
-            error:
-              "无法读取系统登录配置。请确认服务器在线、反向代理与 HTTPS 配置正常后重试。",
+            requiresAuth: true,
+            mode,
+            error: null,
+            bootstrap,
+            reconnecting: bootstrap.serviceStatus !== "ready",
           });
           return;
         }
 
-        if (settings?.MultiUserMode) {
-          const currentToken = getAuthToken();
-          if (!!currentToken) {
-            const valid = notry ? false : await System.checkAuth(currentToken);
-            if (!valid) {
-              setAuth({
-                loading: false,
-                requiresAuth: true,
-                mode: "multi",
-                error: null,
-              });
-              clearSensitiveClientSession();
-              return;
-            } else {
-              setAuth({
-                loading: false,
-                requiresAuth: false,
-                mode: "multi",
-                error: null,
-              });
-              return;
-            }
-          } else {
-            setAuth({
-              loading: false,
-              requiresAuth: true,
-              mode: "multi",
-              error: null,
-            });
-            return;
-          }
-        } else {
-          // Running token check in single user Auth mode.
-          // If Single user Auth is disabled - skip check
-          const requiresAuth = settings?.RequiresAuth || false;
-          if (!requiresAuth) {
-            setAuth({
-              loading: false,
-              requiresAuth: false,
-              mode: "single",
-              error: null,
-            });
-            return;
-          }
-
-          const currentToken = getAuthToken();
-          if (!!currentToken) {
-            const valid = notry ? false : await System.checkAuth(currentToken);
-            if (!valid) {
-              setAuth({
-                loading: false,
-                requiresAuth: true,
-                mode: "single",
-                error: null,
-              });
-              clearSensitiveClientSession();
-              return;
-            } else {
-              setAuth({
-                loading: false,
-                requiresAuth: false,
-                mode: "single",
-                error: null,
-              });
-              return;
-            }
-          } else {
-            setAuth({
-              loading: false,
-              requiresAuth: true,
-              mode: "single",
-              error: null,
-            });
-            return;
-          }
+        const validation = await validateSessionTokenForUserDetailed();
+        if (cancelled) return;
+        if (validation.state === SESSION_VALIDATION_STATE.INVALID) {
+          clearSensitiveClientSession({
+            includeDurableCaches: false,
+            preserveRecovery: true,
+          });
         }
-      } catch (error) {
-        console.error("[Auth] bootstrap failed", error);
         setAuth({
           loading: false,
-          requiresAuth: null,
+          requiresAuth: validation.state === SESSION_VALIDATION_STATE.INVALID,
+          mode,
+          error: null,
+          bootstrap,
+          reconnecting:
+            validation.state === SESSION_VALIDATION_STATE.TRANSIENT ||
+            bootstrap.serviceStatus !== "ready",
+        });
+        if (validation.state === SESSION_VALIDATION_STATE.TRANSIENT) {
+          retryTimer = window.setTimeout(() => {
+            System.clearAuthBootstrapCache();
+            void checkAuthReq();
+          }, bootstrap.retryAfterMs || 3_000);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error("[Auth] bootstrap failed", error);
+        redirectToLogin({ reason: "force_reauth" });
+        setAuth({
+          loading: false,
+          requiresAuth: true,
           mode: "multi",
-          error: "登录初始化失败。请确认服务器在线、网络未被拦截后重新加载。",
+          error: null,
+          bootstrap: null,
+          reconnecting: false,
         });
       }
     }
-    checkAuthReq();
+    void checkAuthReq();
+    const retryNow = () => {
+      if (retryTimer) window.clearTimeout(retryTimer);
+      retryTimer = null;
+      void checkAuthReq();
+    };
+    window.addEventListener("athena-auth-bootstrap-retry", retryNow);
+    window.addEventListener("online", retryNow);
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      window.removeEventListener("athena-auth-bootstrap-retry", retryNow);
+      window.removeEventListener("online", retryNow);
+    };
   }, []);
 
   return auth;

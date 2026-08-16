@@ -7,11 +7,21 @@ const {
 } = require("../codexDevAuthBypass");
 const { getClientContext, getClientRecord } = require("../clientIdentity");
 const { jwtIdleState, sessionClientIdFromToken } = require("../sessionIdle");
+const {
+  remoteIdentityOperationsEnabled,
+  validateSessionViaIdentity,
+} = require("./identityOperationsClient");
 
 const REALTIME_TICKET_TTL_MS = 90_000;
 const REALTIME_TICKET_MAX_TTL_MS = 120_000;
 const REALTIME_REVALIDATE_MS = 5_000;
-const REALTIME_PURPOSES = new Set(["broadcast", "agent", "crypto"]);
+const REALTIME_PURPOSES = new Set([
+  "broadcast",
+  "agent",
+  "crypto",
+  "character-performance",
+  "athena-3d-center",
+]);
 
 // Resolve repository surfaces only at the point of use. Sync and maintenance
 // consumers intentionally provide narrow DataAccessCenter adapters and should
@@ -259,6 +269,47 @@ async function validateClaims({ request, claims, multiUser, authoritative }) {
     throw realtimeAuthError("realtime_session_idle_expired");
   }
 
+  if (remoteIdentityOperationsEnabled()) {
+    const validated = await validateSessionViaIdentity({ claims });
+    const ownerPrincipal = validated?.principal || null;
+    if (!ownerPrincipal?.sessionId) {
+      throw realtimeAuthError("realtime_session_invalid");
+    }
+    const users = shadowUser();
+    const shadow = multiUser
+      ? users._get
+        ? await users._get({ id: Number(ownerPrincipal.userId) })
+        : await users.get({ id: Number(ownerPrincipal.userId) })
+      : null;
+    if (multiUser && !shadow)
+      throw realtimeAuthError("realtime_identity_invalid");
+    const user = shadow
+      ? users.filterFields
+        ? users.filterFields(shadow)
+        : shadow
+      : null;
+    const clientContext = getClientContext(request, { user });
+    if (
+      ownerPrincipal.clientId &&
+      (clientContext.legacy ||
+        clientContext.clientId !== ownerPrincipal.clientId)
+    ) {
+      throw realtimeAuthError("realtime_session_client_mismatch");
+    }
+    return {
+      user,
+      session: {
+        sessionId: ownerPrincipal.sessionId,
+        authUserId: ownerPrincipal.authUserId,
+        clientId: ownerPrincipal.clientId,
+        tokenVersion: ownerPrincipal.tokenVersion,
+        authMode: ownerPrincipal.authMode,
+      },
+      claims,
+      clientContext,
+    };
+  }
+
   const subjectType = multiUser ? "user" : "instance";
   let session = null;
   if (claims.sid) {
@@ -411,7 +462,12 @@ function monitorRealtimePrincipal({ request, socket, onRevoked = null } = {}) {
       clearInterval(timer);
       try {
         onRevoked?.(error);
-        socket?.close?.(1008, compact(error.code, 96) || "session_revoked");
+        const retryable = error?.code === "identity_capability_unavailable";
+        socket?.close?.(
+          retryable ? 1013 : 1008,
+          compact(error.code, 96) ||
+            (retryable ? "identity_capability_unavailable" : "session_revoked")
+        );
       } catch {}
     } finally {
       running = false;

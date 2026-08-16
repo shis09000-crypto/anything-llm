@@ -5,6 +5,7 @@ import {
   CHAT_SECONDARY_PRELOAD_EVENT,
   chatSecondaryTask,
 } from "./utils/chat/chatSecondaryPreload";
+import { nextTrustedAvatar } from "./utils/accountAvatarState";
 
 export const PfpContext = createContext();
 
@@ -27,7 +28,9 @@ export function PfpProvider({ children }) {
       try {
         const pfpUrl = await System.fetchPfp(user.id);
         if (!active) return;
-        setPfp(pfpUrl);
+        setPfp((current) =>
+          nextTrustedAvatar(current, pfpUrl, { authoritative: true })
+        );
         markAccountAvatarVisible();
       } catch (err) {
         if (!active) return;
@@ -44,11 +47,13 @@ export function PfpProvider({ children }) {
     if (!user?.id) return;
     let active = true;
 
-    async function loadPfp(options = {}) {
+    async function loadPfp(options = {}, { authoritative = false } = {}) {
       try {
         const pfpUrl = await System.fetchPfp(user.id, options);
         if (!active) return;
-        setPfp(pfpUrl);
+        setPfp((current) =>
+          nextTrustedAvatar(current, pfpUrl, { authoritative })
+        );
         markAccountAvatarVisible();
       } catch (err) {
         if (!active) return;
@@ -64,14 +69,17 @@ export function PfpProvider({ children }) {
       if (!changedFields.includes("pfpFilename")) return;
       if (detail.userId && String(detail.userId) !== String(user.id)) return;
 
-      void loadPfp({
-        force: true,
-        communicationScene: "account-avatar-profile-refresh",
-        task: chatSecondaryTask("account:avatar:profile-refresh", {
-          surface: "account-avatar",
-          userId: user.id,
-        }),
-      });
+      void loadPfp(
+        {
+          force: true,
+          communicationScene: "account-avatar-profile-refresh",
+          task: chatSecondaryTask("account:avatar:profile-refresh", {
+            surface: "account-avatar",
+            userId: user.id,
+          }),
+        },
+        { authoritative: true }
+      );
     }
 
     function preloadAfterChatReady(event) {

@@ -58,6 +58,17 @@ const host = new MicroModuleServiceHost({
           browserPlaneRuntime.listBookmarks(payload.userId),
         addBookmark: (payload) =>
           browserPlaneRuntime.addBookmark(payload.userId, payload.input || {}),
+        egressStatus: (payload) => browserPlaneRuntime.egressStatus(payload),
+        profileRoute: (payload) => browserPlaneRuntime.profileRoute(payload),
+        setProfileRoute: (payload) =>
+          browserPlaneRuntime.setProfileRoute(payload),
+        enrollEgress: (payload) => browserPlaneRuntime.enrollEgress(payload),
+        renewEgress: (payload) => browserPlaneRuntime.renewEgress(payload),
+        revokeEgress: (payload) => browserPlaneRuntime.revokeEgress(payload),
+        openSystemChrome: (payload) =>
+          browserPlaneRuntime.openSystemChrome(payload),
+        confirmProfileRoute: (payload) =>
+          browserPlaneRuntime.confirmProfileRoute(payload),
         registerNode: (payload) => browserPlaneRuntime.registerNode(payload),
         listNodes: (payload) =>
           browserPlaneRuntime.nodesForUser(payload.userId),

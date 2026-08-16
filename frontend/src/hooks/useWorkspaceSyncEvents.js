@@ -199,7 +199,14 @@ export function useWorkspaceSyncEvents({
       userId: event.scope?.userId ?? null,
       threadId: event.scope?.threadId ?? null,
       threadSlug: payload.threadSlug || null,
-      threadName: payload.threadName || payload.name || payload.title || null,
+      threadName: payload.threadName || payload.name || null,
+      title: Object.prototype.hasOwnProperty.call(payload, "title")
+        ? payload.title
+        : undefined,
+      isUntitled: payload.isUntitled === true,
+      titleSource: payload.titleSource ?? undefined,
+      titleGenerationStatus: payload.titleGenerationStatus ?? undefined,
+      titleVersion: payload.titleVersion ?? undefined,
       threadType: payload.threadType || null,
       chatModel: payload.chatModel || null,
       chatId: event.resource?.kind === "chat" ? event.resource?.id : null,
@@ -281,8 +288,12 @@ export function useWorkspaceSyncEvents({
               thread: {
                 id: event.threadId || event.threadSlug,
                 slug: event.threadSlug,
-                name: event.threadName || "新线程",
-                title: event.threadName || "",
+                name: event.isUntitled ? "" : event.threadName || "",
+                title: event.isUntitled ? "" : event.title || "",
+                isUntitled: event.isUntitled,
+                titleSource: event.titleSource || null,
+                titleGenerationStatus: event.titleGenerationStatus || "idle",
+                titleVersion: Number(event.titleVersion || 0),
                 thread_type: "chat",
                 createdAt: event.createdAt,
                 lastUpdatedAt: event.createdAt,
@@ -303,10 +314,6 @@ export function useWorkspaceSyncEvents({
           ) {
             return;
           }
-          workspaceNavigationCache.markThreadsStale(
-            event.workspaceSlug,
-            "sync-center-thread"
-          );
           if (event.threadSlug) {
             dispatchThreadPatchVisual({
               workspaceSlug: event.workspaceSlug,
@@ -315,7 +322,21 @@ export function useWorkspaceSyncEvents({
                 id: event.threadId || event.threadSlug,
                 slug: event.threadSlug,
                 ...(event.threadName ? { name: event.threadName } : {}),
-                ...(event.threadName ? { title: event.threadName } : {}),
+                ...(event.title !== undefined ? { title: event.title } : {}),
+                ...(event.isUntitled !== undefined
+                  ? { isUntitled: event.isUntitled }
+                  : {}),
+                ...(event.titleSource !== undefined
+                  ? { titleSource: event.titleSource }
+                  : {}),
+                ...(event.titleGenerationStatus !== undefined
+                  ? {
+                      titleGenerationStatus: event.titleGenerationStatus,
+                    }
+                  : {}),
+                ...(event.titleVersion !== undefined
+                  ? { titleVersion: Number(event.titleVersion || 0) }
+                  : {}),
                 ...(event.threadType ? { thread_type: event.threadType } : {}),
                 ...(event.chatModel ? { chatModel: event.chatModel } : {}),
                 lastUpdatedAt: event.createdAt,
@@ -476,14 +497,21 @@ export function useWorkspaceNavigationSyncInvalidation({
         workspaceNavigationCache.getThreadsMeta(workspaceSlug);
       if (isOlderThan(threadsMeta.updatedAt, event)) return;
       if (event.type === "created" || event.type === "thread_created") {
+        const isUntitled =
+          payload.isUntitled === true ||
+          !(payload.title || payload.threadName || payload.name);
         dispatchThreadCreateVisual({
           workspaceSlug,
           thread: {
             id: event.scope?.threadId || payload.threadSlug,
             slug: payload.threadSlug,
-            name: payload.threadName || payload.name || "新线程",
-            title: payload.threadName || payload.name || "",
-            thread_type: "chat",
+            name: isUntitled ? "" : payload.threadName || payload.name || "",
+            title: isUntitled ? "" : payload.title || "",
+            isUntitled,
+            titleSource: payload.titleSource || null,
+            titleGenerationStatus: payload.titleGenerationStatus || "idle",
+            titleVersion: Number(payload.titleVersion || 0),
+            thread_type: payload.threadType || "chat",
             createdAt: event.createdAt,
             lastUpdatedAt: event.createdAt,
           },
@@ -501,10 +529,6 @@ export function useWorkspaceNavigationSyncInvalidation({
         });
         return;
       }
-      workspaceNavigationCache.markThreadsStale(
-        workspaceSlug,
-        "sync-center-thread"
-      );
       if (payload.threadSlug) {
         dispatchThreadPatchVisual({
           workspaceSlug,
@@ -512,13 +536,32 @@ export function useWorkspaceNavigationSyncInvalidation({
           thread: {
             id: event.scope?.threadId || payload.threadSlug,
             slug: payload.threadSlug,
-            ...(payload.threadName || payload.name || payload.title
-              ? {
-                  name: payload.threadName || payload.name || payload.title,
-                  title: payload.title || payload.threadName || payload.name,
-                }
+            ...(Object.prototype.hasOwnProperty.call(payload, "threadName")
+              ? { name: payload.threadName }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(payload, "name")
+              ? { name: payload.name }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(payload, "title")
+              ? { title: payload.title }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(payload, "isUntitled")
+              ? { isUntitled: payload.isUntitled === true }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(payload, "titleSource")
+              ? { titleSource: payload.titleSource }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(
+              payload,
+              "titleGenerationStatus"
+            )
+              ? { titleGenerationStatus: payload.titleGenerationStatus }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(payload, "titleVersion")
+              ? { titleVersion: Number(payload.titleVersion || 0) }
               : {}),
             ...(payload.threadType ? { thread_type: payload.threadType } : {}),
+            ...(payload.chatModel ? { chatModel: payload.chatModel } : {}),
             lastUpdatedAt: event.createdAt,
           },
           source: "sync-center",

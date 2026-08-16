@@ -200,6 +200,7 @@ class CollectorApi {
             : {}),
           ...(context.requestId ? { "X-Request-Id": context.requestId } : {}),
         };
+        const dispatcher = options.dispatcher || this.serviceIdentityAgent;
         return fetch(url, {
           ...options,
           headers: {
@@ -207,7 +208,7 @@ class CollectorApi {
             ...correlationHeaders,
             ...(options.headers || {}),
           },
-          dispatcher: options.dispatcher || this.serviceIdentityAgent,
+          ...(dispatcher ? { dispatcher } : {}),
         });
       }
     );

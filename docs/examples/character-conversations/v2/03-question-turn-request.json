@@ -1,0 +1,12 @@
+{
+  "object": "character.turn.request",
+  "input": [
+    {
+      "id": "chr_input_time_01",
+      "type": "user_message",
+      "content": [{ "type": "input_text", "text": "现在几点了？" }]
+    }
+  ],
+  "idempotency_key": "continuous-demo-turn-1",
+  "athena": { "workspaceId": 1, "threadId": 2, "userId": 3 }
+}

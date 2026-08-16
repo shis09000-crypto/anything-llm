@@ -1,4 +1,4 @@
-import { lazy, Suspense, useContext } from "react";
+import { lazy, Suspense, useContext, useEffect } from "react";
 import PasswordModal, {
   AuthBootstrapError,
   usePasswordModal,
@@ -11,6 +11,10 @@ import useSimpleSSO from "@/hooks/useSimpleSSO";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 import { AuthContext } from "@/AuthContext";
 import { mobileRuntimeActive } from "@/utils/mobileRuntime";
+import {
+  consumeAuthReturnRef,
+  normalizeLegacyLoginSearch,
+} from "@/utils/authLifecycleCoordinator";
 
 const MobileLoginRoute = lazy(() => import("./MobileLoginRoute"));
 
@@ -26,12 +30,23 @@ export default function Login() {
   const query = useQuery();
   const auth = useContext(AuthContext);
   const navigate = useNavigate();
-  const { loading: ssoLoading, ssoConfig } = useSimpleSSO();
-  const { loading, requiresAuth, mode, error } = usePasswordModal(
+  const normalizedLoginSearch = normalizeLegacyLoginSearch(
+    window.location.search
+  );
+  const hasLegacyNonTerminalReason =
+    normalizedLoginSearch !== window.location.search;
+  const { loading, requiresAuth, mode, error, bootstrap } = usePasswordModal(
     !!query.get("nt")
   );
+  const { loading: ssoLoading, ssoConfig } = useSimpleSSO(bootstrap);
 
-  if (loading || ssoLoading) return <FullScreenLoader />;
+  useEffect(() => {
+    if (!hasLegacyNonTerminalReason) return;
+    navigate(`${paths.login()}${normalizedLoginSearch}`, { replace: true });
+  }, [hasLegacyNonTerminalReason, navigate, normalizedLoginSearch]);
+
+  if (hasLegacyNonTerminalReason || loading || ssoLoading)
+    return <FullScreenLoader />;
   if (error) return <AuthBootstrapError message={error} />;
 
   if (isCodexDevAuthBypassEnabled()) return <Navigate to={paths.home()} />;
@@ -54,12 +69,13 @@ export default function Login() {
           user={auth?.store?.user}
           onAuthenticated={(user, token) => {
             auth?.actions?.updateUser?.(user, token);
-            navigate(paths.home(), { replace: true });
+            navigate(consumeAuthReturnRef() || paths.home(), { replace: true });
           }}
+          authBootstrap={bootstrap}
         />
       </Suspense>
     );
   }
 
-  return <PasswordModal mode={mode} />;
+  return <PasswordModal mode={mode} bootstrap={bootstrap} />;
 }

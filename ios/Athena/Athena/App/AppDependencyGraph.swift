@@ -515,6 +515,8 @@ final class AppDependencies {
             }
             AppPerformanceSignposts.event("SessionValidationFinished")
             try await completeAuthenticatedStartup()
+        } catch AuthCenterError.deviceIdentityRecoveryRequired {
+            _ = await reauthenticateClientIdentity()
         } catch {
             if isAuthenticationFailure(error) {
                 signOut()
@@ -1030,7 +1032,10 @@ final class AppDependencies {
             return false
         }
         switch authError {
-        case .invalidCredentials, .invalidSession, .missingToken:
+        case .invalidCredentials,
+             .invalidSession,
+             .missingToken,
+             .deviceIdentityRecoveryRequired:
             return true
         }
     }

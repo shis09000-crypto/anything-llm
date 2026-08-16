@@ -1,6 +1,12 @@
 import { postJson } from "./apiClient";
 
-const PURPOSES = new Set(["broadcast", "agent", "crypto"]);
+const PURPOSES = new Set([
+  "broadcast",
+  "agent",
+  "crypto",
+  "character-performance",
+  "athena-3d-center",
+]);
 
 export async function issueRealtimeTicket(
   purpose,

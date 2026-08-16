@@ -132,6 +132,8 @@ const TRANSLATIONS = {
     security: "用户与安全",
     "button-lab": "按钮实验",
     "mobile-page-experiment": "移动端页面试验区",
+    "character-performance-lab": "角色表演映射实验室",
+    "athena-3d-center": "Athena 3D 中心",
     "crypto-component-experiment": "加密组件实验",
     "crypto-center": "Crypto Center",
     "event-logs": "事件日志",
@@ -1889,6 +1891,7 @@ const TRANSLATIONS = {
     metrics_visibility: {
       hover_only: "点击后仅在悬停时显示模型信息",
       always_show: "点击后始终显示模型信息",
+      unknown_model: "模型未知",
     },
     fork: "分叉",
     delete: "删除",

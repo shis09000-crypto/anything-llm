@@ -6,16 +6,23 @@ const { DataAccessCenter } = require("../dataAccess");
 const {
   attachAuthenticatedClientContext,
   getClientRecord,
+  getClientContext,
 } = require("../clientIdentity");
 const {
   CLIENT_REVOKED_ERROR,
+  requireIdentityOwnedSignedHighRiskRequest,
   requireSignedHighRiskRequest,
 } = require("../requestSigning");
+const {
+  assertPrincipalViaIdentity,
+  remoteIdentityOperationsEnabled,
+} = require("../authz/identityOperationsClient");
 const SystemSettings = DataAccessCenter.adminSystem;
 const AuthSession = DataAccessCenter.adminSystem.authSession;
 const AuthIdentity = DataAccessCenter.authIdentity.model;
 const User = DataAccessCenter.authIdentity.shadowUser;
 const EncryptionMgr = new EncryptionManager();
+const { isAuthEpochCompatible } = require("../authz/authCompatibility");
 
 function rejectAuthentication(response, status, payload, reasonCode) {
   const normalizedReasonCode = String(
@@ -36,6 +43,10 @@ async function validateRequest(request, response, next) {
       user: response.locals.user,
     });
     return requireSignedHighRiskRequest(request, response, next);
+  }
+
+  if (remoteIdentityOperationsEnabled()) {
+    return validateIdentityOwnedRequest(request, response, next);
   }
 
   const multiUserMode = await SystemSettings.isMultiUserMode();
@@ -78,6 +89,8 @@ async function validateRequest(request, response, next) {
 
   const bcrypt = require("bcryptjs");
   const decoded = decodeJWT(token);
+  if (!isAuthEpochCompatible(decoded))
+    return sessionRejected(response, "session_epoch_incompatible");
   const sessionId = decoded?.sid;
 
   if (sessionId) {
@@ -143,6 +156,69 @@ async function validateRequest(request, response, next) {
   return requireSignedHighRiskRequest(request, response, next);
 }
 
+async function validateIdentityOwnedRequest(request, response, next) {
+  const token = request.header("Authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) {
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "No auth token found." },
+      "missing_session_storage"
+    );
+  }
+  try {
+    const client = getClientContext(request);
+    const result = await assertPrincipalViaIdentity({ request, client });
+    const principal = result?.principal;
+    if (!principal?.sessionId)
+      return sessionRejected(response, "session_invalid");
+    response.locals.multiUserMode = principal.subjectType === "user";
+    response.locals.authSession = {
+      sessionId: principal.sessionId,
+      authUserId: principal.authUserId,
+      clientId: principal.clientId,
+      authMode: principal.authMode,
+      tokenVersion: principal.tokenVersion,
+    };
+    if (response.locals.multiUserMode) {
+      if (!result.user?.id)
+        return sessionRejected(response, "account_unavailable");
+      response.locals.user = result.user;
+    }
+    const clientContext = {
+      ...client,
+      userId: result.user?.id || principal.userId || null,
+      clientId: principal.clientId || client.clientId,
+    };
+    request.clientContext = clientContext;
+    response.locals.clientContext = clientContext;
+    if (
+      principal.clientId &&
+      (clientContext.legacy || clientContext.clientId !== principal.clientId)
+    ) {
+      return sessionRejected(response, "session_client_mismatch");
+    }
+    return requireIdentityOwnedSignedHighRiskRequest(request, response, next);
+  } catch (error) {
+    if (Number(error?.httpStatus) >= 400 && Number(error?.httpStatus) < 500) {
+      return sessionRejected(
+        response,
+        error.reasonCode || error.code || "session_invalid"
+      );
+    }
+    return rejectAuthentication(
+      response,
+      503,
+      {
+        success: false,
+        error: "identity_capability_unavailable",
+        retryable: true,
+      },
+      "identity_capability_unavailable"
+    );
+  }
+}
+
 function validatedRequest(request, response, next) {
   return validateRequest(request, response, next).catch((error) => {
     if (response.headersSent) return next(error);
@@ -205,6 +281,8 @@ async function validateMultiUserRequest(request, response, next) {
       "invalid_auth_token"
     );
   }
+  if (!isAuthEpochCompatible(valid))
+    return sessionRejected(response, "session_epoch_incompatible");
 
   const idleState = jwtIdleState(valid);
   if (idleState.idleExpired) {

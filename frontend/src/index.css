@@ -192,10 +192,34 @@
 
 .athena-desktop-shell {
   width: 100vw;
-  height: 100dvh;
-  max-height: 100dvh;
+  height: var(--athena-workspace-viewport-height, 100dvh);
+  max-height: var(--athena-workspace-viewport-height, 100dvh);
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+html.athena-workspace-viewport-active .motion-route-stack {
+  position: fixed;
+  top: var(--athena-workspace-viewport-offset-top, 0px);
+  right: 0;
+  bottom: auto;
+  left: 0;
+  width: 100%;
+  height: var(--athena-workspace-viewport-height, 100dvh);
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html.athena-workspace-viewport-active .motion-route-layer {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html.athena-workspace-viewport-active .athena-prompt-form {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .athena-workspace-sidebar {

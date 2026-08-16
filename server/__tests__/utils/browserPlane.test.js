@@ -19,8 +19,36 @@ const {
   safeId,
 } = require("../../utils/browserPlane/profileStore");
 const { browserTools } = require("../../utils/agents/aibitat/plugins/browser");
+const {
+  callerIdentity,
+  capabilityForOperation,
+} = require("../../utils/browserPlane/planeClient");
 
 describe("Athena Browser Plane contracts", () => {
+  test("routes every API operation through its declared Browser Plane capability", () => {
+    expect(capabilityForOperation("status")).toBe("browser.node");
+    expect(capabilityForOperation("registerNode")).toBe("browser.node");
+    expect(capabilityForOperation("listWorkspaces")).toBe(
+      "browser.workspace"
+    );
+    expect(capabilityForOperation("addBookmark")).toBe("browser.workspace");
+    expect(capabilityForOperation("enrollEgress")).toBe("browser.node");
+    expect(capabilityForOperation("setProfileRoute")).toBe("browser.node");
+    expect(capabilityForOperation("createSession")).toBe("browser.session");
+    expect(capabilityForOperation("action")).toBe("browser.session");
+  });
+
+  test("keeps the API certificate role separate from its manifest identity", () => {
+    expect(callerIdentity({ ATHENA_RUNTIME_ROLE: "api" })).toEqual({
+      transportRole: "api",
+      moduleId: "athena-api",
+    });
+    expect(callerIdentity({ ATHENA_RUNTIME_ROLE: "tool-broker" })).toEqual({
+      transportRole: "tool-broker",
+      moduleId: "tool-broker",
+    });
+  });
+
   test("result hashes are deterministic and URL query data is redacted", () => {
     const input = {
       runId: "run-1",

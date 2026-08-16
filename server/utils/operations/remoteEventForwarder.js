@@ -9,6 +9,23 @@ const { loadManifests } = require("../modulePlatform/manifestRegistry");
 const MAX_QUEUE = 2_000;
 const MAX_BATCH = 50;
 
+function operationsCoordinationContext({ batch = [], timeoutMs = 5_000 } = {}) {
+  const firstEventId = String(batch[0]?.eventId || "operations-batch");
+  const correlationId = `operations:${firstEventId}`;
+  return {
+    coordinationRunId: correlationId,
+    stepId: `ingest:${Date.now()}`,
+    center: "recovery",
+    correlationId,
+    causationId: firstEventId,
+    deadlineAt: new Date(
+      Date.now() + Math.max(5_000, Number(timeoutMs) || 0)
+    ).toISOString(),
+    priority: "P2",
+    idempotencyKey: correlationId,
+  };
+}
+
 function operationsInternalUrl(env = process.env) {
   return String(env.ATHENA_OPERATIONS_INTERNAL_URL || "")
     .trim()
@@ -172,6 +189,7 @@ class OperationsEventForwarder {
     const batch = this.queue.splice(0, MAX_BATCH);
     for (const event of batch) this.queuedIds.delete(event.eventId);
     const callerRole = String(this.env.ATHENA_RUNTIME_ROLE || "api");
+    const timeoutMs = 5_000;
     this.flushing = this.request({
       callerRole,
       callerModule: moduleIdForRole(callerRole, this.env),
@@ -181,8 +199,14 @@ class OperationsEventForwarder {
       url: `${operationsInternalUrl(this.env)}/internal/v1/operations/ingest-batch`,
       method: "POST",
       body: { events: batch },
+      // Event delivery is background work and can outlive the request that
+      // produced an event. Never inherit that request's expired AICP context.
+      coordinationContext: operationsCoordinationContext({
+        batch,
+        timeoutMs,
+      }),
       env: this.env,
-      timeoutMs: 5_000,
+      timeoutMs,
     })
       .then((result) => {
         this.failures = 0;
@@ -265,4 +289,5 @@ module.exports = {
   operationsInternalUrl,
   moduleIdForRole,
   moduleIdsForRole,
+  operationsCoordinationContext,
 };

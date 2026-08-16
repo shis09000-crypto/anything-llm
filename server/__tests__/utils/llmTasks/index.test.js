@@ -38,26 +38,45 @@ describe("llmTasks runtime", () => {
     });
     expect(resolveTier("refined")).toEqual({
       provider: "deepseek",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       tier: "refined",
     });
     expect(resolveTaskProviderModel("crypto_market_analysis")).toEqual({
       provider: "deepseek",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       tier: "refined",
     });
   });
 
-  it("honors unified model tier environment overrides", () => {
+  it("pins all 3D Center background tasks to the Flash tier", () => {
+    const { resolveTaskProviderModel } = loadRuntime();
+    for (const task of [
+      "3d_center_session_compaction",
+      "3d_center_character_memory_consolidation",
+    ])
+      expect(resolveTaskProviderModel(task)).toEqual({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        tier: "rough",
+      });
+  });
+
+  it("does not allow environment overrides to move background work off Flash", () => {
     process.env.LLM_TASK_ROUGH_MODEL = "rough-test-model";
     process.env.LLM_TASK_REFINED_MODEL = "refined-test-model";
     const { resolveTaskProviderModel } = loadRuntime();
 
     expect(resolveTaskProviderModel("reader_document_classification")).toEqual(
-      expect.objectContaining({ model: "rough-test-model" })
+      expect.objectContaining({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+      })
     );
     expect(resolveTaskProviderModel("quiz_generation")).toEqual(
-      expect.objectContaining({ model: "refined-test-model" })
+      expect.objectContaining({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+      })
     );
   });
 
@@ -68,18 +87,34 @@ describe("llmTasks runtime", () => {
     );
   });
 
-  it("centralizes legacy env overrides for compaction and knowledge graph tasks", () => {
+  it("keeps legacy background overrides on the Flash policy", () => {
     process.env.THREAD_COMPACTION_PROVIDER = "openai";
     process.env.THREAD_COMPACTION_MODEL = "gpt-test";
     process.env.KNOWLEDGE_GRAPH_DEEPSEEK_MODEL = "kg-test-model";
     const { resolveTaskProviderModel } = loadRuntime();
 
     expect(resolveTaskProviderModel("thread_compaction")).toEqual(
-      expect.objectContaining({ provider: "openai", model: "gpt-test" })
+      expect.objectContaining({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+      })
     );
     expect(resolveTaskProviderModel("knowledge_graph_extract")).toEqual(
-      expect.objectContaining({ provider: "deepseek", model: "kg-test-model" })
+      expect.objectContaining({
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+      })
     );
+  });
+
+  it("keeps foreground agent model selection outside the background policy", () => {
+    const { resolveTaskProviderModel } = loadRuntime();
+    expect(
+      resolveTaskProviderModel("agent_task", {
+        provider: "deepseek",
+        model: "deepseek-v4-pro",
+      })
+    ).toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro" });
   });
 
   it("creates connectors without owning completion or streaming behavior", () => {

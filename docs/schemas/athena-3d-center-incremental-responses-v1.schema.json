@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-3d-center-incremental-responses-v1.schema.json",
+  "title": "Athena 3D Center Incremental Responses Context v1",
+  "oneOf": [{ "$ref": "#/$defs/request" }, { "$ref": "#/$defs/response" }],
+  "$defs": {
+    "contextRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cursor_id",
+        "memory_revision",
+        "state_revision",
+        "checkpoint_revision",
+        "last_turn_ordinal",
+        "expires_at"
+      ],
+      "properties": {
+        "cursor_id": { "type": "string", "pattern": "^chr_ctx_[a-f0-9]{32}$" },
+        "memory_revision": { "type": "integer", "minimum": 0 },
+        "state_revision": { "type": "integer", "minimum": 0 },
+        "checkpoint_revision": { "type": "integer", "minimum": 0 },
+        "last_turn_ordinal": { "type": "integer", "minimum": 0 },
+        "expires_at": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "inputText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "const": "input_text" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 32000 }
+      }
+    },
+    "userMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "content"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "user_message" },
+        "content": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/inputText" }
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol_version",
+        "idempotency_key",
+        "context_ref",
+        "input"
+      ],
+      "properties": {
+        "protocol_version": { "const": "1.0" },
+        "idempotency_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "context_ref": {
+          "oneOf": [{ "$ref": "#/$defs/contextRef" }, { "type": "null" }]
+        },
+        "input": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/userMessage" }
+        }
+      }
+    },
+    "providerCache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hit_tokens", "miss_tokens", "hit_rate"],
+      "properties": {
+        "hit_tokens": { "type": "integer", "minimum": 0 },
+        "miss_tokens": { "type": "integer", "minimum": 0 },
+        "hit_rate": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "contextEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "previous_ref",
+        "current_ref",
+        "advance_status",
+        "gateway_cache",
+        "provider_cache",
+        "generation_contract"
+      ],
+      "properties": {
+        "mode": { "enum": ["incremental", "cold_start", "resynced", "replay"] },
+        "previous_ref": {
+          "oneOf": [{ "$ref": "#/$defs/contextRef" }, { "type": "null" }]
+        },
+        "current_ref": {
+          "oneOf": [{ "$ref": "#/$defs/contextRef" }, { "type": "null" }]
+        },
+        "advance_status": {
+          "enum": ["committed", "memory_pending", "replayed"]
+        },
+        "gateway_cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["slot_hit", "rebuild_reason"],
+          "properties": {
+            "slot_hit": { "type": "boolean" },
+            "rebuild_reason": {
+              "enum": [
+                null,
+                "cursor_missing",
+                "cursor_stale",
+                "cursor_expired",
+                "gateway_slot_miss",
+                "checkpoint_advanced",
+                "template_changed"
+              ]
+            }
+          }
+        },
+        "provider_cache": { "$ref": "#/$defs/providerCache" },
+        "generation_contract": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "provider",
+            "model",
+            "response_format",
+            "raw_output_type",
+            "selection_retries"
+          ],
+          "properties": {
+            "provider": { "const": "deepseek" },
+            "model": { "const": "deepseek-v4-flash" },
+            "response_format": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": { "type": { "const": "json_object" } }
+            },
+            "raw_output_type": { "const": "json_object" },
+            "selection_retries": { "const": 0 }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "success",
+        "object",
+        "protocol_version",
+        "response",
+        "context",
+        "frame",
+        "warnings"
+      ],
+      "properties": {
+        "success": { "const": true },
+        "object": { "const": "athena.3d_center.response" },
+        "protocol_version": { "const": "1.0" },
+        "response": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "status", "previous_response_id"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^chr_resp_" },
+            "status": {
+              "enum": ["completed", "incomplete", "failed", "cancelled"]
+            },
+            "previous_response_id": { "type": ["string", "null"] }
+          }
+        },
+        "context": { "$ref": "#/$defs/contextEvidence" },
+        "frame": { "type": "object" },
+        "warnings": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}

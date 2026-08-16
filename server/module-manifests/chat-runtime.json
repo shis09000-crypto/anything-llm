@@ -18,16 +18,42 @@
     "streaming",
     "durable-runs",
     "resume",
-    "thread-memory"
+    "thread-memory",
+    "3d-session-memory",
+    "3d-long-term-character-memory",
+    "character-memory-v2-reflection-formation",
+    "character-memory-vector-recall"
   ],
   "routes": {
-    "public": ["/api/workspace/:slug/chat"],
+    "public": [
+      "/api/workspace/:slug/responses",
+      "/api/workspace/:slug/thread/:threadSlug/responses",
+      "/api/workspace/:slug/responses/:responseId/stream"
+    ],
     "internal": [
       "/internal/v1/chat/runs",
       "/internal/v1/chat/runs/:id/drain",
       "/internal/v1/chat/memory/status",
       "/internal/v1/chat/memory/compact",
-      "/internal/v1/chat/memory/context/resolve"
+      "/internal/v1/chat/memory/context/resolve",
+      "/internal/v1/3d-center/memory/sessions/create",
+      "/internal/v1/3d-center/memory/sessions/context/resolve",
+      "/internal/v1/3d-center/memory/sessions/context/prepare",
+      "/internal/v1/3d-center/memory/sessions/turns/commit",
+      "/internal/v1/3d-center/memory/sessions/status",
+      "/internal/v1/3d-center/memory/sessions/delete",
+      "/internal/v1/3d-center/memory/maintenance",
+      "/internal/v1/3d-center/memory/long-term/archive",
+      "/internal/v1/3d-center/memory/long-term/finalize",
+      "/internal/v1/3d-center/memory/long-term/context",
+      "/internal/v1/3d-center/memory/long-term/recall/freeze",
+      "/internal/v1/3d-center/memory/long-term/status",
+      "/internal/v1/3d-center/memory/long-term/objects",
+      "/internal/v1/3d-center/memory/long-term/session/delete",
+      "/internal/v1/3d-center/memory/long-term/profile/reset",
+      "/internal/v1/3d-center/memory/long-term/reconsolidate",
+      "/internal/v1/chat/thread-title/generate",
+      "/internal/v1/chat/thread-title/reconcile"
     ]
   },
   "rpc": {
@@ -37,6 +63,21 @@
       "chat.memory.status",
       "chat.memory.compact",
       "chat.memory.context.resolve",
+      "3d-center.memory.session.create",
+      "3d-center.memory.context.resolve",
+      "3d-center.memory.context.prepare",
+      "3d-center.memory.turn.commit",
+      "3d-center.memory.status",
+      "3d-center.memory.session.delete",
+      "3d-center.memory.maintenance",
+      "3d-center.memory.long-term.archive",
+      "3d-center.memory.long-term.context",
+      "3d-center.memory.long-term.status",
+      "3d-center.memory.long-term.session.delete",
+      "3d-center.memory.long-term.profile.reset",
+      "3d-center.memory.long-term.reconsolidate",
+      "chat.thread-title.generate",
+      "chat.thread-title.reconcile",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -48,11 +89,19 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "identity.session.validate",
       "key-custody.wrap",
       "key-custody.unwrap",
+      "model.responses.complete",
       "model.stream",
+      "agent.submit",
+      "agent.turn.stream",
+      "agent.turn.action",
+      "agent.turn.cancel",
       "responses.create",
       "responses.stream",
+      "workspace.thread-title.claim",
+      "workspace.thread-title.commit",
       "operations.ingest-batch",
       "rag.retrieve"
     ]
@@ -73,6 +122,7 @@
       "athena-api",
       "agent-runtime",
       "coordination-plane",
+      "scheduler",
       "responses-runtime"
     ],
     "failureMode": "fail-closed",
@@ -88,6 +138,7 @@
   },
   "dependsOn": [
     "authentication",
+    "agent-runtime",
     "key-custody",
     "model-gateway",
     "responses-runtime",
@@ -97,13 +148,50 @@
     "infra:nats"
   ],
   "domain": "ai-runtime",
-  "responsibilities": ["context", "streaming", "durable-runs", "resume"],
+  "responsibilities": [
+    "context",
+    "streaming",
+    "durable-runs",
+    "resume",
+    "3d-session-language-memory",
+    "3d-persistent-performance-state-window",
+    "3d-session-memory-compaction"
+    ,"3d-long-term-raw-dialogue-archive",
+    "3d-long-term-relationship-and-emotion-consolidation",
+    "3d-cross-session-character-recall",
+    "character-core-pinning",
+    "character-memory-evidence-validation",
+    "character-memory-formation-policy",
+    "character-memory-vector-index"
+  ],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
   ],
   "contracts": {
     "provides": [
+      {
+        "id": "chat.thread-title.generate",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/chat.thread-title.generate/request/1.0",
+        "responseSchema": "athena://contracts/chat.thread-title.generate/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "chat.thread-title.reconcile",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/chat.thread-title.reconcile/request/1.0",
+        "responseSchema": "athena://contracts/chat.thread-title.reconcile/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
       {
         "id": "chat.submit",
         "version": "1.0",
@@ -135,6 +223,152 @@
         "timeoutMs": 30000,
         "idempotency": "none",
         "dataClassification": "internal"
+      },
+      {
+        "id": "3d-center.memory.session.create",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/3d-center.memory.session.create/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.session.create/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable", "athena_3d_memory_state_window_too_large"],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.context.resolve",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/3d-center.memory.context.resolve/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.context.resolve/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable", "athena_3d_memory_session_not_found"],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.context.prepare",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/3d-center.memory.context.prepare/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.context.prepare/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "athena_3d_memory_session_not_found"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.turn.commit",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/3d-center.memory.turn.commit/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.turn.commit/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable", "athena_3d_memory_revision_conflict", "athena_3d_memory_state_window_too_large"],
+        "timeoutMs": 120000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.status",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/3d-center.memory.status/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.status/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "athena_3d_memory_session_not_found"],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "3d-center.memory.session.delete",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/3d-center.memory.session.delete/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.session.delete/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied"],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.maintenance",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/3d-center.memory.maintenance/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.maintenance/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 300000,
+        "idempotency": "supported",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.long-term.archive",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/3d-center.memory.long-term.archive/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.long-term.archive/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.long-term.context",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/3d-center.memory.long-term.context/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.long-term.context/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.long-term.status",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/3d-center.memory.long-term.status/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.long-term.status/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.long-term.session.delete",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/3d-center.memory.long-term.session.delete/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.long-term.session.delete/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.long-term.profile.reset",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/3d-center.memory.long-term.profile.reset/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.long-term.profile.reset/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "3d-center.memory.long-term.reconsolidate",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/3d-center.memory.long-term.reconsolidate/request/1.0",
+        "responseSchema": "athena://contracts/3d-center.memory.long-term.reconsolidate/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 300000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
       },
       {
         "id": "chat.memory.status",
@@ -289,6 +523,108 @@
     ],
     "consumes": [
       {
+        "id": "model.responses.complete",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/model.responses.complete/request/1.0",
+        "responseSchema": "athena://contracts/model.responses.complete/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "provider_responses_unavailable",
+          "provider_protocol_incompatible"
+        ],
+        "timeoutMs": 300000,
+        "idempotency": "supported",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "workspace.thread-title.claim",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.claim/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.claim/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "workspace.thread-title.commit",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/workspace.thread-title.commit/request/1.0",
+        "responseSchema": "athena://contracts/workspace.thread-title.commit/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "timeoutMs": 10000,
+        "idempotency": "required",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "agent.submit",
+        "version": "1.0",
+        "callType": "Task",
+        "requestSchema": "athena://contracts/agent.submit/request/1.0",
+        "responseSchema": "athena://contracts/agent.submit/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "agent.turn.stream",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/agent.turn.stream/request/1.0",
+        "responseSchema": "athena://contracts/agent.turn.stream/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 600000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "agent.turn.action",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/agent.turn.action/request/1.0",
+        "responseSchema": "athena://contracts/agent.turn.action/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "agent.turn.cancel",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/agent.turn.cancel/request/1.0",
+        "responseSchema": "athena://contracts/agent.turn.cancel/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
         "id": "responses.create",
         "version": "1.0",
         "callType": "Task",
@@ -356,6 +692,22 @@
         ],
         "timeoutMs": 30000,
         "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "identity.session.validate",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/identity.session.validate/request/1.0",
+        "responseSchema": "athena://contracts/identity.session.validate/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
         "dataClassification": "confidential"
       },
       {

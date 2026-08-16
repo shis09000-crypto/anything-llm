@@ -1,5 +1,10 @@
-const { decryptSecretIfNeeded, encryptSecret } = require("./encryption");
+const {
+  decryptSecretIfNeeded,
+  encryptSecret,
+  encryptSecretAsync,
+} = require("./encryption");
 const { resolveActiveKey } = require("./keyCustody");
+const { remoteKeyCustodyEnabled } = require("./keyCustody/remoteClient");
 const {
   appendChatCryptoMetadataForRows,
   chatHistorySerialEncryptionEnabled,
@@ -19,6 +24,7 @@ function chatHistoryEncryptionEnabled(env = process.env) {
     String(env.CHAT_HISTORY_ENCRYPTION_DISABLED || "").toLowerCase() === "true"
   )
     return false;
+  if (remoteKeyCustodyEnabled(env, { purpose: "secret-store" })) return true;
   try {
     return Boolean(resolveActiveKey());
   } catch {
@@ -40,7 +46,7 @@ async function encryptWorkspaceChatFieldAsync(value, scope = {}) {
   if (chatHistorySerialEncryptionEnabled()) {
     return encryptSerialChatField(text, scope);
   }
-  return encryptSecret(text);
+  return encryptSecretAsync(text);
 }
 
 function decryptWorkspaceChatField(value) {

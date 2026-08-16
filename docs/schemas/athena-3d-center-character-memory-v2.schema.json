@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/athena-3d-center-character-memory-v2.schema.json",
+  "title": "Athena Character Reflection v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "object",
+    "protocol_version",
+    "session_reflection",
+    "memory_candidates",
+    "user_model_updates",
+    "relationship_transition",
+    "adaptive_self_transition",
+    "growth_candidates",
+    "emotional_milestone_candidates",
+    "final_emotion",
+    "state_interpretation"
+  ],
+  "properties": {
+    "object": { "const": "athena.3d_center.character_reflection" },
+    "protocol_version": { "const": "2.0" },
+    "session_reflection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "first_person_summary", "topics", "important_turn_refs"],
+      "properties": {
+        "summary": { "type": "string" },
+        "first_person_summary": { "type": "string" },
+        "topics": { "type": "array", "items": { "type": "string" } },
+        "important_turn_refs": { "type": "array", "items": { "type": "integer", "minimum": 1 }, "uniqueItems": true }
+      }
+    },
+    "memory_candidates": { "type": "array", "items": { "$ref": "#/$defs/memoryCandidate" } },
+    "user_model_updates": { "type": "array", "items": { "$ref": "#/$defs/userModelUpdate" } },
+    "relationship_transition": { "$ref": "#/$defs/relationshipTransition" },
+    "adaptive_self_transition": { "$ref": "#/$defs/adaptiveTransition" },
+    "growth_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "first_person_summary", "source_memory_candidate_keys", "confidence"],
+        "properties": {
+          "type": { "type": "string", "minLength": 1 },
+          "first_person_summary": { "type": "string", "minLength": 1 },
+          "source_memory_candidate_keys": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/candidateKey" } },
+          "confidence": { "$ref": "#/$defs/unit" }
+        }
+      }
+    },
+    "emotional_milestone_candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "first_person_memory", "source_memory_candidate_keys", "emotional_value", "relationship_value", "character_impact", "confidence"],
+        "properties": {
+          "type": { "enum": ["first_deep_trust", "first_active_expectation", "major_conflict", "deep_disappointment", "meaningful_repair"] },
+          "first_person_memory": { "type": "string", "minLength": 1 },
+          "source_memory_candidate_keys": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/candidateKey" } },
+          "emotional_value": { "$ref": "#/$defs/unit" },
+          "relationship_value": { "$ref": "#/$defs/unit" },
+          "character_impact": { "$ref": "#/$defs/unit" },
+          "confidence": { "$ref": "#/$defs/unit" }
+        }
+      }
+    },
+    "final_emotion": { "$ref": "#/$defs/finalEmotion" },
+    "state_interpretation": { "$ref": "#/$defs/stateInterpretation" }
+  },
+  "$defs": {
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "signed": { "type": "number", "minimum": -1, "maximum": 1 },
+    "candidateKey": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]{0,95}$" },
+    "turnRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+    "sourceEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["turn_ordinal", "evidence_hash"],
+        "properties": {
+          "turn_ordinal": { "type": "integer", "minimum": 1 },
+          "evidence_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    },
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["information_value", "relationship_value", "emotional_value", "future_relevance", "uniqueness", "repetition", "character_impact"],
+      "properties": {
+        "information_value": { "$ref": "#/$defs/unit" },
+        "relationship_value": { "$ref": "#/$defs/unit" },
+        "emotional_value": { "$ref": "#/$defs/unit" },
+        "future_relevance": { "$ref": "#/$defs/unit" },
+        "uniqueness": { "$ref": "#/$defs/unit" },
+        "repetition": { "$ref": "#/$defs/unit" },
+        "character_impact": { "$ref": "#/$defs/unit" }
+      }
+    },
+    "memoryCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_key", "type", "first_person_memory", "event_summary", "source_turn_refs", "source_evidence", "values", "confidence", "tags", "proposed_persistence"],
+      "properties": {
+        "candidate_key": { "$ref": "#/$defs/candidateKey" },
+        "type": { "type": "string", "minLength": 1 },
+        "first_person_memory": { "type": "string", "minLength": 1 },
+        "event_summary": { "type": "string", "minLength": 1 },
+        "source_turn_refs": { "$ref": "#/$defs/turnRefs" },
+        "source_evidence": { "$ref": "#/$defs/sourceEvidence" },
+        "values": { "$ref": "#/$defs/values" },
+        "confidence": { "$ref": "#/$defs/unit" },
+        "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "proposed_persistence": { "enum": ["transient", "short", "durable"] }
+      }
+    },
+    "userModelUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_key", "observation", "first_person_interpretation", "confidence", "mode", "source_turn_refs", "source_evidence"],
+      "properties": {
+        "candidate_key": { "$ref": "#/$defs/candidateKey" },
+        "observation": { "type": "string", "minLength": 1 },
+        "first_person_interpretation": { "type": "string", "minLength": 1 },
+        "confidence": { "$ref": "#/$defs/unit" },
+        "mode": { "enum": ["observe", "reinforce", "contradict"] },
+        "source_turn_refs": { "$ref": "#/$defs/turnRefs" },
+        "source_evidence": { "$ref": "#/$defs/sourceEvidence" }
+      }
+    },
+    "relationship": {
+      "type": "object", "additionalProperties": false,
+      "required": ["familiarity", "trust", "comfort", "attachment", "openness", "physical_closeness"],
+      "properties": {
+        "familiarity": { "$ref": "#/$defs/unit" }, "trust": { "$ref": "#/$defs/unit" },
+        "comfort": { "$ref": "#/$defs/unit" }, "attachment": { "$ref": "#/$defs/unit" },
+        "openness": { "$ref": "#/$defs/unit" }, "physical_closeness": { "$ref": "#/$defs/unit" }
+      }
+    },
+    "relationshipDelta": {
+      "type": "object", "additionalProperties": false,
+      "required": ["familiarity", "trust", "comfort", "attachment", "openness", "physical_closeness"],
+      "properties": {
+        "familiarity": { "$ref": "#/$defs/signed" }, "trust": { "$ref": "#/$defs/signed" },
+        "comfort": { "$ref": "#/$defs/signed" }, "attachment": { "$ref": "#/$defs/signed" },
+        "openness": { "$ref": "#/$defs/signed" }, "physical_closeness": { "$ref": "#/$defs/signed" }
+      }
+    },
+    "adaptive": {
+      "type": "object", "additionalProperties": false,
+      "required": ["openness_to_user", "playfulness_with_user", "comfort_with_user", "willingness_to_share"],
+      "properties": {
+        "openness_to_user": { "$ref": "#/$defs/unit" }, "playfulness_with_user": { "$ref": "#/$defs/unit" },
+        "comfort_with_user": { "$ref": "#/$defs/unit" }, "willingness_to_share": { "$ref": "#/$defs/unit" }
+      }
+    },
+    "adaptiveDelta": {
+      "type": "object", "additionalProperties": false,
+      "required": ["openness_to_user", "playfulness_with_user", "comfort_with_user", "willingness_to_share"],
+      "properties": {
+        "openness_to_user": { "$ref": "#/$defs/signed" }, "playfulness_with_user": { "$ref": "#/$defs/signed" },
+        "comfort_with_user": { "$ref": "#/$defs/signed" }, "willingness_to_share": { "$ref": "#/$defs/signed" }
+      }
+    },
+    "relationshipTransition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["before", "delta", "after"],
+      "properties": { "before": { "$ref": "#/$defs/relationship" }, "delta": { "$ref": "#/$defs/relationshipDelta" },
+        "after": { "$ref": "#/$defs/relationship" }, "narrative": { "type": "string" }, "confidence": { "$ref": "#/$defs/unit" } }
+    },
+    "adaptiveTransition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["before", "delta", "after"],
+      "properties": { "before": { "$ref": "#/$defs/adaptive" }, "delta": { "$ref": "#/$defs/adaptiveDelta" },
+        "after": { "$ref": "#/$defs/adaptive" }, "narrative": { "type": "string" }, "confidence": { "$ref": "#/$defs/unit" } }
+    },
+    "finalEmotion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["primary", "secondary", "intensity", "valence", "arousal", "attitude_toward_user", "unresolved_feelings", "persistence"],
+      "properties": { "primary": { "type": "string" }, "secondary": { "type": ["string", "null"] },
+        "intensity": { "$ref": "#/$defs/unit" }, "valence": { "$ref": "#/$defs/signed" }, "arousal": { "$ref": "#/$defs/unit" },
+        "attitude_toward_user": { "type": "string" }, "unresolved_feelings": { "type": "array", "items": { "type": "string" } },
+        "persistence": { "enum": ["transient", "short", "durable"] } }
+    },
+    "stateInterpretation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["facial_signal", "gaze_signal", "body_signal", "action_signal", "social_meaning", "evidence_paths"],
+      "properties": { "facial_signal": { "type": "string" }, "gaze_signal": { "type": "string" },
+        "body_signal": { "type": "string" }, "action_signal": { "type": "string" }, "social_meaning": { "type": "string" },
+        "evidence_paths": { "type": "array", "items": { "type": "string" } } }
+    }
+  }
+}

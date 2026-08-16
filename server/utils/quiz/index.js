@@ -1,6 +1,7 @@
 const {
   abandonQuiz,
   deleteFavoriteQuestion,
+  dismissQuizWrongQuestions,
   generateQuiz,
   quizStatus,
   saveFavoriteQuestion,
@@ -8,15 +9,8 @@ const {
   saveQuizWrongQuestions,
   submitQuiz,
   submitQuizStream,
-} = require("./orchestrator");
-const { extractQuizPlan } = require("./plan");
-const { retrieveQuizEvidence } = require("./evidence");
-const { allocateQuestionGeneration } = require("./allocationCenter");
-const {
-  normalizeQuizSnapshot,
-  publicQuiz,
-  snapshotFromQuiz,
-} = require("./snapshot");
+  quizHistory,
+} = require("./responsesClient");
 
 module.exports = {
   generateQuiz,
@@ -25,13 +19,9 @@ module.exports = {
   submitQuizStream,
   saveQuizProgress,
   abandonQuiz,
+  dismissQuizWrongQuestions,
   saveQuizWrongQuestions,
   saveFavoriteQuestion,
   deleteFavoriteQuestion,
-  extractQuizPlan,
-  retrieveQuizEvidence,
-  allocateQuestionGeneration,
-  normalizeQuizSnapshot,
-  publicQuiz,
-  snapshotFromQuiz,
+  quizHistory,
 };

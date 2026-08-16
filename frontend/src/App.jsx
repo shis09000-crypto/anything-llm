@@ -265,6 +265,10 @@ function DeveloperNavigationControlBridge() {
   );
 
   useEffect(() => {
+    // Remote developer navigation commands are a local-development surface.
+    // Leaving this listener active in production allowed a delayed/replayed
+    // developerControl.navigationCommand to reload a user's live workspace.
+    if (!import.meta.env?.DEV) return;
     let cancelled = false;
     const validCommand = (detail = {}) => {
       if (detail?.center !== "developer-control") return false;

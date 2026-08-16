@@ -41,6 +41,10 @@ function idempotencyKey(request) {
 
 function browserEndpoints(app) {
   const auth = [validatedRequest, flexUserRoleValid([ROLES.all])];
+  const ownerAdmin = [
+    validatedRequest,
+    flexUserRoleValid([ROLES.owner, ROLES.admin]),
+  ];
 
   app.get(
     "/browser/status",
@@ -230,6 +234,98 @@ function browserEndpoints(app) {
       dispatchBrowserPlane("addBookmark", {
         userId: user.id,
         input: request.body || {},
+      })
+    )
+  );
+  app.get(
+    "/browser/egress/status",
+    ownerAdmin,
+    route(({ user }) =>
+      dispatchBrowserPlane("egressStatus", { userId: user.id })
+    )
+  );
+  app.get(
+    "/browser/profiles/:profileId/network-route",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane("profileRoute", {
+        userId: user.id,
+        requestedProfileId: request.params.profileId,
+      })
+    )
+  );
+  app.put(
+    "/browser/profiles/:profileId/network-route",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane("setProfileRoute", {
+        userId: user.id,
+        requestedProfileId: request.params.profileId,
+        networkRoute: request.body?.networkRoute,
+        preferredDriver: request.body?.preferredDriver,
+      })
+    )
+  );
+  app.post(
+    "/browser/profiles/:profileId/egress/enroll",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane(
+        "enrollEgress",
+        {
+          userId: user.id,
+          requestedProfileId: request.params.profileId,
+          nodeId: request.body?.nodeId,
+        },
+        { idempotencyKey: idempotencyKey(request) }
+      )
+    )
+  );
+  app.post(
+    "/browser/profiles/:profileId/network-health",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane("confirmProfileRoute", {
+        userId: user.id,
+        requestedProfileId: request.params.profileId,
+        nodeId: request.body?.nodeId,
+        networkRoute: request.body?.networkRoute,
+        connected: request.body?.connected === true,
+        latencyMs: request.body?.latencyMs,
+        errorCode: request.body?.errorCode,
+      })
+    )
+  );
+  app.post(
+    "/browser/egress/grants/:grantId/renew",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane(
+        "renewEgress",
+        { userId: user.id, grantId: request.params.grantId },
+        { idempotencyKey: idempotencyKey(request) }
+      )
+    )
+  );
+  app.delete(
+    "/browser/egress/grants/:grantId",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane(
+        "revokeEgress",
+        { userId: user.id, grantId: request.params.grantId },
+        { idempotencyKey: idempotencyKey(request) }
+      )
+    )
+  );
+  app.post(
+    "/browser/sessions/:sessionId/open-system-chrome",
+    ownerAdmin,
+    route(({ request, user }) =>
+      dispatchBrowserPlane("openSystemChrome", {
+        userId: user.id,
+        sessionId: request.params.sessionId,
+        url: request.body?.url,
       })
     )
   );

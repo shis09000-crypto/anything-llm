@@ -26,6 +26,110 @@ const DEEPSEEK_CHAT_MODELS = new Set([
   "deepseek-reasoner",
 ]);
 
+function isRecoverableDeepSeekStreamError(error = null) {
+  const status = Number(error?.status || error?.httpStatus || 0);
+  const code = String(error?.code || error?.cause?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  if ([408, 409, 425, 429].includes(status) || status >= 500) return true;
+  return (
+    [
+      "econnreset",
+      "econnrefused",
+      "enotfound",
+      "etimedout",
+      "und_err_connect_timeout",
+      "und_err_socket",
+    ].includes(code) ||
+    /connection reset|fetch failed|socket|stream.*closed|timeout|timed out|temporarily unavailable/.test(
+      message
+    )
+  );
+}
+
+function streamChunkHasVisiblePayload(chunk = null) {
+  const delta = chunk?.choices?.[0]?.delta || {};
+  return Boolean(delta.content || delta.tool_calls?.length);
+}
+
+function emptyDeepSeekStreamError() {
+  const error = new Error("DeepSeek returned an empty response stream.");
+  error.code = "DEEPSEEK_EMPTY_STREAM";
+  return error;
+}
+
+async function resilientDeepSeekStream(
+  createStream,
+  { maxAttempts = 2, retryDelayMs = 150 } = {}
+) {
+  const attempts = Math.max(1, Number(maxAttempts) || 1);
+  let attempt = 0;
+  let activeStream = null;
+
+  const waitBeforeRetry = async () => {
+    if (retryDelayMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  };
+  const openStream = async () => {
+    while (attempt < attempts) {
+      attempt += 1;
+      try {
+        activeStream = await createStream();
+        return activeStream;
+      } catch (error) {
+        if (
+          attempt >= attempts ||
+          !isRecoverableDeepSeekStreamError(error)
+        )
+          throw error;
+        await waitBeforeRetry();
+      }
+    }
+    throw emptyDeepSeekStreamError();
+  };
+
+  await openStream();
+  const resilient = {
+    metrics: activeStream?.metrics || {},
+    async *[Symbol.asyncIterator]() {
+      while (activeStream) {
+        let visiblePayloadReceived = false;
+        try {
+          for await (const chunk of activeStream) {
+            if (streamChunkHasVisiblePayload(chunk))
+              visiblePayloadReceived = true;
+            yield chunk;
+          }
+          if (visiblePayloadReceived) return;
+          const error = emptyDeepSeekStreamError();
+          if (attempt >= attempts) throw error;
+          activeStream?.endMeasurement?.({});
+          await waitBeforeRetry();
+          await openStream();
+          resilient.metrics = activeStream?.metrics || {};
+        } catch (error) {
+          if (
+            visiblePayloadReceived ||
+            attempt >= attempts ||
+            (error?.code !== "DEEPSEEK_EMPTY_STREAM" &&
+              !isRecoverableDeepSeekStreamError(error))
+          )
+            throw error;
+          activeStream?.endMeasurement?.({});
+          await waitBeforeRetry();
+          await openStream();
+          resilient.metrics = activeStream?.metrics || {};
+        }
+      }
+    },
+    endMeasurement(usage = {}) {
+      activeStream?.endMeasurement?.(usage);
+      resilient.metrics = activeStream?.metrics || resilient.metrics;
+      return resilient.metrics;
+    },
+  };
+  return resilient;
+}
+
 function toValidDeepSeekMaxTokens(value = null) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0)
@@ -61,16 +165,24 @@ function deepSeekCompletionOptions({
 }
 
 class DeepSeekLLM {
-  constructor(embedder = null, modelPreference = null) {
-    if (!process.env.DEEPSEEK_API_KEY)
+  constructor(
+    embedder = null,
+    modelPreference = null,
+    { credentialMode = "local" } = {}
+  ) {
+    const usesRemoteTransport = credentialMode === "remote";
+    if (!usesRemoteTransport && !process.env.DEEPSEEK_API_KEY)
       throw new Error("No DeepSeek API key was set.");
     this.className = "DeepSeekLLM";
-    const { OpenAI: OpenAIApi } = require("openai");
-
-    this.openai = new OpenAIApi({
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: "https://api.deepseek.com/v1",
-    });
+    this.openai = null;
+    if (!usesRemoteTransport) {
+      const { OpenAI: OpenAIApi } = require("openai");
+      this.openai = new OpenAIApi({
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        baseURL: "https://api.deepseek.com/v1",
+      });
+    }
+    this.credentialMode = credentialMode;
     this.model =
       modelPreference || process.env.DEEPSEEK_MODEL_PREF || "deepseek-chat";
     this.limits = {
@@ -259,31 +371,38 @@ class DeepSeekLLM {
         `DeepSeek chat: ${this.model} is not valid for chat completion!`
       );
 
-    const measuredStreamRequest = await LLMPerformanceMonitor.measureStream({
-      func: this.openai.chat.completions.create({
-        model: this.model,
-        stream: true,
-        messages,
-        stream_options: {
-          include_usage: true,
-        },
-        ...deepSeekCompletionOptions({
-          temperature,
-          responseFormat,
-          tools,
-          toolChoice,
-          thinking,
-          reasoningEffort,
-          maxTokens,
+    const createMeasuredStream = () =>
+      LLMPerformanceMonitor.measureStream({
+        func: this.openai.chat.completions.create({
+          model: this.model,
+          stream: true,
+          messages,
+          stream_options: {
+            include_usage: true,
+          },
+          ...deepSeekCompletionOptions({
+            temperature,
+            responseFormat,
+            tools,
+            toolChoice,
+            thinking,
+            reasoningEffort,
+            maxTokens,
+          }),
         }),
-      }),
-      messages,
-      runPromptTokenCalculation: false,
-      modelTag: this.model,
-      provider: this.className,
-    });
+        messages,
+        runPromptTokenCalculation: false,
+        modelTag: this.model,
+        provider: this.className,
+      });
 
-    return measuredStreamRequest;
+    return resilientDeepSeekStream(createMeasuredStream, {
+      maxAttempts:
+        this.model === "deepseek-v4-pro"
+          ? Number(process.env.DEEPSEEK_PRO_STREAM_MAX_ATTEMPTS || 2)
+          : 1,
+      retryDelayMs: Number(process.env.DEEPSEEK_STREAM_RETRY_DELAY_MS || 150),
+    });
   }
 
   // TODO: This is a copy of the generic handleStream function in responses.js
@@ -297,7 +416,7 @@ class DeepSeekLLM {
       completion_tokens: 0,
     };
 
-    return new Promise(async (resolve) => {
+    return new Promise(async (resolve, reject) => {
       let fullText = "";
       const pendingToolCalls = new Map();
 
@@ -381,6 +500,13 @@ class DeepSeekLLM {
           }
         }
 
+        if (!fullText && pendingToolCalls.size === 0) {
+          response.removeListener("close", handleAbort);
+          stream?.endMeasurement(usage);
+          reject(emptyDeepSeekStreamError());
+          return;
+        }
+
         if (pendingToolCalls.size > 0) {
           stream.toolCalls = Array.from(pendingToolCalls.entries())
             .sort(([left], [right]) => left - right)
@@ -400,6 +526,12 @@ class DeepSeekLLM {
         resolve(pendingToolCalls.size > 0 ? "" : fullText);
       } catch (e) {
         console.log(`\x1b[43m\x1b[34m[STREAMING ERROR]\x1b[0m ${e.message}`);
+        response.removeListener("close", handleAbort);
+        stream?.endMeasurement(usage);
+        if (!fullText && pendingToolCalls.size === 0) {
+          reject(e);
+          return;
+        }
         writeResponseChunk(response, {
           uuid,
           type: "abort",
@@ -408,7 +540,6 @@ class DeepSeekLLM {
           close: true,
           error: e.message,
         });
-        stream?.endMeasurement(usage);
         resolve(fullText); // Return what we currently have - if anything.
       }
     });
@@ -430,6 +561,8 @@ class DeepSeekLLM {
 
 module.exports = {
   DeepSeekLLM,
+  isRecoverableDeepSeekStreamError,
+  resilientDeepSeekStream,
   deepSeekUsageMetrics,
   deepSeekPromptShape,
   deepSeekPromptFingerprint,

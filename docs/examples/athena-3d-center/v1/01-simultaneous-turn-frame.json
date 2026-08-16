@@ -1,0 +1,118 @@
+{
+  "object": "athena.3d_center.frame",
+  "protocol_version": "1.0",
+  "frame_id": "chr_3d_frame_fixture01",
+  "center": {
+    "id": "athena.3d-center",
+    "version": "1.0"
+  },
+  "conversation": {
+    "id": "chr_conv_fixture_01",
+    "status": "active"
+  },
+  "turn": {
+    "id": "chr_turn_fixture_01",
+    "sequence": 1
+  },
+  "character": {
+    "response_id": "chr_resp_fixture_01",
+    "performance_intent": {
+      "id": "intent_fixture_01",
+      "type": "performance_intent"
+    },
+    "conversation_horizon": {
+      "depth": "brief",
+      "continuation_probability": 0.2,
+      "closure_readiness": 0.84
+    },
+    "model_handoff": {
+      "mode": "close_ready"
+    },
+    "effective_handoff": {
+      "mode": "close_ready"
+    },
+    "state": {
+      "revision": 8
+    }
+  },
+  "timeline": {
+    "clock": {
+      "unit": "ms",
+      "origin": "plan_dispatch"
+    },
+    "planned_duration_ms": 1600,
+    "resolved_duration_ms": 1680,
+    "time_blocks": [
+      {
+        "block_id": "chr_3d_block_0001",
+        "start_ms": 120,
+        "end_ms": 720,
+        "duration_ms": 600,
+        "modules": {
+          "face": [],
+          "gaze": [
+            {
+              "command_id": "chr_cmd_gaze_01",
+              "cue_id": "cue_gaze_01",
+              "track": "gaze",
+              "primitive": "gaze.target",
+              "target": "gaze.user",
+              "easing": "ease_out",
+              "intensity": 0.34,
+              "timing": {
+                "planned_start_ms": 120,
+                "planned_duration_ms": 560,
+                "resolved_start_ms": 120,
+                "resolved_duration_ms": 600,
+                "actual_start_ms": null,
+                "actual_duration_ms": null
+              },
+              "binding": {
+                "id": "mock_gaze_user",
+                "parameters": {
+                  "direction": "toward_user"
+                }
+              }
+            }
+          ],
+          "body": [],
+          "action": [],
+          "speech": [
+            {
+              "command_id": "chr_cmd_speech_01",
+              "cue_id": "cue_speech_01",
+              "track": "speech",
+              "primitive": "speech.text",
+              "target": "voice.primary",
+              "easing": "linear",
+              "intensity": 0.28,
+              "timing": {
+                "planned_start_ms": 120,
+                "planned_duration_ms": 1480,
+                "resolved_start_ms": 120,
+                "resolved_duration_ms": 1560,
+                "actual_start_ms": null,
+                "actual_duration_ms": null
+              },
+              "binding": {
+                "id": "mock_speech_text",
+                "parameters": {
+                  "text": "路上小心，早点回来。"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "performance_plan": {
+    "id": "chr_perf_plan_fixture_01",
+    "pack_ref": {
+      "id": "athena.mock-anatomy.cold-tsundere",
+      "version": "1.0.0",
+      "sha256": "8b5282bdeea5432ba437a8d3f3c393b5bd2911c602add6ddfb7f40fc259bef18"
+    }
+  },
+  "warnings": []
+}

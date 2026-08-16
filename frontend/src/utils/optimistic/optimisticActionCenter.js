@@ -153,6 +153,8 @@ class OptimisticActionCenter {
       maxRetryAttempts,
       meta = {},
       retryAttempt = Number(meta?.retryAttempt || 0) || 0,
+      coordinationContext = null,
+      immediate = false,
     } = options;
 
     if (typeof serverCall !== "function") {
@@ -194,6 +196,7 @@ class OptimisticActionCenter {
       createdAt: nowMs(),
       updatedAt: nowMs(),
       meta: { ...meta },
+      coordinationContext,
       error: null,
       result: null,
       recovery: null,
@@ -214,6 +217,7 @@ class OptimisticActionCenter {
           scope,
           ...detail,
         }),
+      coordinationContext,
     };
 
     const optimisticMeta = {
@@ -327,31 +331,66 @@ class OptimisticActionCenter {
     }
 
     activeActions.set(actionId, action);
-    const schedule = emergency
-      ? taskScheduler.scheduleEmergency.bind(taskScheduler)
-      : taskScheduler.schedule.bind(taskScheduler);
-    const taskHandle = schedule(
-      async ({ signal, handle }) =>
+    let taskHandle;
+    if (immediate) {
+      const abortController = new AbortController();
+      let current = true;
+      const abortFromSignal = () => {
+        current = false;
+        abortController.abort(signal?.reason);
+      };
+      if (signal?.aborted) abortFromSignal();
+      else signal?.addEventListener?.("abort", abortFromSignal, { once: true });
+
+      taskHandle = {
+        signal: abortController.signal,
+        isCurrent: () => current && !abortController.signal.aborted,
+        markStale: () => {
+          current = false;
+          abortController.abort();
+        },
+        completeExclusive: () => {},
+        promise: null,
+      };
+      taskHandle.promise = Promise.resolve().then(() =>
         serverCall({
           ...context,
+          signal: abortController.signal,
+          handle: taskHandle,
+        })
+      );
+      taskHandle.promise.then(
+        () => signal?.removeEventListener?.("abort", abortFromSignal),
+        () => signal?.removeEventListener?.("abort", abortFromSignal)
+      );
+    } else {
+      const schedule = emergency
+        ? taskScheduler.scheduleEmergency.bind(taskScheduler)
+        : taskScheduler.schedule.bind(taskScheduler);
+      taskHandle = schedule(
+        async ({ signal, handle }) =>
+          serverCall({
+            ...context,
+            signal,
+            handle,
+          }),
+        {
+          label: options.label || `optimistic:${type}`,
+          kind: "optimistic-action",
+          priority,
+          policy,
           signal,
-          handle,
-        }),
-      {
-        label: options.label || `optimistic:${type}`,
-        kind: "optimistic-action",
-        priority,
-        policy,
-        signal,
-        intentRank,
-        resource,
-        protected: protectedTask,
-        abortable,
-        emergency,
-        dedupeKey,
-        scope,
-      }
-    );
+          intentRank,
+          resource,
+          protected: protectedTask,
+          abortable,
+          emergency,
+          dedupeKey,
+          scope,
+          coordinationContext,
+        }
+      );
+    }
 
     const promise = taskHandle.promise
       .then((result) => {
@@ -372,6 +411,7 @@ class OptimisticActionCenter {
             rollbackOnSilent: Boolean(optimisticPatch),
             toast: false,
             action,
+            coordinationContext,
             onRecovery: (recoveryResult) => {
               action.recovery = recoveryResult;
               action.updatedAt = nowMs();

@@ -70,6 +70,12 @@ describe("databaseProvider", () => {
         ATHENA_DB_POOL_SIZE_CRYPTO_ACCOUNT: "4",
       })
     ).toBe(4);
+    expect(
+      connectionBudget({
+        ATHENA_RUNTIME_ROLE: "browser-egress",
+        ATHENA_DB_POOL_SIZE_BROWSER_EGRESS: "3",
+      })
+    ).toBe(3);
   });
 
   it("keeps main and auth database URLs independently configured", () => {
@@ -96,6 +102,19 @@ describe("databaseProvider", () => {
 
     delete env.ATHENA_SCHEDULER_DATABASE_URL;
     expect(() => mainPostgresqlUrl(env)).toThrow("main_postgresql_url_missing");
+  });
+
+  it("uses the dedicated Browser Egress principal after module cutover", () => {
+    const selected = new URL(
+      mainPostgresqlUrl({
+        ATHENA_RUNTIME_ROLE: "browser-egress",
+        ATHENA_MODULE_SCHEMA_CUTOVER: "true",
+        ATHENA_BROWSER_EGRESS_DATABASE_URL:
+          "postgresql://browser_egress@localhost:5432/athena_main?schema=public",
+      })
+    );
+    expect(selected.username).toBe("browser_egress");
+    expect(selected.searchParams.get("connection_limit")).toBe("3");
   });
 
   it("uses a read-only observer for the non-owning database", () => {

@@ -1,0 +1,23 @@
+{
+  "protocol_version": "1.0",
+  "idempotency_key": "client_turn_01",
+  "context_ref": {
+    "cursor_id": "chr_ctx_0123456789abcdef0123456789abcdef",
+    "memory_revision": 4,
+    "state_revision": 4,
+    "checkpoint_revision": 1,
+    "last_turn_ordinal": 4,
+    "expires_at": 1786500000000
+  },
+  "input": [
+    {
+      "type": "user_message",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "还记得周末陪我去书店的约定吗？"
+        }
+      ]
+    }
+  ]
+}

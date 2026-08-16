@@ -123,6 +123,8 @@ const TRANSLATIONS = {
     security: "セキュリティ",
     "button-lab": "ボタンラボ",
     "mobile-page-experiment": "モバイルページ実験",
+    "character-performance-lab": "キャラクター演技マッピング",
+    "athena-3d-center": "Athena 3D センター",
     "crypto-component-experiment": "暗号コンポーネント実験",
     "crypto-center": "Crypto Center",
     "event-logs": "イベントログ",
@@ -1728,6 +1730,7 @@ const TRANSLATIONS = {
     metrics_visibility: {
       hover_only: "クリックするとモデル情報をホバー時のみ表示します",
       always_show: "クリックするとモデル情報を常に表示します",
+      unknown_model: "モデル不明",
     },
     fork: "フォーク",
     delete: "削除",

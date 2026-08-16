@@ -28,9 +28,13 @@ export function isDefaultWorkspaceChatThread(thread = null) {
 }
 
 export function isUntitledDefaultNamedChatThread(thread = null) {
-  if (thread?.thread_type !== THREAD_TYPES.chat || thread?.title) return false;
+  if (thread?.thread_type !== THREAD_TYPES.chat) return false;
+  if (thread?.titleSource === "manual") return false;
+  if (thread?.isUntitled === true) return true;
   const name = (thread?.name || "").trim().toLowerCase();
-  return ["", "new thread", "thread"].includes(name);
+  const title = (thread?.title || "").trim().toLowerCase();
+  const aliases = ["", "new thread", "thread", "新线程", "新しいスレッド"];
+  return aliases.includes(name) && aliases.includes(title);
 }
 
 export function findOverviewThread(threads = []) {

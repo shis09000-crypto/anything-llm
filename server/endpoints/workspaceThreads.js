@@ -25,7 +25,7 @@ const {
   getAuthorizedWorkspaceThread,
 } = require("../utils/authz/resourceAccess");
 const {
-  convertToChatHistory,
+  convertToChatHistoryWithExecution,
   writeResponseChunk,
 } = require("../utils/helpers/chat/responses");
 const { getModelTag } = require("./utils");
@@ -444,8 +444,12 @@ function workspaceThreadEndpoints(app) {
             userId: user?.id ?? null,
             threadId: thread.id,
             threadSlug: thread.slug,
-            threadName: thread.name,
-            title: thread.title || thread.name,
+            threadName: thread.isUntitled ? "" : thread.name,
+            title: thread.isUntitled ? null : thread.title || thread.name,
+            isUntitled: thread.isUntitled === true,
+            titleSource: thread.titleSource,
+            titleGenerationStatus: thread.titleGenerationStatus,
+            titleVersion: thread.titleVersion,
             threadType: thread.thread_type,
             chatModel: thread.chatModel,
             senderClientId: clientContext.clientId,
@@ -550,7 +554,10 @@ function workspaceThreadEndpoints(app) {
           thread: {
             slug: titleUpdate.slug,
             name: titleUpdate.name,
-            title: titleUpdate.title || titleUpdate.name,
+            title: titleUpdate.title,
+            isUntitled: titleUpdate.isUntitled,
+            titleSource: titleUpdate.titleSource,
+            titleGenerationStatus: titleUpdate.titleGenerationStatus,
             titleVersion: titleUpdate.titleVersion,
             animate: true,
           },
@@ -898,7 +905,12 @@ function workspaceThreadEndpoints(app) {
           : null;
 
         response.status(200).json({
-          history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          history: await convertToChatHistoryWithExecution(orderedHistory, {
+            lightChatIds,
+            userId: response.locals.user?.id || null,
+            workspaceId: workspace.id,
+            threadId: thread.id,
+          }),
           historyFingerprint: syncMetadata.historyFingerprint,
           historyRevision: syncMetadata.historyRevision,
           ...(page
@@ -977,7 +989,12 @@ function workspaceThreadEndpoints(app) {
             historyFingerprint: syncMetadata.historyFingerprint,
             historyRevision: syncMetadata.historyRevision,
           },
-          history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          history: await convertToChatHistoryWithExecution(orderedHistory, {
+            lightChatIds,
+            userId: response.locals.user?.id || null,
+            workspaceId: workspace.id,
+            threadId: thread.id,
+          }),
           historyFingerprint: syncMetadata.historyFingerprint,
           historyRevision: syncMetadata.historyRevision,
           page: { ...page, lightChatIds: [...lightChatIds] },
@@ -1042,7 +1059,11 @@ function workspaceThreadEndpoints(app) {
         );
 
         response.status(200).json({
-          history: convertToChatHistory(history),
+          history: await convertToChatHistoryWithExecution(history, {
+            userId: response.locals.user?.id || null,
+            workspaceId: workspace.id,
+            threadId: thread.id,
+          }),
           hydratedChatIds: history.map((chat) => chat.id),
           hydratedPublicChatIds: history
             .map((chat) => chat.public_id)
@@ -1166,10 +1187,20 @@ function workspaceThreadEndpoints(app) {
             userId: user?.id ?? null,
             threadId: thread.id,
             threadSlug: thread.slug,
-            threadName: thread.name,
-            title: thread.title || thread.name,
+            ...(changedPaths.includes("name")
+              ? {
+                  threadName: thread.isUntitled ? "" : thread.name,
+                  title: thread.isUntitled ? null : thread.title || thread.name,
+                  isUntitled: thread.isUntitled === true,
+                  titleSource: thread.titleSource,
+                  titleGenerationStatus: thread.titleGenerationStatus,
+                  titleVersion: thread.titleVersion,
+                }
+              : {}),
             threadType: thread.thread_type,
-            chatModel: thread.chatModel,
+            ...(changedPaths.includes("chatModel")
+              ? { chatModel: thread.chatModel }
+              : {}),
             senderClientId: clientContext.clientId,
             sourceActionId,
           });
