@@ -22,6 +22,8 @@ const LOCAL_SERVER_TURN_MATCH_LATE_TOLERANCE_MS = 2 * 60 * 1000;
 
 const TIMELINE_TYPES = new Set([
   "agent_progress",
+  "reasoning",
+  "reasoning_state",
   "thought",
   "tool_call",
   "tool_result",
@@ -120,6 +122,10 @@ export function isAssistantTurn(item = {}) {
 
 export function normalizeTimelineType(type) {
   if (TIMELINE_TYPES.has(type)) return type;
+  if (type === "reasoning_delta" || type === "reasoningContentChunk")
+    return "reasoning";
+  if (type === "reasoningContentStart" || type === "reasoningContentDone")
+    return "reasoning_state";
   if (type === "agent_thought" || type === "statusResponse") return "thought";
   if (type === "final_message" || type === "assistant_delta")
     return "markdown_delta";
@@ -134,6 +140,10 @@ export function timelineEventStableId(event = {}) {
   if (type === "agent_progress") {
     return `agent-progress:${event.phase || "unknown"}:${event.sequence || event.seq || event.uuid || event.id}`;
   }
+  if (type === "reasoning") {
+    return `reasoning:${event.sequence || event.seq || event.uuid || event.id}`;
+  }
+  if (type === "reasoning_state") return "reasoning-state";
   if (type === "approval_request") {
     return event.requestId ? `approval:${event.requestId}` : event.id;
   }

@@ -1,9 +1,25 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import AthenaAmbientScene from "./AthenaAmbientScene";
 import "./animations.css";
 
 export default function LoginBackground() {
   const rootRef = useRef(null);
+  const [sceneReady, setSceneReady] = useState(false);
+
+  useEffect(() => {
+    let frame = 0;
+    const revealScene = () => {
+      frame = window.requestAnimationFrame(() => setSceneReady(true));
+    };
+
+    if (document.readyState === "complete") revealScene();
+    else window.addEventListener("load", revealScene, { once: true });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("load", revealScene);
+    };
+  }, []);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -43,7 +59,11 @@ export default function LoginBackground() {
   }, []);
 
   return (
-    <div ref={rootRef} className="soft-login-background" aria-hidden="true">
+    <div
+      ref={rootRef}
+      className={`soft-login-background${sceneReady ? " is-scene-ready" : ""}`}
+      aria-hidden="true"
+    >
       <div className="soft-login-scene-stage">
         <div className="soft-login-background-image" />
         <div className="soft-login-orb-parallax">
@@ -52,7 +72,7 @@ export default function LoginBackground() {
             <span className="soft-login-orbit-ring soft-login-orbit-ring-one" />
             <span className="soft-login-orbit-ring soft-login-orbit-ring-two" />
             <img
-              src="/login/athena-knowledge-orb.png"
+              src={sceneReady ? "/login/athena-knowledge-orb.png" : undefined}
               alt=""
               className="soft-login-knowledge-orb"
             />

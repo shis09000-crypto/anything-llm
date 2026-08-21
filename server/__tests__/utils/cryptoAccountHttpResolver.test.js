@@ -2,6 +2,7 @@ const mockUserWhere = jest.fn();
 const mockCryptoAccountEligibility = jest.fn();
 const mockResolveApprovedConnection = jest.fn();
 const mockRegistryGet = jest.fn();
+const mockRegistryGetExisting = jest.fn();
 const mockMetricInc = jest.fn();
 const mockEmitSemanticEvent = jest.fn();
 
@@ -14,6 +15,7 @@ jest.mock("../../utils/dataAccess/lazyFacade", () => ({
 jest.mock("../../utils/cryptoAccount/accountHub", () => ({
   accountCryptoHubRegistry: {
     get: mockRegistryGet,
+    getExisting: mockRegistryGetExisting,
   },
 }));
 
@@ -47,6 +49,8 @@ describe("crypto account HTTP resolver", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRegistryGetExisting.mockReset();
+    mockRegistryGetExisting.mockReturnValue(null);
     process.env = {
       ...originalEnv,
       GATE_API_READONLY: "true",
@@ -61,6 +65,7 @@ describe("crypto account HTTP resolver", () => {
   test("prefers an approved account-scoped post-quantum connection", async () => {
     const eligibility = {
       available: true,
+      connectionId: "connection-1",
       credentialVersion: 3,
       rootKeyId: "root-key",
       domainKeyVersion: 2,
@@ -79,11 +84,69 @@ describe("crypto account HTTP resolver", () => {
     });
     expect(mockResolveApprovedConnection).toHaveBeenCalledWith({
       user: { id: 4, authUserId: 1 },
+      prevalidatedEligibility: eligibility,
       expectedCredentialVersion: 3,
       expectedRootKeyId: "root-key",
       expectedDomainKeyVersion: 2,
     });
     expect(mockUserWhere).not.toHaveBeenCalled();
+  });
+
+  test("reuses the validated account hub without unwrapping credentials again", async () => {
+    const accountHub = { kind: "warm-account-hub" };
+    mockCryptoAccountEligibility.mockResolvedValue({
+      available: true,
+      connectionId: "connection-1",
+      credentialVersion: 3,
+      rootKeyId: "root-key",
+      domainKeyVersion: 2,
+    });
+    mockRegistryGetExisting.mockReturnValue(accountHub);
+
+    await expect(
+      resolveCryptoHubForHttp({ id: 4, authUserId: 1 })
+    ).resolves.toEqual({ hub: accountHub, mode: "account" });
+    expect(mockResolveApprovedConnection).not.toHaveBeenCalled();
+    expect(mockRegistryGet).not.toHaveBeenCalled();
+  });
+
+  test("singleflights concurrent cold account resolution", async () => {
+    const eligibility = {
+      available: true,
+      connectionId: "connection-1",
+      credentialVersion: 3,
+      rootKeyId: "root-key",
+      domainKeyVersion: 2,
+    };
+    const resolved = { connection: { id: "connection-1" } };
+    const accountHub = { kind: "cold-account-hub" };
+    mockCryptoAccountEligibility.mockResolvedValue(eligibility);
+    let releaseResolution;
+    const resolutionGate = new Promise((resolve) => {
+      releaseResolution = resolve;
+    });
+    mockResolveApprovedConnection.mockImplementation(async () => {
+      await resolutionGate;
+      return resolved;
+    });
+    mockRegistryGet.mockReturnValue(accountHub);
+
+    const user = { id: 4, authUserId: 1 };
+    const resolutions = Promise.all([
+      resolveCryptoHubForHttp(user),
+      resolveCryptoHubForHttp(user),
+    ]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mockResolveApprovedConnection).toHaveBeenCalledTimes(1);
+    releaseResolution();
+
+    await expect(resolutions).resolves.toEqual([
+      { hub: accountHub, mode: "account" },
+      { hub: accountHub, mode: "account" },
+    ]);
+    expect(mockResolveApprovedConnection).toHaveBeenCalledTimes(1);
+    expect(mockRegistryGet).toHaveBeenCalledTimes(1);
   });
 
   test("allows an authenticated admin route actor to use the installation read-only hub", async () => {

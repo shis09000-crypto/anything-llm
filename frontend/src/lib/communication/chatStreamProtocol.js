@@ -43,7 +43,11 @@ export function normalizeChatStreamEvent(raw = {}) {
     });
   }
 
-  if (rawType === "response.failed" || rawType === "response.incomplete") {
+  if (
+    rawType === "response.failed" ||
+    rawType === "response.incomplete" ||
+    rawType === "response.cancelled"
+  ) {
     return streamEvent("error", raw, {
       error:
         raw.response?.error?.message ||
@@ -274,12 +278,57 @@ export function normalizeChatTurnEvent(raw = {}) {
       error: responseError,
       protocolEvent: normalizedStreamEvent,
     };
-  } else if (type === "response.incomplete") {
+  } else if (type === "response.incomplete" || type === "response.cancelled") {
     normalized = {
       type: "stop_generation",
       uuid: raw.response_id || raw.response?.id,
       content:
-        raw.response?.incomplete_details?.reason || "Generation stopped.",
+        raw.response?.incomplete_details?.reason ||
+        (type === "response.cancelled"
+          ? "Generation cancelled."
+          : "Generation stopped."),
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.reasoning.started") {
+    normalized = {
+      type: "response_lifecycle",
+      status: type,
+      responseId: raw.response_id || null,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.reasoning.delta") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "reasoning",
+        uuid: `${raw.response_id}:reasoning:${raw.sequence_number}`,
+        sequence: raw.content_index ?? raw.sequence_number,
+        content: raw.delta || "",
+        truncated: raw.truncated === true,
+      },
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.reasoning.done") {
+    normalized = {
+      type: "response_lifecycle",
+      status: type,
+      responseId: raw.response_id || null,
+      reasoningStatus: raw.status || "completed",
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "athena.agent.progress") {
+    normalized = {
+      type: "timeline_event",
+      event: {
+        type: "agent_progress",
+        uuid:
+          raw.uuid ||
+          `${raw.response_id}:agent-progress:${raw.sequence_number}`,
+        phase: raw.phase,
+        status: raw.status,
+        sequence: raw.sequence ?? raw.sequence_number,
+        details: raw.details || {},
+      },
       protocolEvent: normalizedStreamEvent,
     };
   } else if (type === "athena.tool.progress") {

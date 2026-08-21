@@ -1721,21 +1721,9 @@ function systemEndpoints(app) {
           user: existingUser,
           authUser: verifiedAuthUser,
           assertion: deviceBinding,
+          authenticatedMethod: "password",
         });
         if (!deviceBindingResult.ok) {
-          if (deviceBindingResult.recoveryRequired) {
-            return response.status(200).json({
-              valid: false,
-              user: null,
-              token: null,
-              nextAction: "device_identity_reauth",
-              recoveryTicket: deviceBindingResult.recoveryTicket,
-              recoveryExpiresAt: deviceBindingResult.expiresAt,
-              recoveryMethods: ["passkey"],
-              reason: deviceBindingResult.reasonCode,
-              message: "需要确认此设备的身份后才能进入工作区。",
-            });
-          }
           return response.status(409).json({
             valid: false,
             user: null,
@@ -3569,7 +3557,7 @@ function systemEndpoints(app) {
             ? Number(String(request.header("If-Match")).replace(/\D/g, ""))
             : null,
         };
-        const deleted = remoteIdentityOperationsEnabled()
+        const deletedCount = remoteIdentityOperationsEnabled()
           ? await deleteUserStateViaIdentity({
               request,
               namespace,

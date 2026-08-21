@@ -167,6 +167,25 @@ test("infers visible support for admin and workspace overview reads", () => {
   assert.equal(supplementList.priority, TASK_PRIORITIES.visibleSupport);
 });
 
+test("keeps visible crypto reads in P1 and deferred crypto reads in P2", () => {
+  const visible = inferTaskMetadata({
+    method: "GET",
+    path: "/crypto-hub/allocation",
+    communicationScene: "crypto-visible",
+  });
+  const deferred = inferTaskMetadata({
+    method: "GET",
+    path: "/crypto-hub/trade-records",
+    communicationScene: "crypto-background",
+  });
+
+  assert.equal(visible.priority, TASK_PRIORITIES.visibleSupport);
+  assert.equal(visible.policy, "visible");
+  assert.equal(visible.scope.route, "crypto-center");
+  assert.equal(deferred.priority, TASK_PRIORITIES.backgroundContinuation);
+  assert.equal(deferred.policy, "background");
+});
+
 test("infers active intent for admin security writes", () => {
   const deleteUser = inferTaskMetadata({
     method: "DELETE",

@@ -202,6 +202,10 @@ describe("Responses Runtime durable persistence", () => {
       events: async function* () {
         yield { type: "response.created" };
         yield { type: "response.in_progress" };
+        yield {
+          type: "response.reasoning_text.delta",
+          delta: "token=raw-provider-secret。",
+        };
         for (let index = 0; index < 300; index += 1)
           yield {
             type: "response.output_text.delta",
@@ -233,8 +237,12 @@ describe("Responses Runtime durable persistence", () => {
     expect(
       events.filter((event) => event.type === "response.output_text.delta")
     ).toHaveLength(300);
+    expect(
+      events.filter((event) => event.type === "response.reasoning_text.delta")
+    ).toHaveLength(1);
     expect(events.at(-1).type).toBe("response.completed");
     expect(batches.flat()).toHaveLength(300);
+    expect(JSON.stringify(batches)).not.toContain("raw-provider-secret");
     expect(batches.length).toBeLessThanOrEqual(2);
     expect(repository.appendEvent).toHaveBeenCalledTimes(3);
   });

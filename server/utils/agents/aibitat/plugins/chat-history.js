@@ -96,8 +96,10 @@ const chatHistory = {
               // Keep display/history attachments separate from model attachments.
               // Vision pre-analysis removes image pixels before the agent model sees
               // them, but the user's original image must remain in chat history.
-              const attachments = isVisionPreAnalyzedTurn
-                ? aibitat.handlerProps?.displayAttachments || []
+              const displayAttachments =
+                aibitat.handlerProps?.displayAttachments || [];
+              const attachments = displayAttachments.length
+                ? displayAttachments
                 : prev.attachments || [];
               const prompt = isVisionPreAnalyzedTurn
                 ? aibitat.handlerProps?.displayPrompt || prev.content
@@ -162,8 +164,7 @@ const chatHistory = {
           const reservation = reserved?.chat || null;
           const reservationId =
             reservation?.reservationId || reservation?.id || null;
-          if (!reservationId)
-            throw new Error("agent_chat_reservation_missing");
+          if (!reservationId) throw new Error("agent_chat_reservation_missing");
 
           const persisted = await finalizeAgentChatTurn({
             ...scope,

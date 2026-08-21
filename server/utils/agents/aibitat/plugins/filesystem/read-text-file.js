@@ -13,7 +13,6 @@ module.exports.FilesystemReadTextFile = {
           description:
             "Read the contents of a file from the file system. " +
             "Supports many file types: text, code, PDFs, Word docs, audio/video (transcribed to text), and more. " +
-            "Image files (png, jpg, jpeg, gif, webp, svg, bmp) are automatically attached for you to view and analyze visually. " +
             "IMPORTANT: Only use this tool when you know the exact file path. " +
             "If you don't know where a file is located, use 'filesystem-search-files' first " +
             "to find it (e.g., search for '*.csv' or the filename). " +
@@ -31,10 +30,6 @@ module.exports.FilesystemReadTextFile = {
             {
               prompt: "Read just the first 10 lines of README.md",
               call: JSON.stringify({ path: "README.md", head: 10 }),
-            },
-            {
-              prompt: "Show me the screenshot.png image",
-              call: JSON.stringify({ path: "screenshot.png" }),
             },
           ],
           parameters: {

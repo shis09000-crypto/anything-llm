@@ -22,8 +22,13 @@ export default function AttachmentManager({ attachments }) {
 
   function handleImageClick(attachment) {
     const imageAttachments = attachments
-      .filter((a) => a.type === "attachment" && a.contentString)
-      .map((a) => ({ contentString: a.contentString, name: a.file.name }));
+      .filter(
+        (a) => a.type === "attachment" && (a.previewUrl || a.contentString)
+      )
+      .map((a) => ({
+        contentString: a.previewUrl || a.contentString,
+        name: a.file.name,
+      }));
     const idx = imageAttachments.findIndex(
       (img) => img.name === attachment.file?.name
     );
@@ -47,8 +52,16 @@ export default function AttachmentManager({ attachments }) {
  * @param {{attachment: import("../../DnDWrapper").Attachment}}
  */
 function AttachmentItem({ attachment, onImageClick }) {
-  const { uid, file, status, error, document, type, contentString } =
-    attachment;
+  const {
+    uid,
+    file,
+    status,
+    error,
+    document,
+    type,
+    contentString,
+    previewUrl,
+  } = attachment;
   const { iconBgColor, Icon } = displayFromFile(file);
 
   function removeFileFromQueue() {
@@ -115,7 +128,7 @@ function AttachmentItem({ attachment, onImageClick }) {
   }
 
   if (type === "attachment") {
-    if (contentString) {
+    if (previewUrl || contentString) {
       return (
         <div
           data-tooltip-id="attachment-status-tooltip"
@@ -138,7 +151,7 @@ function AttachmentItem({ attachment, onImageClick }) {
           >
             <img
               alt={`Preview of ${file.name}`}
-              src={contentString}
+              src={previewUrl || contentString}
               style={{ objectFit: "cover", objectPosition: "center" }}
               className={`${iconBgColor} w-[40px] h-[40px] rounded-lg flex items-center justify-center`}
             />

@@ -17,7 +17,6 @@ const QUERY_ALIASES = new Map([
   ["天气", "weather search web"],
   ["加密", "crypto market"],
   ["币价", "crypto price market"],
-  ["图片", "image vision"],
   ["生成", "create generate"],
   ["读取", "read fetch get"],
   ["写入", "write create update"],

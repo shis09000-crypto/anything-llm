@@ -24,7 +24,6 @@ import { t } from "i18next";
 import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
 import { normalizeEmailInput } from "@/utils/emailInput";
 import { emailVerificationErrorMessage } from "@/utils/emailVerificationErrors";
-import AccountSettingsApi from "@/pages/UserSettings/AccountSettings/accountSettingsApi";
 import AppButton from "@/components/lib/AppButton";
 import {
   AUTH_CAPABILITY_STATUS,
@@ -46,6 +45,13 @@ import { consumeAuthReturnRef } from "@/utils/authLifecycleCoordinator";
 
 const REMEMBERED_ACCOUNT_KEY = "athena:login:remembered-account";
 const RESET_TOKEN_STORAGE_KEY = "resetToken";
+
+async function loadAccountSettingsApi() {
+  const { default: AccountSettingsApi } = await import(
+    "@/pages/UserSettings/AccountSettings/accountSettingsApi"
+  );
+  return AccountSettingsApi;
+}
 
 function storePasswordResetToken(resetToken) {
   try {
@@ -89,62 +95,6 @@ const appleButtonStyle = {
   "--app-button-glow-blur": "0px",
   "--app-button-hover-lift": "1px",
 };
-
-function DeviceIdentityRecoveryForm({
-  capability,
-  loading,
-  error,
-  onPasskey,
-  onCancel,
-}) {
-  return (
-    <div className="space-y-5">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="inline-flex items-center gap-2 text-sm font-semibold text-theme-text-secondary"
-      >
-        <ArrowLeft size={18} /> 返回登录
-      </button>
-      <div>
-        <h2 className="text-2xl font-semibold text-theme-text-primary">
-          确认此设备身份
-        </h2>
-        <p className="mt-2 text-sm leading-6 text-theme-text-secondary">
-          密码已验证，但当前设备密钥与已绑定记录不同。请使用通行密钥确认，成功后才会进入工作区。
-        </p>
-      </div>
-      {error ? (
-        <div className="rounded-2xl border border-red-300/40 bg-red-500/10 px-4 py-3 text-sm text-red-500">
-          {error}
-        </div>
-      ) : null}
-      {capability.status === AUTH_CAPABILITY_STATUS.CHECKING ? (
-        <div className="rounded-2xl border border-slate-300/40 bg-slate-500/10 px-4 py-3 text-sm text-theme-text-secondary">
-          正在检查当前设备的通行密钥能力…
-        </div>
-      ) : capability.showPasskey ? (
-        <AppButton
-          type="button"
-          size="lg"
-          style={appleButtonStyle}
-          disabled={loading}
-          onClick={onPasskey}
-          className="w-full"
-        >
-          <Fingerprint size={20} />
-          {capability.status === AUTH_CAPABILITY_STATUS.LOCAL_READY
-            ? "使用通行密钥确认"
-            : "使用其他设备或安全密钥"}
-        </AppButton>
-      ) : (
-        <div className="rounded-2xl border border-amber-300/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-600">
-          当前浏览器无法使用通行密钥，请返回登录并改用支持通行密钥的安全设备。
-        </div>
-      )}
-    </div>
-  );
-}
 
 const secondaryAppleButtonStyle = {
   ...appleButtonStyle,
@@ -730,7 +680,6 @@ export default function MultiUserAuth({
   const [loginMode, setLoginMode] = useState("password");
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
   const [showRegisterForm, setShowRegisterForm] = useState(false);
-  const [deviceRecovery, setDeviceRecovery] = useState(null);
 
   const {
     isOpen: isRecoveryCodeModalOpen,
@@ -771,17 +720,6 @@ export default function MultiUserAuth({
       });
       const { valid, user, token, recoveryCodes, message, serviceUnavailable } =
         result;
-
-      if (
-        result?.nextAction === "device_identity_reauth" &&
-        result?.recoveryTicket
-      ) {
-        setDeviceRecovery({
-          recoveryTicket: result.recoveryTicket,
-        });
-        setError(null);
-        return;
-      }
 
       if (valid && !!token && !!user) {
         setUser(user);
@@ -831,15 +769,25 @@ export default function MultiUserAuth({
     markLoginBoot("login_submit", { mode: "passkey" });
     setError(null);
     setPasskeyLoading(true);
-    const result = await AccountSettingsApi.loginWithPasskey({
-      deviceRecovery,
-    }).catch((error) => {
-      recordWebAuthnCapabilityFailure(error);
-      if (isPasskeyCancel(error)) {
-        return { valid: false, cancelled: true };
+    let AccountSettingsApi;
+    try {
+      AccountSettingsApi = await loadAccountSettingsApi();
+    } catch {
+      setPasskeyLoading(false);
+      const message = "通行密钥组件加载失败，请刷新后重试。";
+      setError(message);
+      showToast(message, "error", { clear: true });
+      return;
+    }
+    const result = await AccountSettingsApi.loginWithPasskey().catch(
+      (error) => {
+        recordWebAuthnCapabilityFailure(error);
+        if (isPasskeyCancel(error)) {
+          return { valid: false, cancelled: true };
+        }
+        return { valid: false, message: error.message };
       }
-      return { valid: false, message: error.message };
-    });
+    );
     setPasskeyLoading(false);
 
     if (result.cancelled) {
@@ -848,18 +796,7 @@ export default function MultiUserAuth({
     }
 
     if (result.valid && result.token && result.user) {
-      setDeviceRecovery(null);
       completeAuthenticatedLogin(result.user, result.token);
-      return;
-    }
-    if (
-      result?.nextAction === "device_identity_reauth" &&
-      result?.recoveryTicket
-    ) {
-      setDeviceRecovery({
-        recoveryTicket: result.recoveryTicket,
-      });
-      setError(null);
       return;
     }
 
@@ -879,7 +816,17 @@ export default function MultiUserAuth({
     markLoginBoot("login_submit", { mode: "trusted-device" });
     setError(null);
     setTrustedDeviceLoading(true);
-    const result = await AccountSettingsApi.loginWithZkDevice(trustedDevice);
+    let result;
+    try {
+      const AccountSettingsApi = await loadAccountSettingsApi();
+      result = await AccountSettingsApi.loginWithZkDevice(trustedDevice);
+    } catch {
+      setTrustedDeviceLoading(false);
+      const message = "快速登录组件加载失败，请使用密码登录。";
+      setError(message);
+      showToast(message, "error", { clear: true });
+      return;
+    }
     setTrustedDeviceLoading(false);
 
     if (result.valid && result.token && result.user) {
@@ -991,23 +938,7 @@ export default function MultiUserAuth({
     />
   );
 
-  if (deviceRecovery) {
-    contentKey = "device-identity-recovery";
-    content = (
-      <DeviceIdentityRecoveryForm
-        capability={authCapability}
-        loading={passkeyLoading}
-        error={error}
-        onPasskey={handlePasskeyLogin}
-        onCancel={() => {
-          setDeviceRecovery(null);
-          setError(null);
-        }}
-      />
-    );
-  }
-
-  if (!deviceRecovery && showRegisterForm && allowPublicRegistration) {
+  if (showRegisterForm && allowPublicRegistration) {
     contentKey = "register";
     content = (
       <RegistrationForm
@@ -1017,7 +948,7 @@ export default function MultiUserAuth({
     );
   }
 
-  if (!deviceRecovery && showRecoveryForm) {
+  if (showRecoveryForm) {
     contentKey = "recovery";
     content = (
       <RecoveryForm
@@ -1027,7 +958,7 @@ export default function MultiUserAuth({
     );
   }
 
-  if (!deviceRecovery && showResetPasswordForm) {
+  if (showResetPasswordForm) {
     contentKey = "reset-password";
     content = <ResetPasswordForm onSubmit={handleResetSubmit} />;
   }

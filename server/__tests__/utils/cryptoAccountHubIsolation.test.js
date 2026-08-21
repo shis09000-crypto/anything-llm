@@ -55,6 +55,39 @@ describe("account crypto hub isolation", () => {
     expect(first.credentials.apiKey).toBe("");
   });
 
+  test("returns an existing hub only for the same connection version", () => {
+    const registry = new AccountCryptoHubRegistry();
+    const hub = registry.get(binding(10, "connection-a", 1, "key-a"));
+
+    expect(
+      registry.getExisting({
+        authUserId: 10,
+        connectionId: "connection-a",
+        credentialVersion: 1,
+      })
+    ).toBe(hub);
+    expect(
+      registry.getExisting({
+        authUserId: 10,
+        connectionId: "connection-a",
+        credentialVersion: 2,
+      })
+    ).toBeNull();
+  });
+
+  test("initialization starts protected sampling without blocking on overview", async () => {
+    const protection = equityProtection();
+    const registry = new AccountCryptoHubRegistry({
+      equityProtectionFactory: () => protection,
+    });
+    const hub = registry.get(binding(10, "connection-a", 1, "key-a"));
+    hub.overview = jest.fn(async () => ({ success: true }));
+
+    await expect(hub.init()).resolves.toMatchObject({ success: true });
+    expect(protection.start).toHaveBeenCalledTimes(1);
+    expect(hub.overview).not.toHaveBeenCalled();
+  });
+
   test("serves account-scoped equity history with the page contract", async () => {
     const payload = {
       success: true,

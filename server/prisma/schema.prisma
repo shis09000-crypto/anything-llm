@@ -3038,19 +3038,105 @@ model content_objects {
   @@index([ownerType, ownerId, domain])
 }
 
+model content_object_provider_files {
+  id                  String    @id
+  assetId             String
+  imageAssetId        String?
+  derivativeAssetId   String?
+  provider            String
+  credentialScopeHash String
+  adaptationVersion   String
+  providerFileId      String
+  providerMimeType    String
+  providerByteSize    Int
+  providerSha256      String
+  status              String    @default("ready")
+  providerCreatedAt   DateTime?
+  expiresAt           DateTime?
+  lastVerifiedAt      DateTime?
+  lastUsedAt          DateTime?
+  failureCode         String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([imageAssetId, provider, credentialScopeHash, adaptationVersion])
+  @@index([provider, status, expiresAt])
+  @@index([assetId])
+  @@index([imageAssetId])
+  @@index([derivativeAssetId])
+}
+
+model image_assets {
+  id                      String    @id
+  ownerUserId             Int?
+  ownerScope              String
+  workspaceId             Int
+  originalContentObjectId String?
+  previewContentObjectId  String?
+  displayName             String
+  mimeType                String
+  byteSize                Int
+  width                   Int?
+  height                  Int?
+  animated                Boolean   @default(false)
+  previewWidth            Int?
+  previewHeight           Int?
+  title                   String?
+  summary                 String?
+  tagsJson                String    @default("[]")
+  status                  String    @default("local_ready")
+  providerSyncStatus      String    @default("pending")
+  providerFailureCode     String?
+  pinned                  Boolean   @default(false)
+  lastUsedAt              DateTime?
+  deletedAt               DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@unique([ownerScope, workspaceId, originalContentObjectId])
+  @@index([ownerUserId, status, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@index([originalContentObjectId])
+  @@index([previewContentObjectId])
+}
+
+model image_asset_sources {
+  id              String   @id
+  imageAssetId    String
+  workspaceId     Int
+  threadId        Int?
+  chatId          Int?
+  attachmentRefId String?
+  ordinal         Int      @default(0)
+  sourceType      String   @default("chat_upload")
+  sourceText      String?
+  createdAt       DateTime @default(now())
+
+  @@unique([imageAssetId, attachmentRefId])
+  @@index([imageAssetId, createdAt])
+  @@index([workspaceId, threadId, createdAt])
+  @@index([chatId])
+  @@index([attachmentRefId])
+}
+
 model workspace_chat_attachment_refs {
   id              String   @id
   chatId          Int
-  contentObjectId String
+  contentObjectId String?
+  imageAssetId    String?
   ordinal         Int
   displayName     String
   mimeType        String
   byteSize        Int
   metadataJson    String?
+  status          String   @default("active")
+  deletedAt       DateTime?
   createdAt       DateTime @default(now())
 
   @@unique([chatId, ordinal])
   @@index([contentObjectId])
+  @@index([imageAssetId])
+  @@index([status, deletedAt])
   @@index([chatId])
 }
 

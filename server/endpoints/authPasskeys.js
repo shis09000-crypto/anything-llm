@@ -20,7 +20,6 @@ const {
 const { issueReauthToken } = require("../utils/authz/reauthTokens");
 const { getClientContext } = require("../utils/clientIdentity");
 const {
-  completeDeviceBindingRecovery,
   evaluateDeviceBindingForLogin,
 } = require("../utils/authz/deviceBindingRecovery");
 const {
@@ -605,36 +604,16 @@ function authPasskeyEndpoints(app) {
       }
 
       const nativeHandoff = nativeWebHandoffFromRequest(body);
-      if (body?.deviceRecovery) {
-        await completeDeviceBindingRecovery({
-          request,
-          user: localUser,
-          authUserId: passkey.user.id,
-          recoveryTicket: body.deviceRecovery.recoveryTicket,
-          assertion: body.deviceBinding,
-          method: "passkey",
-        });
-      } else if (!nativeHandoff) {
+      let deviceIdentityRecovered = false;
+      if (!nativeHandoff) {
         const deviceBindingResult = await evaluateDeviceBindingForLogin({
           request,
           user: localUser,
           authUser: passkey.user,
           assertion: body?.deviceBinding,
+          authenticatedMethod: "passkey",
         });
         if (!deviceBindingResult.ok) {
-          if (deviceBindingResult.recoveryRequired) {
-            return response.status(200).json({
-              valid: false,
-              user: null,
-              token: null,
-              nextAction: "device_identity_reauth",
-              recoveryTicket: deviceBindingResult.recoveryTicket,
-              recoveryExpiresAt: deviceBindingResult.expiresAt,
-              recoveryMethods: ["passkey"],
-              reason: deviceBindingResult.reasonCode,
-              message: "需要确认此设备的身份后才能进入工作区。",
-            });
-          }
           return response.status(409).json({
             valid: false,
             user: null,
@@ -644,6 +623,7 @@ function authPasskeyEndpoints(app) {
             message: "无法验证当前设备密钥，请重新尝试登录。",
           });
         }
+        deviceIdentityRecovered = Boolean(deviceBindingResult.recovered);
       }
 
       await EventLogs.logEvent(
@@ -653,7 +633,7 @@ function authPasskeyEndpoints(app) {
           credential: credentialFingerprint(passkey.credentialId),
           deviceName: passkey.deviceName,
           deviceType: passkey.deviceType,
-          deviceIdentityRecovered: Boolean(body?.deviceRecovery),
+          deviceIdentityRecovered,
         }),
         localUser.id
       );
@@ -675,13 +655,13 @@ function authPasskeyEndpoints(app) {
 
       const sessionToken = await createUserSessionToken(localUser, {
         ...sessionTokenOptionsFromClientContext(getClientContext(request)),
-        authMode: body?.deviceRecovery ? "device_recovery_passkey" : "passkey",
+        authMode: deviceIdentityRecovered ? "passkey_device_rebind" : "passkey",
       });
       return response.status(200).json({
         valid: true,
         user: User.filterFields(localUser),
         token: sessionToken,
-        ...(body?.deviceRecovery ? { deviceIdentityRecovered: true } : {}),
+        ...(deviceIdentityRecovered ? { deviceIdentityRecovered: true } : {}),
         message: null,
       });
     } catch (error) {

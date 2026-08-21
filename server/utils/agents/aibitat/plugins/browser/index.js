@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { lazyDataAccessFacade } = require("../../../../dataAccess/lazyFacade");
 const { safeJsonParse } = require("../../../../http");
 const {
@@ -14,6 +15,41 @@ const SystemSettings = lazyDataAccessFacade("adminSystem");
 const SKILL_NAME = "browser-agent";
 const RESULT_POLICY = "browser/structured-observation-only";
 const BROWSER_APPROVAL_CLASS = "browser-interaction";
+
+function attachEphemeralBrowserFrame(result, aibitat) {
+  const frame = result?.observation?.frame;
+  const encoded = String(frame?.data || "").trim();
+  if (!encoded) return result;
+  const buffer = Buffer.from(encoded, "base64");
+  if (!buffer.length) return result;
+  const mimeType = frame.mimeType || "image/jpeg";
+  const digest = crypto.createHash("sha256").update(buffer).digest("hex");
+  aibitat.addToolAttachment?.({
+    kind: "ephemeral",
+    source: "browser_capture",
+    name: `browser-${frame.capturedAt || Date.now()}.jpg`,
+    mime: mimeType,
+    mimeType,
+    dataUrl: `data:${mimeType};base64,${encoded}`,
+    sha256: digest,
+    capturedAt: frame.capturedAt || new Date().toISOString(),
+    detail: "original",
+    retention: "turn",
+  });
+  return {
+    ...result,
+    observation: {
+      ...result.observation,
+      frame: {
+        mimeType,
+        byteSize: buffer.length,
+        sha256: digest,
+        capturedAt: frame.capturedAt || new Date().toISOString(),
+        retention: "turn",
+      },
+    },
+  };
+}
 
 function sessionInvocation(aibitat) {
   const invocation = aibitat.handlerProps?.invocation || {};
@@ -211,6 +247,7 @@ function createBrowserTool({ name, description, parameters }) {
                     args: brokerArgs,
                   });
                 }
+                result = attachEphemeralBrowserFrame(result, this.super);
                 await ToolInvocation.completeExecution({
                   approvalRequestId,
                   result,

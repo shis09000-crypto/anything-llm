@@ -3,7 +3,14 @@ import { BLOB_KINDS, requestBlob } from "./blobClient";
 
 const PREUPLOAD_THRESHOLD_BYTES = 1536 * 1024;
 
-function dataUrlBlob(attachment) {
+function isImageAttachment(attachment) {
+  return String(attachment?.mime || "")
+    .toLowerCase()
+    .startsWith("image/");
+}
+
+function attachmentBlob(attachment) {
+  if (attachment?.file instanceof Blob) return Promise.resolve(attachment.file);
   const content = String(attachment?.contentString || "");
   if (content.startsWith("data:"))
     return fetch(content).then((response) => response.blob());
@@ -31,7 +38,7 @@ export async function uploadChatAttachment(
   attachment,
   { signal } = {}
 ) {
-  const blob = await dataUrlBlob(attachment);
+  const blob = await attachmentBlob(attachment);
   const digest = await sha256Hex(blob);
   const { data: created } = await postJson(
     `/workspace/${workspaceSlug}/chat-attachments/uploads`,
@@ -75,11 +82,22 @@ export async function preuploadLargeChatAttachments(
 ) {
   const output = [];
   for (const attachment of attachments) {
+    if (attachment?.uploadId || attachment?.contentObjectId) {
+      output.push(attachment);
+      continue;
+    }
+    if (attachment?.file instanceof Blob) {
+      output.push(
+        await uploadChatAttachment(workspaceSlug, attachment, { signal })
+      );
+      continue;
+    }
     const contentLength = String(attachment?.contentString || "").length;
     const estimatedBytes = Math.floor((contentLength * 3) / 4);
     if (
       !attachment?.contentString ||
-      estimatedBytes < PREUPLOAD_THRESHOLD_BYTES
+      (!isImageAttachment(attachment) &&
+        estimatedBytes < PREUPLOAD_THRESHOLD_BYTES)
     ) {
       output.push(attachment);
       continue;

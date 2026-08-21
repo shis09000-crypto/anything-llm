@@ -16,6 +16,9 @@ const {
   sanitizeAgentEvent,
   summarizeToolResult,
 } = require("../../toolResultStore.js");
+const {
+  sanitizeReasoningText,
+} = require("../../../responsesRuntime/reasoningStream.js");
 const SOCKET_TIMEOUT_MS = 300 * 1_000; // 5 mins
 const TOOL_APPROVAL_TIMEOUT_MS = 120 * 1_000; // 2 mins for tool approval
 const CLARIFICATION_DEFAULT_TIMEOUT_MS = 120 * 1_000; // 2 mins for clarifying questions
@@ -87,6 +90,34 @@ function recordAgentEvent(aibitat, event = {}) {
 
 function sanitizeReportStreamContent(content = {}) {
   if (content?.type === "agentProgress") return sanitizeAgentProgress(content);
+  if (content?.type === "reasoningContentStart") {
+    return {
+      type: "reasoningContentStart",
+      uuid: content.uuid,
+    };
+  }
+  if (content?.type === "reasoningContentChunk") {
+    return {
+      type: "reasoningContentChunk",
+      uuid: content.uuid,
+      sequence: Math.max(1, Math.floor(Number(content.sequence) || 1)),
+      content: sanitizeReasoningText(content.content || "").slice(0, 500),
+      truncated: content.truncated === true,
+    };
+  }
+  if (content?.type === "reasoningContentDone") {
+    return {
+      type: "reasoningContentDone",
+      uuid: content.uuid,
+      sequence: Math.max(1, Math.floor(Number(content.sequence) || 1)),
+      status: ["completed", "incomplete", "failed", "cancelled"].includes(
+        content.status
+      )
+        ? content.status
+        : "completed",
+      truncated: content.truncated === true,
+    };
+  }
   if (content?.type === "toolCallInvocation") {
     return {
       type: "toolCallInvocation",
@@ -202,6 +233,31 @@ function eventFromSocketPayload(type, content = {}) {
       status: content.status,
       sequence: content.sequence,
       details: content.details || {},
+    };
+  }
+  if (content.type === "reasoningContentStart") {
+    return {
+      type: "reasoning_state",
+      uuid: content.uuid,
+      status: "running",
+    };
+  }
+  if (content.type === "reasoningContentChunk") {
+    return {
+      type: "reasoning",
+      uuid: content.uuid,
+      sequence: content.sequence,
+      content: content.content || "",
+      truncated: content.truncated === true,
+    };
+  }
+  if (content.type === "reasoningContentDone") {
+    return {
+      type: "reasoning_state",
+      uuid: content.uuid,
+      sequence: content.sequence,
+      status: content.status || "completed",
+      truncated: content.truncated === true,
     };
   }
   if (content.type === "chatId") {

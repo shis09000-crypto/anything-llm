@@ -377,6 +377,9 @@ function sanitizeAgentEvent(event = {}) {
 function compactAgentEventKey(event = {}) {
   if (event.type === "agent_progress" && event.phase && event.sequence)
     return `agent-progress:${event.phase}:${event.sequence}`;
+  if (event.type === "reasoning" && event.sequence)
+    return `reasoning:${event.sequence}`;
+  if (event.type === "reasoning_state") return "reasoning-state";
   if (!event.uuid) return null;
   if (["assistant_delta", "final_message"].includes(event.type))
     return `assistant:${event.uuid}`;

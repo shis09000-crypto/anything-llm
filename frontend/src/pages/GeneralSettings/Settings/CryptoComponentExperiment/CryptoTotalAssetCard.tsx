@@ -10,6 +10,7 @@ import type {
   CryptoTrendPoint,
 } from "./cryptoTotalAssetTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import AutoFitNumericText from "./AutoFitNumericText";
 import {
   EQUITY_CHART_WINDOW_MS,
   equityTooltipPlacement,

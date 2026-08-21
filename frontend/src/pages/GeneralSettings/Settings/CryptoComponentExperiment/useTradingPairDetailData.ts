@@ -73,7 +73,8 @@ export function useTradingPairDetailData({
           market: "spot",
         });
         const payload = await cryptoHubFetch<TradingPairDetailResponse>(
-          `/trading-pair-detail?${params.toString()}`
+          `/trading-pair-detail?${params.toString()}`,
+          { communicationScene: "crypto-visible" }
         );
         if (!payload?.success) {
           throw new Error(payload?.safeErrorMessage || "交易对详情读取失败");

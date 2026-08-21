@@ -8,6 +8,7 @@ jest.mock("../../utils/microModules", () => ({
 
 const {
   createResponsesAgentProvider,
+  functionsVisibleToResponsesModel,
 } = require("../../utils/responsesRuntime/agentAdapter");
 
 function eventStream(events = []) {
@@ -71,6 +72,54 @@ describe("Responses Runtime Agent adapter", () => {
     expect(mockRequestInternalService).not.toHaveBeenCalled();
   });
 
+  test("never exposes legacy visual tool schemas to the Responses model", async () => {
+    const functions = [
+      {
+        name: "analyze_image",
+        description: "Legacy image recognition tool",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "workspace_search",
+        description: "Search workspace knowledge",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+
+    expect(functionsVisibleToResponsesModel(functions)).toEqual([functions[1]]);
+
+    mockRequestInternalStream.mockResolvedValue(
+      eventStream([
+        {
+          type: "response.output_text.delta",
+          response_id: "ath_resp_hidden_vision",
+          delta: "ok",
+        },
+        {
+          type: "response.completed",
+          response: {
+            id: "ath_resp_hidden_vision",
+            model: "deepseek-v4-flash",
+            usage: {},
+          },
+        },
+      ])
+    );
+
+    await provider().complete(
+      [{ role: "user", content: "inspect this" }],
+      functions
+    );
+
+    const requestBody = mockRequestInternalStream.mock.calls[0][0].body;
+    expect(JSON.stringify(requestBody.tools)).not.toContain("analyze_image");
+    expect(JSON.stringify(requestBody.tools)).not.toContain(
+      "Legacy image recognition tool"
+    );
+    expect(JSON.stringify(requestBody.tools)).toContain("workspace_search");
+    expect(requestBody.tool_choice).toBe("auto");
+  });
+
   test("waits for an encrypted checkpoint before returning a tool call", async () => {
     mockRequestInternalStream.mockResolvedValue(
       eventStream([
@@ -126,5 +175,60 @@ describe("Responses Runtime Agent adapter", () => {
         method: "GET",
       })
     );
+  });
+
+  test("streams sanitized reasoning before answer text and preserves raw tool continuation state", async () => {
+    mockRequestInternalStream.mockResolvedValue(
+      eventStream([
+        {
+          type: "response.reasoning_text.delta",
+          response_id: "ath_resp_reasoning",
+          delta: "先检查 token=private-value。",
+        },
+        {
+          type: "response.output_item.added",
+          response_id: "ath_resp_reasoning",
+          item: {
+            type: "function_call",
+            id: "item-r",
+            call_id: "call-r",
+            name: "lookup",
+          },
+        },
+        {
+          type: "response.function_call_arguments.delta",
+          response_id: "ath_resp_reasoning",
+          call_id: "call-r",
+          delta: "{}",
+        },
+        {
+          type: "response.completed",
+          response: {
+            id: "ath_resp_reasoning",
+            model: "deepseek-v4-flash",
+            usage: {},
+          },
+        },
+      ])
+    );
+    mockRequestInternalService.mockResolvedValue({
+      response: { athena: { persistenceStatus: "saved" } },
+    });
+    const streamed = [];
+
+    const result = await provider().stream(
+      [{ role: "user", content: "use tool" }],
+      [],
+      (type, content) => streamed.push({ type, content })
+    );
+
+    expect(streamed.map((event) => event.content.type)).toEqual([
+      "reasoningContentStart",
+      "reasoningContentChunk",
+      "toolCallInvocation",
+      "reasoningContentDone",
+    ]);
+    expect(JSON.stringify(streamed)).not.toContain("private-value");
+    expect(result.functionCall.reasoning_content).toContain("private-value");
   });
 });

@@ -22,6 +22,7 @@ import DocumentSourceChips from "@/modules/reader/DocumentSourceChips";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 import { completedAssistantTurnReadyForActions } from "@/utils/chat/turnActivity";
+import { formatTimelineContent } from "@/utils/chat/toolTimelineI18n";
 
 function AssistantTurn({
   turn,
@@ -74,7 +75,9 @@ function AssistantTurn({
   const thoughtEvents = useMemo(
     () =>
       (turn.timeline || []).filter((event) =>
-        ["thought", "markdown_delta", "agent_progress"].includes(event.type)
+        ["thought", "reasoning", "markdown_delta", "agent_progress"].includes(
+          event.type
+        )
       ),
     [turn.timeline]
   );
@@ -193,6 +196,8 @@ function AssistantTurn({
           toolEvents={normalToolEvents}
           isRunning={isRunning}
           stateId={`${turn.id}:timeline`}
+          answerStarted={Boolean(turn.finalContent)}
+          turnStatus={turn.status}
         />
         {approvalEvents.map((event) => (
           <ToolEvent

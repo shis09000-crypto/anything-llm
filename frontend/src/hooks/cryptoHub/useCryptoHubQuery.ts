@@ -5,9 +5,14 @@ import {
 
 export { CRYPTO_HUB_BASE };
 
+export type CryptoHubRequestOptions = RequestInit & {
+  communicationScene?: string | null;
+  task?: false | Record<string, unknown>;
+};
+
 export async function cryptoHubFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: CryptoHubRequestOptions = {}
 ): Promise<T> {
   return requestCryptoHub(path, options) as Promise<T>;
 }

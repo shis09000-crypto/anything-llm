@@ -73,3 +73,12 @@ export async function loadLanguageResource(value = "en") {
   const module = await loaders[language]();
   return { language, resource: module.default };
 }
+
+export async function loadAllLanguageResources() {
+  const loaded = await Promise.all(
+    supportedLanguages.map((language) => loadLanguageResource(language))
+  );
+  return Object.fromEntries(
+    loaded.map(({ language, resource }) => [language, { common: resource }])
+  );
+}

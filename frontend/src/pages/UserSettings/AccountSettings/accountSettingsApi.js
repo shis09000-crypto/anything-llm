@@ -520,7 +520,7 @@ const AccountSettingsApi = {
     }
     return result;
   },
-  loginWithPasskey: async ({ deviceRecovery = null } = {}) => {
+  loginWithPasskey: async () => {
     let deviceBinding = null;
     try {
       deviceBinding = await System.deviceBindingPreflight();
@@ -554,13 +554,6 @@ const AccountSettingsApi = {
         {
           response,
           deviceBinding,
-          ...(deviceRecovery
-            ? {
-                deviceRecovery: {
-                  recoveryTicket: deviceRecovery.recoveryTicket,
-                },
-              }
-            : {}),
         },
         {
           includeBaseHeaders: true,

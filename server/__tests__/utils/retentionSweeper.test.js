@@ -7,6 +7,7 @@ const mockDataAccessCenter = {
   syncV2: { pruneExpired: jest.fn() },
   athenaMutationReceipt: { pruneExpired: jest.fn() },
   contentObject: { reconcile: jest.fn() },
+  imageAsset: { pendingDeletion: jest.fn() },
 };
 
 jest.mock("../../utils/dataAccess", () => ({
@@ -40,6 +41,7 @@ describe("retention sweeper", () => {
       inspected: 7,
       deleted: 7,
     });
+    mockDataAccessCenter.imageAsset.pendingDeletion.mockResolvedValue([]);
   });
 
   it("is opt-in by default", async () => {
@@ -69,6 +71,11 @@ describe("retention sweeper", () => {
       expiredReservations: 1,
       syncOutbox: 5,
       mutationReceipts: 6,
+    });
+    expect(result.imageAssets).toEqual({
+      inspected: 0,
+      completed: 0,
+      pending: 0,
     });
   });
 });

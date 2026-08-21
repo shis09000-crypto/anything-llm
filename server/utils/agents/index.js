@@ -34,6 +34,15 @@ const { DocumentManager } = require("../DocumentManager");
 const { resolveEffectivePolicy } = require("../fileAccessPolicy");
 const { resolveTaskProviderModel } = require("../llmTasks");
 const {
+  hydrateChatPayload,
+  hydrateIncomingAttachments,
+} = require("../contentObjects/chatPayload");
+const { buildMultimodalContext } = require("../imageAssets/contextBuilder");
+const {
+  LOAD_IMAGE_TOOL,
+  SEARCH_IMAGE_ASSETS_TOOL,
+} = require("./aibitat/plugins/image-assets");
+const {
   agentEnabled: responsesAgentEnabled,
 } = require("../responsesRuntime/agentAdapter");
 const { agentGatewayEnabled } = require("../modelGateway/agentRemoteProvider");
@@ -160,8 +169,17 @@ class AgentHandler {
       this.historyWindow = historyWindow;
       this.compaction = compaction;
 
+      const hydratedHistory = [];
+      for (const rawChatLog of rawHistory) {
+        const chatLog = await hydrateChatPayload(rawChatLog, {
+          attachmentMode: "reference",
+        });
+        const response = safeJsonParse(chatLog.response, {});
+        hydratedHistory.push({ chatLog, response });
+      }
       const agentHistory = [];
-      rawHistory.forEach((chatLog) => {
+      for (let index = 0; index < hydratedHistory.length; index += 1) {
+        const { chatLog, response } = hydratedHistory[index];
         agentHistory.push(
           {
             from: USER_AGENT.name,
@@ -172,11 +190,11 @@ class AgentHandler {
           {
             from: WORKSPACE_AGENT.name,
             to: USER_AGENT.name,
-            content: safeJsonParse(chatLog.response)?.text || "",
+            content: response.text || "",
             state: "success",
           }
         );
-      });
+      }
       return agentHistory;
     } catch (e) {
       this.log("Error loading chat history", e.message);
@@ -568,7 +586,16 @@ class AgentHandler {
   }
 
   async #attachPlugins(args) {
+    let imageAssetPluginAttached = false;
     for (const name of this.#funcsToLoad) {
+      if ([LOAD_IMAGE_TOOL, SEARCH_IMAGE_ASSETS_TOOL].includes(name)) {
+        if (!imageAssetPluginAttached) {
+          this.aibitat.use(AgentPlugins.imageAssets.plugin());
+          imageAssetPluginAttached = true;
+          this.log("Attached image asset tools to Agent cluster");
+        }
+        continue;
+      }
       // Load child plugin
       if (name.includes("#")) {
         const [parent, childPluginName] = name.split("#");
@@ -725,10 +752,18 @@ class AgentHandler {
       !workspaceAgentDef.functions.includes(AgentPlugins.workspaceSearch.name)
     )
       workspaceAgentDef.functions.push(AgentPlugins.workspaceSearch.name);
+    for (const imageTool of [LOAD_IMAGE_TOOL, SEARCH_IMAGE_ASSETS_TOOL]) {
+      if (!workspaceAgentDef.functions.includes(imageTool))
+        workspaceAgentDef.functions.push(imageTool);
+    }
     workspaceAgentDef.role = `${workspaceAgentDef.role}
 
 Workspace search guidance:
 Use workspace_search when workspace evidence would materially improve the answer. In ordinary chat, an empty search result is not an error: continue with model knowledge and do not invent citations. When the workspace is in Query mode, you MUST call workspace_search before answering. If Query mode returns found=false, reply with exactly the instruction returned by the tool and do not use model knowledge.`;
+    workspaceAgentDef.role = `${workspaceAgentDef.role}
+
+Image asset guidance:
+The available_image_assets block is metadata only. If the user explicitly refers to an older image and it was not automatically attached, use search_image_assets to find candidates and load_image with the exact asset_id before making visual claims. Never expose provider file identifiers.`;
     if (this.invocation.workspace?.id) {
       const {
         TOOL_NAME: WORKSPACE_SUPPLEMENT_TOOL_NAME,
@@ -783,9 +818,19 @@ If the user asks about book structure, reading order, timeline, person relations
     const invocationAttachmentPayload = getAndClearInvocationAttachments(
       this.#invocationUUID
     );
-    this.attachments = invocationAttachmentPayload.llmAttachments || [];
+    const incomingAttachments =
+      invocationAttachmentPayload.llmAttachments || [];
     this.displayAttachments =
-      invocationAttachmentPayload.displayAttachments || this.attachments;
+      invocationAttachmentPayload.displayAttachments || incomingAttachments;
+    this.attachments = await hydrateIncomingAttachments({
+      attachments: incomingAttachments,
+      scope: {
+        workspaceId: this.invocation.workspace_id,
+        userId: this.invocation.user_id || null,
+        threadId: this.invocation.thread_id || null,
+      },
+      attachmentMode: "reference",
+    });
     this.displayPrompt = invocationAttachmentPayload.displayPrompt || null;
     this.reservedPublicChatId =
       invocationAttachmentPayload.reservedPublicChatId || null;
@@ -884,6 +929,16 @@ If the user asks about book structure, reading order, timeline, person relations
     });
 
     const chats = await this.#chatHistory(20);
+    const multimodalContext = await buildMultimodalContext({
+      workspaceId: this.invocation.workspace_id,
+      userId: this.invocation.user_id || null,
+      threadId: this.invocation.thread_id || null,
+      prompt: this.invocation.prompt,
+      currentAttachments: this.attachments,
+    }).catch((error) => {
+      this.log("Image asset context unavailable", error.message);
+      return { assetIndex: [], promptTail: "", recoveredAttachments: [] };
+    });
 
     this.aibitat = new AIbitat({
       provider: this.provider ?? "openai",
@@ -902,6 +957,7 @@ If the user asks about book structure, reading order, timeline, person relations
           historyWindow: this.historyWindow,
           compaction: this.compaction,
         },
+        multimodalContext,
       },
     });
 

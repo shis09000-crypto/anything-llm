@@ -66,6 +66,7 @@ const repositoryLoaders = {
   toolInvocation: () => require("../../repositories/toolInvocationRepository"),
   knowledgeGraph: () => require("../../repositories/knowledgeGraphRepository"),
   iosPushToken: () => require("../../repositories/iosPushTokenRepository"),
+  imageAsset: () => require("../../repositories/imageAssetRepository"),
   mobile: () => require("../../repositories/mobileRepository"),
   nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
   operationsAction: () =>
@@ -150,6 +151,7 @@ const repositoryExports = {
   toolInvocation: "ToolInvocationRepository",
   knowledgeGraph: "KnowledgeGraphRepository",
   iosPushToken: "IOSPushTokenRepository",
+  imageAsset: "ImageAssetRepository",
   mobile: "MobileRepository",
   nodeSupplement: "NodeSupplementRepository",
   operationsAction: "OperationsActionRepository",
@@ -1211,6 +1213,28 @@ const iosPushToken = makeRepositoryFacade(
   iosPushTokenScopeFromArgs
 );
 
+const imageAsset = makeRepositoryFacade(
+  "imageAsset",
+  {
+    ensure: "write",
+    setPreview: "write",
+    get: "read",
+    getForModel: "read",
+    list: "read",
+    search: "read",
+    patch: "write",
+    setProviderStatus: "write",
+    linkSource: "write",
+    bindAttachmentReference: "write",
+    pendingDeletion: "maintenance",
+    pendingMetadataEnrichment: "maintenance",
+    applyMetadataEnrichment: "maintenance",
+    beginDelete: "write",
+    finalizeDelete: "write",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
 const workspaceChat = makeRepositoryFacade(
   "workspaceChat",
   {
@@ -1336,6 +1360,16 @@ const contentObject = makeRepositoryFacade(
   "contentObject",
   {
     resolveCompletedUpload: "read",
+    assetForWorkspace: "read",
+    providerFileBinding: "read",
+    saveProviderFileBinding: "write",
+    touchProviderFileBinding: "write",
+    invalidateProviderFileBinding: "write",
+    providerFilesForImageAsset: "read",
+    deleteProviderFileBinding: "write",
+    retain: "write",
+    release: "write",
+    scheduleDelete: "write",
     payloadReferences: "read",
     contentReferenceObject: "read",
     createUpload: "write",
@@ -2274,6 +2308,7 @@ const DataAccessCenter = {
   externalCommunication,
   knowledgeGraph,
   iosPushToken,
+  imageAsset,
   mobile,
   nodeSupplement,
   operationsAction,

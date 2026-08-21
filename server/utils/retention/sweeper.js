@@ -1,4 +1,5 @@
 const { DataAccessCenter } = require("../dataAccess");
+const { retryPendingImageAssetDeletes } = require("../imageAssets/service");
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
@@ -83,6 +84,9 @@ async function runRetentionSweep({ now = new Date(), force = false } = {}) {
     deleteBefore: now,
     limit: policy.batchSize,
   });
+  const imageAssets = await retryPendingImageAssetDeletes({
+    limit: policy.batchSize,
+  });
   return {
     skipped: false,
     policy,
@@ -90,6 +94,7 @@ async function runRetentionSweep({ now = new Date(), force = false } = {}) {
     uploads,
     operational,
     contentObjects,
+    imageAssets,
   };
 }
 

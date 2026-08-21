@@ -16,8 +16,11 @@ const SAFE_NUMERIC_METADATA_KEYS = new Set([
   "inputTokens",
   "outputTokens",
 ]);
+const OTLP_RETRY_MIN_MS = 5_000;
+const OTLP_RETRY_MAX_MS = 5 * 60_000;
 let flushTimer = null;
 let flushing = null;
+let otlpRetryMs = OTLP_RETRY_MIN_MS;
 
 function compact(value, max = 240) {
   if (value === null || value === undefined) return null;
@@ -173,6 +176,25 @@ function semanticEvent(input = {}) {
         "center",
         "priority",
         "escalationLevel",
+        "responseId",
+        "requestedProtocol",
+        "effectiveProtocol",
+        "sequenceNumber",
+        "degradedReason",
+        "background",
+        "taskPriority",
+        "cachedTokens",
+        "cacheMissTokens",
+        "inputTokens",
+        "outputTokens",
+        "preprocessingMs",
+        "providerTtftMs",
+        "firstVisibleDeltaMs",
+        "providerProjectionMs",
+        "persistedEventBatches",
+        "keyCustodyWrapCalls",
+        "selectedCount",
+        "availableCount",
       ],
       160
     ),
@@ -248,6 +270,7 @@ async function flushSemanticEvents() {
   })
     .then((response) => {
       if (!response.ok) throw new Error(`otlp_logs_http_${response.status}`);
+      otlpRetryMs = OTLP_RETRY_MIN_MS;
       return { sent: batch.length, skipped: false };
     })
     .catch((error) => {
@@ -255,7 +278,9 @@ async function flushSemanticEvents() {
       console.warn("[SemanticEvent] OTLP export failed", {
         code: compact(error?.message || "otlp_logs_export_failed", 128),
         queued: queue.length,
+        retryInMs: otlpRetryMs,
       });
+      otlpRetryMs = Math.min(otlpRetryMs * 2, OTLP_RETRY_MAX_MS);
       return { sent: 0, skipped: false, error };
     })
     .finally(() => {
@@ -270,7 +295,7 @@ function scheduleFlush() {
     flushTimer = null;
     await flushSemanticEvents();
     if (queue.length) scheduleFlush();
-  }, 1_000);
+  }, otlpRetryMs);
   flushTimer.unref?.();
 }
 
@@ -319,6 +344,7 @@ function resetSemanticEventsForTests() {
   if (flushTimer) clearTimeout(flushTimer);
   flushTimer = null;
   flushing = null;
+  otlpRetryMs = OTLP_RETRY_MIN_MS;
   sinks.clear();
 }
 

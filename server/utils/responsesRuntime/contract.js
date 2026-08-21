@@ -6,6 +6,7 @@ const { normalizeHostedTools, withNativeWebSearch } = require("./hostedTools");
 
 const FLASH_MODEL = "deepseek-v4-flash";
 const PRO_MODEL = "deepseek-v4-pro";
+const VISION_MODEL = "deepseek-v4-flash-vision-exp";
 const DEEPSEEK_RESPONSE_MODELS = Object.freeze([FLASH_MODEL, PRO_MODEL]);
 const RESPONSE_OBJECT = "response";
 const RESPONSE_STATUSES = Object.freeze([
@@ -27,6 +28,9 @@ const STREAM_EVENT_TYPES = Object.freeze([
   "response.in_progress",
   "response.output_item.added",
   "response.content_part.added",
+  "response.reasoning_text.delta",
+  "response.reasoning_summary_text.delta",
+  "response.reasoning.delta",
   "response.output_text.delta",
   "response.function_call_arguments.delta",
   "response.web_search_call.in_progress",
@@ -36,6 +40,7 @@ const STREAM_EVENT_TYPES = Object.freeze([
   "response.completed",
   "response.incomplete",
   "response.failed",
+  "response.cancelled",
 ]);
 
 function canonicalJson(value) {
@@ -98,14 +103,65 @@ function itemId() {
   return `ath_item_${crypto.randomUUID().replace(/-/g, "")}`;
 }
 
-function normalizeContent(content) {
+function invalidInput(code) {
+  const error = new Error(code);
+  error.code = code;
+  error.httpStatus = 400;
+  throw error;
+}
+
+function normalizeContent(content, role = "user") {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return content ?? "";
   return content.map((part) => {
-    if (!part || typeof part !== "object") return part;
+    if (!part || typeof part !== "object")
+      invalidInput("response_input_content_part_invalid");
     if (part.type === "text")
       return { type: "input_text", text: part.text || "" };
-    return part;
+    if (part.type === "input_text")
+      return { type: "input_text", text: String(part.text || "") };
+    if (part.type === "input_image") {
+      if (role !== "user") invalidInput("response_input_image_role_invalid");
+      const fileId = String(part.file_id || "").trim();
+      const imageUrl = String(part.image_url || "").trim();
+      if ((!fileId && !imageUrl) || (fileId && imageUrl))
+        invalidInput("response_input_image_source_invalid");
+      return {
+        type: "input_image",
+        ...(fileId ? { file_id: fileId } : { image_url: imageUrl }),
+        ...(part.detail ? { detail: String(part.detail) } : {}),
+        ...(part.athena_asset_id
+          ? { athena_asset_id: String(part.athena_asset_id) }
+          : {}),
+      };
+    }
+    invalidInput("response_input_content_type_invalid");
+  });
+}
+
+function normalizeToolOutput(output) {
+  if (typeof output === "string") return output;
+  if (!Array.isArray(output)) invalidInput("response_tool_output_invalid");
+  return output.map((part) => {
+    if (!part || typeof part !== "object")
+      invalidInput("response_tool_output_part_invalid");
+    if (["text", "input_text"].includes(part.type))
+      return { type: "input_text", text: String(part.text || "") };
+    if (part.type === "input_image") {
+      const fileId = String(part.file_id || "").trim();
+      const imageUrl = String(part.image_url || "").trim();
+      if ((!fileId && !imageUrl) || (fileId && imageUrl))
+        invalidInput("response_input_image_source_invalid");
+      return {
+        type: "input_image",
+        ...(fileId ? { file_id: fileId } : { image_url: imageUrl }),
+        ...(part.detail ? { detail: String(part.detail) } : {}),
+        ...(part.athena_asset_id
+          ? { athena_asset_id: String(part.athena_asset_id) }
+          : {}),
+      };
+    }
+    invalidInput("response_tool_output_type_invalid");
   });
 }
 
@@ -126,6 +182,17 @@ function normalizeInput(input = []) {
       error.httpStatus = 400;
       throw error;
     }
+    if (
+      ["function_call_output", "custom_tool_call_output"].includes(entry.type)
+    ) {
+      const callId = String(entry.call_id || "").trim();
+      if (!callId) invalidInput("response_tool_output_call_id_missing");
+      return {
+        ...entry,
+        call_id: callId,
+        output: normalizeToolOutput(entry.output),
+      };
+    }
     if (entry.type && entry.type !== "message") return { ...entry };
     const role = String(entry.role || "user");
     if (!["system", "developer", "user", "assistant", "tool"].includes(role)) {
@@ -137,7 +204,7 @@ function normalizeInput(input = []) {
     return {
       type: "message",
       role,
-      content: normalizeContent(entry.content),
+      content: normalizeContent(entry.content, role),
       ...(entry.name ? { name: String(entry.name) } : {}),
       ...(entry.tool_call_id
         ? { tool_call_id: String(entry.tool_call_id) }
@@ -291,6 +358,7 @@ module.exports = {
   DEEPSEEK_RESPONSE_MODELS,
   FLASH_MODEL,
   PRO_MODEL,
+  VISION_MODEL,
   RESPONSE_STATUSES,
   STREAM_EVENT_TYPES,
   TERMINAL_STATUSES,

@@ -656,6 +656,7 @@ const WorkspaceChats = {
         await tx.workspace_chats.deleteMany({ where: clause });
         const released = new Map();
         for (const ref of [...attachmentRefs, ...contentRefs]) {
+          if (!ref.contentObjectId) continue;
           released.set(
             ref.contentObjectId,
             Number(released.get(ref.contentObjectId) || 0) + 1

@@ -5,6 +5,7 @@ const {
   putUploadPart,
 } = require("../utils/contentObjects/chatPayload");
 const { contentObjectLimits } = require("../utils/contentObjects/policy");
+const { createImageAssetForUpload } = require("../utils/imageAssets/service");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
@@ -166,6 +167,11 @@ function workspaceChatAttachmentEndpoints(app) {
           workspaceId: workspace.id,
           userId: user?.id || null,
         });
+        const imageAsset = await createImageAssetForUpload({
+          workspaceId: workspace.id,
+          userId: user?.id || null,
+          upload,
+        });
         return response.status(200).json({
           success: true,
           attachment: {
@@ -174,6 +180,18 @@ function workspaceChatAttachmentEndpoints(app) {
             name: upload.displayName,
             mime: upload.mimeType,
             byteSize: upload.receivedBytes,
+            ...(imageAsset
+              ? {
+                  assetId: imageAsset.id,
+                  imageAssetId: imageAsset.id,
+                  previewUrl: imageAsset.previewUrl,
+                  width: imageAsset.width,
+                  height: imageAsset.height,
+                  animated: imageAsset.animated,
+                  providerSyncStatus: imageAsset.providerSyncStatus,
+                  providerFailureCode: imageAsset.providerFailureCode,
+                }
+              : {}),
           },
         });
       } catch (error) {

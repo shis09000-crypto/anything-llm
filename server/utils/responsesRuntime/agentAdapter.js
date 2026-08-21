@@ -6,9 +6,16 @@ const {
 } = require("../microModules");
 const {
   formatFunctionsToTools,
-  formatMessagesForTools,
 } = require("../agents/aibitat/providers/helpers/tooled");
 const { enabled, responseEvents, responsesTools } = require("./chatAdapter");
+const { prepareResponsesInput } = require("./multimodalInput");
+const { invalidateBindings } = require("../imageAssets/adapter");
+const { functionsVisibleToResponsesModel } = require("./toolExposure");
+const {
+  ReasoningStreamProjector,
+  completedReasoningFromEvent,
+  reasoningDeltaFromEvent,
+} = require("./reasoningStream");
 
 function agentEnabled({ provider, model, env = process.env } = {}) {
   return (
@@ -30,6 +37,24 @@ function metadata(handlerProps = {}) {
     taskPriority: invocation.taskPriority || "P0",
     taskIntent: invocation.taskIntent || "agent_run",
   };
+}
+
+function imageFileFailure(value) {
+  const text = String(value || "").toLowerCase();
+  return (
+    /(?:file|image).*(?:expired|invalid|not[_\s-]?found|missing)/i.test(text) ||
+    /(?:expired|invalid|not[_\s-]?found|missing).*(?:file|image)/i.test(text)
+  );
+}
+
+function failedEventCode(event = {}) {
+  return (
+    event.response?.error?.code ||
+    event.response?.error?.message ||
+    event.error?.code ||
+    event.error?.message ||
+    ""
+  );
 }
 
 async function waitForDurableToolCheckpoint({
@@ -69,40 +94,8 @@ async function waitForDurableToolCheckpoint({
   throw error;
 }
 
-function responsesInput(messages = []) {
-  const formatted = formatMessagesForTools(messages, {
-    injectReasoningContent: true,
-  });
-  const input = [];
-  for (const { reasoning_content: _reasoning, ...message } of formatted) {
-    if (message.role === "tool") {
-      input.push({
-        type: "function_call_output",
-        call_id: message.tool_call_id,
-        output: message.content ?? "",
-      });
-      continue;
-    }
-    if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
-      if (message.content)
-        input.push({
-          type: "message",
-          role: "assistant",
-          content: message.content,
-        });
-      for (const toolCall of message.tool_calls) {
-        input.push({
-          type: "function_call",
-          call_id: toolCall.id,
-          name: toolCall.function?.name || "",
-          arguments: toolCall.function?.arguments || "{}",
-        });
-      }
-      continue;
-    }
-    input.push(message);
-  }
-  return input;
+async function responsesInput(messages = [], options = {}) {
+  return prepareResponsesInput(messages, options);
 }
 
 function createResponsesAgentProvider({
@@ -141,21 +134,27 @@ function createResponsesAgentProvider({
       options = null
     ) {
       const athena = metadata(this.handlerProps);
+      const modelVisibleFunctions = functionsVisibleToResponsesModel(functions);
       const requiresWorkspaceSearch =
         this.handlerProps?.invocation?.workspace?.chatMode === "query" &&
         this.handlerProps?.workspaceSearchPerformed !== true &&
-        functions.some((fn) => fn?.name === "workspace_search");
-      const body = {
-        provider,
+        modelVisibleFunctions.some((fn) => fn?.name === "workspace_search");
+      let prepared = await responsesInput(messages, {
         model,
-        input: responsesInput(messages),
+        env,
+        workspaceId: athena.workspaceId,
+      });
+      let body = {
+        provider,
+        model: prepared.model,
+        input: prepared.input,
         store: true,
         background: false,
         persistence_mode: "foreground_deferred",
-        tools: responsesTools(formatFunctionsToTools(functions)),
+        tools: responsesTools(formatFunctionsToTools(modelVisibleFunctions)),
         tool_choice: requiresWorkspaceSearch
           ? { type: "function", name: "workspace_search" }
-          : functions.length
+          : modelVisibleFunctions.length
             ? "auto"
             : null,
         reasoning: {
@@ -167,81 +166,162 @@ function createResponsesAgentProvider({
         ...(options?.maxTokens != null
           ? { max_output_tokens: options.maxTokens }
           : {}),
-        athena,
+        athena: {
+          ...athena,
+          requestedModel: model,
+          multimodal: prepared.sawImage,
+        },
       };
-      const response = await requestInternalStream({
-        callerRole: "agent-runtime",
-        targetModule: "responses-runtime",
-        capability: "responses.stream",
-        contractVersion: "1.0",
-        url: `${baseUrl}/internal/v1/responses/stream`,
-        body,
-        idempotencyKey: crypto
-          .createHash("sha256")
-          .update(JSON.stringify(body))
-          .digest("hex"),
-        env,
-        timeoutMs: Number(env.ATHENA_RESPONSES_RUNTIME_TIMEOUT_MS || 300_000),
-      });
+      const openResponse = (requestBody) =>
+        requestInternalStream({
+          callerRole: "agent-runtime",
+          targetModule: "responses-runtime",
+          capability: "responses.stream",
+          contractVersion: "1.0",
+          url: `${baseUrl}/internal/v1/responses/stream`,
+          body: requestBody,
+          idempotencyKey: crypto
+            .createHash("sha256")
+            .update(JSON.stringify(requestBody))
+            .digest("hex"),
+          env,
+          timeoutMs: Number(env.ATHENA_RESPONSES_RUNTIME_TIMEOUT_MS || 300_000),
+        });
+      let response = await openResponse(body);
       const call = { id: null, name: "", arguments: "" };
       let textResponse = "";
       let responseUuid = null;
       let usage = null;
-      for await (const event of responseEvents(response)) {
-        if (event.response_id) responseUuid = event.response_id;
-        if (event.type === "response.created")
-          responseUuid = event.response?.id || responseUuid;
-        if (event.type === "response.output_text.delta") {
-          textResponse += event.delta || "";
+      let sawReasoningDelta = false;
+      let answerStarted = false;
+      const reasoning = new ReasoningStreamProjector({
+        emit: (content) =>
           eventHandler?.("reportStreamEvent", {
-            type: "textResponseChunk",
-            uuid: responseUuid || "responses-runtime",
-            content: event.delta || "",
-          });
+            ...content,
+            uuid: `${responseUuid || athena.agentRunId || "responses-runtime"}:reasoning:${content.sequence || content.type}`,
+          }),
+      });
+      for (let imageAttempt = 0; imageAttempt < 2; imageAttempt += 1) {
+        let retryImage = false;
+        try {
+          for await (const event of responseEvents(response)) {
+            if (event.response_id) responseUuid = event.response_id;
+            if (event.type === "response.created")
+              responseUuid = event.response?.id || responseUuid;
+            const reasoningDelta = reasoningDeltaFromEvent(event);
+            if (reasoningDelta) {
+              sawReasoningDelta = true;
+              reasoning.push(reasoningDelta);
+            } else if (!sawReasoningDelta) {
+              const completedReasoning = completedReasoningFromEvent(event);
+              if (completedReasoning) reasoning.push(completedReasoning);
+            }
+            if (event.type === "response.output_text.delta") {
+              if (!answerStarted && event.delta) {
+                answerStarted = true;
+                reasoning.finish("completed");
+              }
+              textResponse += event.delta || "";
+              eventHandler?.("reportStreamEvent", {
+                type: "textResponseChunk",
+                uuid: responseUuid || "responses-runtime",
+                content: event.delta || "",
+              });
+            }
+            if (
+              event.type === "response.output_item.added" &&
+              event.item?.type === "function_call"
+            ) {
+              call.id = event.item.call_id || event.item.id || call.id;
+              call.name = event.item.name || call.name;
+            }
+            if (event.type === "response.function_call_arguments.delta") {
+              call.id = event.call_id || event.item_id || call.id;
+              if (event.name && !call.name) call.name = event.name;
+              call.arguments += event.delta || "";
+              eventHandler?.("reportStreamEvent", {
+                type: "toolCallInvocation",
+                uuid: `${responseUuid || "responses-runtime"}:tool_call_invocation`,
+                content: `Assembling Tool Call: ${call.name}(${call.arguments})`,
+              });
+            }
+            if (
+              event.type === "response.output_item.done" &&
+              event.item?.type === "function_call"
+            ) {
+              call.id = event.item.call_id || event.item.id || call.id;
+              call.name = event.item.name || call.name;
+              call.arguments = event.item.arguments || call.arguments;
+            }
+            if (
+              event.type === "response.completed" ||
+              event.type === "response.incomplete"
+            ) {
+              reasoning.finish(
+                event.type === "response.completed" ? "completed" : "incomplete"
+              );
+              usage = {
+                ...(event.response?.usage || {}),
+                model: event.response?.model || prepared.model,
+                provider,
+                requested_protocol:
+                  event.response?.athena?.requestedProtocol || "responses",
+                effective_protocol:
+                  event.response?.athena?.effectiveProtocol || "responses",
+                response_id: event.response?.id || null,
+                execution_source: "responses_runtime",
+              };
+              responseUuid = event.response?.id || responseUuid;
+            }
+            if (event.type === "response.failed") {
+              const code = failedEventCode(event);
+              if (
+                imageAttempt === 0 &&
+                (prepared.bindingIds || []).length > 0 &&
+                !answerStarted &&
+                !call.name &&
+                imageFileFailure(code)
+              ) {
+                retryImage = true;
+                break;
+              }
+              reasoning.finish("failed");
+            }
+          }
+        } catch (error) {
+          if (
+            imageAttempt === 0 &&
+            (prepared.bindingIds || []).length > 0 &&
+            !answerStarted &&
+            !call.name &&
+            imageFileFailure(error.code || error.message)
+          ) {
+            retryImage = true;
+          } else {
+            throw error;
+          }
         }
-        if (
-          event.type === "response.output_item.added" &&
-          event.item?.type === "function_call"
-        ) {
-          call.id = event.item.call_id || event.item.id || call.id;
-          call.name = event.item.name || call.name;
-        }
-        if (event.type === "response.function_call_arguments.delta") {
-          call.id = event.call_id || event.item_id || call.id;
-          if (event.name && !call.name) call.name = event.name;
-          call.arguments += event.delta || "";
-          eventHandler?.("reportStreamEvent", {
-            type: "toolCallInvocation",
-            uuid: `${responseUuid || "responses-runtime"}:tool_call_invocation`,
-            content: `Assembling Tool Call: ${call.name}(${call.arguments})`,
-          });
-        }
-        if (
-          event.type === "response.output_item.done" &&
-          event.item?.type === "function_call"
-        ) {
-          call.id = event.item.call_id || event.item.id || call.id;
-          call.name = event.item.name || call.name;
-          call.arguments = event.item.arguments || call.arguments;
-        }
-        if (
-          event.type === "response.completed" ||
-          event.type === "response.incomplete"
-        ) {
-          usage = {
-            ...(event.response?.usage || {}),
-            model: event.response?.model || model,
-            provider,
-            requested_protocol:
-              event.response?.athena?.requestedProtocol || "responses",
-            effective_protocol:
-              event.response?.athena?.effectiveProtocol || "responses",
-            response_id: event.response?.id || null,
-            execution_source: "responses_runtime",
-          };
-          responseUuid = event.response?.id || responseUuid;
-        }
+        if (!retryImage) break;
+        await invalidateBindings(
+          prepared.bindingIds || [],
+          "provider_image_file_invalid"
+        );
+        prepared = await responsesInput(messages, {
+          model,
+          env,
+          workspaceId: athena.workspaceId,
+          forceRefresh: true,
+        });
+        body = {
+          ...body,
+          model: prepared.model,
+          input: prepared.input,
+          athena: { ...body.athena, multimodal: prepared.sawImage },
+        };
+        response = await openResponse(body);
+        responseUuid = null;
       }
+      reasoning.finish("completed");
       if (call.name && responseUuid) {
         await waitForDurableToolCheckpoint({
           baseUrl,
@@ -258,6 +338,9 @@ function createResponsesAgentProvider({
               id: call.id || `call_${crypto.randomUUID()}`,
               name: call.name,
               arguments: safeJsonParse(call.arguments || "{}", {}),
+              ...(reasoning.rawText()
+                ? { reasoning_content: reasoning.rawText() }
+                : {}),
             }
           : null,
         uuid: responseUuid || crypto.randomUUID(),
@@ -270,6 +353,7 @@ function createResponsesAgentProvider({
 module.exports = {
   agentEnabled,
   createResponsesAgentProvider,
+  functionsVisibleToResponsesModel,
   metadata,
   responsesInput,
 };

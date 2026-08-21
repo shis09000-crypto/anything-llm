@@ -118,6 +118,162 @@ const ContentObject = {
     });
   },
 
+  async assetForWorkspace({ assetId, workspaceId }) {
+    return prisma.content_objects.findFirst({
+      where: {
+        id: String(assetId),
+        ownerType: "workspace",
+        ownerId: String(workspaceId),
+        state: { in: ["staging", "ready"] },
+      },
+    });
+  },
+
+  async providerFileBinding({
+    imageAssetId,
+    provider,
+    credentialScopeHash,
+    adaptationVersion,
+  }) {
+    if (!imageAssetId) return null;
+    return prisma.content_object_provider_files.findUnique({
+      where: {
+        imageAssetId_provider_credentialScopeHash_adaptationVersion: {
+          imageAssetId: String(imageAssetId),
+          provider: String(provider),
+          credentialScopeHash: String(credentialScopeHash),
+          adaptationVersion: String(adaptationVersion),
+        },
+      },
+    });
+  },
+
+  async saveProviderFileBinding(data) {
+    const where = {
+      imageAssetId_provider_credentialScopeHash_adaptationVersion: {
+        imageAssetId: String(data.imageAssetId),
+        provider: String(data.provider),
+        credentialScopeHash: String(data.credentialScopeHash),
+        adaptationVersion: String(data.adaptationVersion),
+      },
+    };
+    const now = new Date();
+    return prisma.content_object_provider_files.upsert({
+      where,
+      create: {
+        id: data.id || crypto.randomUUID(),
+        assetId: String(data.assetId),
+        imageAssetId: String(data.imageAssetId),
+        derivativeAssetId: data.derivativeAssetId || null,
+        provider: String(data.provider),
+        credentialScopeHash: String(data.credentialScopeHash),
+        adaptationVersion: String(data.adaptationVersion),
+        providerFileId: String(data.providerFileId),
+        providerMimeType: String(data.providerMimeType),
+        providerByteSize: Number(data.providerByteSize),
+        providerSha256: String(data.providerSha256),
+        status: data.status || "ready",
+        providerCreatedAt: data.providerCreatedAt || now,
+        expiresAt: data.expiresAt || null,
+        lastVerifiedAt: data.lastVerifiedAt || now,
+        lastUsedAt: data.lastUsedAt || now,
+        failureCode: data.failureCode || null,
+        updatedAt: now,
+      },
+      update: {
+        assetId: String(data.assetId),
+        derivativeAssetId: data.derivativeAssetId || null,
+        providerFileId: String(data.providerFileId),
+        providerMimeType: String(data.providerMimeType),
+        providerByteSize: Number(data.providerByteSize),
+        providerSha256: String(data.providerSha256),
+        status: data.status || "ready",
+        providerCreatedAt: data.providerCreatedAt || now,
+        expiresAt: data.expiresAt || null,
+        lastVerifiedAt: data.lastVerifiedAt || now,
+        lastUsedAt: data.lastUsedAt || now,
+        failureCode: data.failureCode || null,
+        updatedAt: now,
+      },
+    });
+  },
+
+  async touchProviderFileBinding(id) {
+    return prisma.content_object_provider_files.update({
+      where: { id: String(id) },
+      data: { lastUsedAt: new Date(), updatedAt: new Date() },
+    });
+  },
+
+  async invalidateProviderFileBinding(
+    id,
+    failureCode = "provider_file_invalid"
+  ) {
+    return prisma.content_object_provider_files.update({
+      where: { id: String(id) },
+      data: {
+        status: "invalid",
+        failureCode: String(failureCode).slice(0, 160),
+        updatedAt: new Date(),
+      },
+    });
+  },
+
+  async providerFilesForImageAsset(imageAssetId) {
+    return prisma.content_object_provider_files.findMany({
+      where: { imageAssetId: String(imageAssetId) },
+      orderBy: { createdAt: "asc" },
+    });
+  },
+
+  async deleteProviderFileBinding(id) {
+    return prisma.content_object_provider_files.deleteMany({
+      where: { id: String(id) },
+    });
+  },
+
+  async retain(assetId, count = 1) {
+    return prisma.content_objects.update({
+      where: { id: String(assetId) },
+      data: {
+        state: "ready",
+        readyAt: new Date(),
+        deleteAfter: null,
+        refCount: { increment: Math.max(1, Number(count) || 1) },
+      },
+    });
+  },
+
+  async release(assetId, count = 1) {
+    const object = await prisma.content_objects.findUnique({
+      where: { id: String(assetId) },
+    });
+    if (!object) return null;
+    const nextCount = Math.max(
+      0,
+      Number(object.refCount || 0) - Math.max(1, Number(count) || 1)
+    );
+    return prisma.content_objects.update({
+      where: { id: object.id },
+      data: {
+        refCount: nextCount,
+        ...(nextCount === 0
+          ? { state: "delete_pending", deleteAfter: new Date() }
+          : {}),
+      },
+    });
+  },
+
+  async scheduleDelete(assetId) {
+    return prisma.content_objects.updateMany({
+      where: { id: String(assetId), state: { in: ["staging", "ready"] } },
+      data: {
+        state: "delete_pending",
+        deleteAfter: new Date(),
+      },
+    });
+  },
+
   async payloadReferences(chatId) {
     const refs = await prisma.workspace_chat_attachment_refs.findMany({
       where: { chatId: Number(chatId) },
@@ -125,7 +281,9 @@ const ContentObject = {
     });
     const objects = refs.length
       ? await prisma.content_objects.findMany({
-          where: { id: { in: refs.map((ref) => ref.contentObjectId) } },
+          where: {
+            id: { in: refs.map((ref) => ref.contentObjectId).filter(Boolean) },
+          },
         })
       : [];
     return { refs, objects };
@@ -503,14 +661,18 @@ const ContentObject = {
           id: attachment.refId,
           chatId: Number(chatId),
           contentObjectId: attachment.contentObjectId,
+          imageAssetId: attachment.imageAssetId || null,
           ordinal: attachment.ordinal,
           displayName: attachment.name,
           mimeType: attachment.mime,
           byteSize: attachment.byteSize,
           metadataJson: JSON.stringify(attachment.metadata || {}),
+          status: attachment.status || "active",
+          deletedAt: attachment.deletedAt || null,
         },
       });
-      objectIds.push(attachment.contentObjectId);
+      if (attachment.contentObjectId)
+        objectIds.push(attachment.contentObjectId);
     }
     for (const contentRef of contentRefs) {
       await tx.workspace_chat_content_refs.create({
@@ -546,8 +708,41 @@ const ContentObject = {
       return;
     const chat = await tx.workspace_chats.findUnique({
       where: { id: Number(chatId) },
-      select: { user_id: true },
+      select: {
+        user_id: true,
+        workspaceId: true,
+        thread_id: true,
+        prompt: true,
+      },
     });
+    for (const attachment of attachments) {
+      if (!attachment.imageAssetId) continue;
+      if (!chat || !tx.image_asset_sources?.upsert) continue;
+      await tx.image_asset_sources.upsert({
+        where: {
+          imageAssetId_attachmentRefId: {
+            imageAssetId: String(attachment.imageAssetId),
+            attachmentRefId: String(attachment.refId),
+          },
+        },
+        create: {
+          id: crypto.randomUUID(),
+          imageAssetId: String(attachment.imageAssetId),
+          workspaceId: Number(chat.workspaceId),
+          threadId: chat.thread_id == null ? null : Number(chat.thread_id),
+          chatId: Number(chatId),
+          attachmentRefId: String(attachment.refId),
+          ordinal: Number(attachment.ordinal || 0),
+          sourceText: String(chat.prompt || "").slice(0, 1_000) || null,
+        },
+        update: {
+          chatId: Number(chatId),
+          threadId: chat.thread_id == null ? null : Number(chat.thread_id),
+          ordinal: Number(attachment.ordinal || 0),
+          sourceText: String(chat.prompt || "").slice(0, 1_000) || null,
+        },
+      });
+    }
     if (!chat?.user_id) return;
     const user = await tx.users.findUnique({
       where: { id: Number(chat.user_id) },
@@ -602,11 +797,14 @@ const ContentObject = {
       return {
         refId,
         contentObjectId: row.contentObjectId,
+        imageAssetId: row.imageAssetId || null,
         ordinal,
         name: row.displayName,
         mime: row.mimeType,
         byteSize: row.byteSize,
         metadata: row.metadataJson ? JSON.parse(row.metadataJson) : {},
+        status: row.status || "active",
+        deletedAt: row.deletedAt || null,
       };
     });
     const contentRefs = sourceContentRefs.map((row) => {
@@ -698,6 +896,7 @@ const ContentObject = {
       select: { id: true, workspaceId: true, user_id: true, deletedAt: true },
     });
     if (!chat || chat.deletedAt) return null;
+    if (!ref.contentObjectId || ref.status === "deleted") return null;
     const object = await prisma.content_objects.findUnique({
       where: { id: ref.contentObjectId },
     });
@@ -739,15 +938,35 @@ const ContentObject = {
     });
     const result = { inspected: stale.length, deleted: 0, retained: 0 };
     for (const row of stale) {
-      const [attachmentRefs, contentRefs] = await Promise.all([
+      const [
+        attachmentRefs,
+        contentRefs,
+        providerDerivativeRefs,
+        imageOriginalRefs,
+        imagePreviewRefs,
+      ] = await Promise.all([
         prisma.workspace_chat_attachment_refs.count({
           where: { contentObjectId: row.id },
         }),
         prisma.workspace_chat_content_refs.count({
           where: { contentObjectId: row.id },
         }),
+        prisma.content_object_provider_files.count({
+          where: { derivativeAssetId: row.id },
+        }),
+        prisma.image_assets.count({
+          where: { originalContentObjectId: row.id },
+        }),
+        prisma.image_assets.count({
+          where: { previewContentObjectId: row.id },
+        }),
       ]);
-      const references = attachmentRefs + contentRefs;
+      const references =
+        attachmentRefs +
+        contentRefs +
+        providerDerivativeRefs +
+        imageOriginalRefs +
+        imagePreviewRefs;
       if (references > 0) {
         await prisma.content_objects.update({
           where: { id: row.id },
@@ -756,10 +975,27 @@ const ContentObject = {
         result.retained += 1;
         continue;
       }
+      const providerDerivatives = await prisma.content_object_provider_files
+        .findMany({
+          where: { assetId: row.id },
+          select: { derivativeAssetId: true },
+        })
+        .then((bindings) =>
+          bindings.map((binding) => binding.derivativeAssetId).filter(Boolean)
+        );
       await contentObjectProvider(row.provider).delete({
         objectKey: row.objectKey,
       });
       await prisma.content_objects.delete({ where: { id: row.id } });
+      if (providerDerivatives.length) {
+        await prisma.content_objects.updateMany({
+          where: {
+            id: { in: providerDerivatives },
+            state: { in: ["staging", "ready"] },
+          },
+          data: { state: "delete_pending", deleteAfter: new Date() },
+        });
+      }
       metrics.contentObjectOperations.inc({
         operation: "gc",
         outcome: "deleted",
@@ -806,15 +1042,37 @@ const ContentObject = {
         });
         if (sha256(plaintext) !== row.plaintextSha256)
           throw new Error("plaintext_checksum_mismatch");
-        const [attachmentRefs, contentRefs] = await Promise.all([
+        const [
+          attachmentRefs,
+          contentRefs,
+          providerDerivativeRefs,
+          imageOriginalRefs,
+          imagePreviewRefs,
+        ] = await Promise.all([
           prisma.workspace_chat_attachment_refs.count({
             where: { contentObjectId: row.id },
           }),
           prisma.workspace_chat_content_refs.count({
             where: { contentObjectId: row.id },
           }),
+          prisma.content_object_provider_files.count({
+            where: { derivativeAssetId: row.id },
+          }),
+          prisma.image_assets.count({
+            where: { originalContentObjectId: row.id },
+          }),
+          prisma.image_assets.count({
+            where: { previewContentObjectId: row.id },
+          }),
         ]);
-        if (attachmentRefs + contentRefs !== Number(row.refCount))
+        if (
+          attachmentRefs +
+            contentRefs +
+            providerDerivativeRefs +
+            imageOriginalRefs +
+            imagePreviewRefs !==
+          Number(row.refCount)
+        )
           throw new Error("content_object_refcount_mismatch");
         plaintextBytes += plaintext.length;
       } catch (error) {

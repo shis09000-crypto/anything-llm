@@ -117,6 +117,7 @@ const LEGACY_MODEL_MAP = {
     "deepseek-coder": 128000,
     "deepseek-reasoner": 128000,
     "deepseek-v4-flash": 1_000_000,
+    "deepseek-v4-flash-vision-exp": 1_000_000,
     "deepseek-v4-pro": 1_000_000,
   },
   xai: {

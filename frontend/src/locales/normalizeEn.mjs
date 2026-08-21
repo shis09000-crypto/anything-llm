@@ -2,11 +2,9 @@
 // This script is used to normalize the translations files to ensure they are all the same.
 // This will take the en file and compare it to all other files and ensure they are all the same.
 // If a non-en file is missing a key, it will be added to the file and set to null
-import { resources } from "./resources.js";
+import { loadAllLanguageResources } from "./resources.js";
 import fs from "fs";
-const languageNames = new Intl.DisplayNames(Object.keys(resources), {
-  type: "language",
-});
+let languageNames;
 
 function langDisplayName(lang) {
   return languageNames.of(lang);
@@ -79,6 +77,7 @@ function compareStructures(lang, a, b, subdir = null) {
 function normalizeTranslations(lang, source, target, _subdir = null) {
   // Handle primitives - if target exists, keep it, otherwise set null
   if (!source || typeof source !== "object") {
+    if (typeof source === "string" && !source.trim()) return source;
     return target ?? null;
   }
 
@@ -109,7 +108,8 @@ function normalizeTranslations(lang, source, target, _subdir = null) {
 
   // If a non-en file has a key that is NOT in the en file, it will be removed
   for (const key of Object.keys(normalized)) {
-    if (!source[key]) delete normalized[key];
+    if (!Object.prototype.hasOwnProperty.call(source, key))
+      delete normalized[key];
   }
 
   return normalized;
@@ -124,52 +124,61 @@ function ISOToFilename(lang) {
   return ISO_TO_FILENAME[lang] || lang.replace("-", "_");
 }
 
-const failed = [];
-const TRANSLATIONS = {};
-for (const [lang, { common }] of Object.entries(resources)) {
-  TRANSLATIONS[lang] = common;
-}
+async function main() {
+  const resources = await loadAllLanguageResources();
+  languageNames = new Intl.DisplayNames(Object.keys(resources), {
+    type: "language",
+  });
+  const failed = [];
+  const TRANSLATIONS = {};
+  for (const [lang, { common }] of Object.entries(resources)) {
+    TRANSLATIONS[lang] = common;
+  }
 
-const PRIMARY = { ...TRANSLATIONS["en"] };
-delete TRANSLATIONS["en"];
+  const PRIMARY = { ...TRANSLATIONS["en"] };
+  delete TRANSLATIONS["en"];
 
-console.log(
-  `The following translation files will be normalized against the English file: [${Object.keys(
-    TRANSLATIONS
-  ).join(",")}]`
-);
+  console.log(
+    `The following translation files will be normalized against the English file: [${Object.keys(
+      TRANSLATIONS
+    ).join(",")}]`
+  );
 
-// Normalize each non-English translation
-for (const [lang, translations] of Object.entries(TRANSLATIONS)) {
-  const normalized = normalizeTranslations(lang, PRIMARY, translations);
+  // Normalize each non-English translation
+  for (const [lang, translations] of Object.entries(TRANSLATIONS)) {
+    const normalized = normalizeTranslations(lang, PRIMARY, translations);
 
-  // Update the translations in resources
-  resources[lang].common = normalized;
+    // Update the translations in resources
+    resources[lang].common = normalized;
 
-  // Verify the structure matches
-  const passed = compareStructures(lang, normalized, PRIMARY);
-  console.log(`${langDisplayName(lang)} (${lang}): ${passed ? "✅" : "❌"}`);
-  !passed && failed.push(lang);
+    // Verify the structure matches
+    const passed = compareStructures(lang, normalized, PRIMARY);
+    console.log(`${langDisplayName(lang)} (${lang}): ${passed ? "✅" : "❌"}`);
+    !passed && failed.push(lang);
 
-  const langFilename = ISOToFilename(lang);
-  fs.writeFileSync(
-    `./${langFilename}/common.js`,
-    `// Anything with "null" requires a translation. Contribute to translation via a PR!
+    const langFilename = ISOToFilename(lang);
+    fs.writeFileSync(
+      `./${langFilename}/common.js`,
+      `// Anything with "null" requires a translation. Contribute to translation via a PR!
 const TRANSLATIONS = ${JSON.stringify(normalized, null, 2)}
 
 export default TRANSLATIONS;`
+    );
+  }
+
+  if (failed.length !== 0) {
+    throw new Error(
+      `Error verifying normalized translations. Please check the logs.`,
+      failed
+    );
+  }
+
+  console.log(
+    `👍 All translation files have been normalized to match the English schema!`
   );
 }
 
-if (failed.length !== 0) {
-  throw new Error(
-    `Error verifying normalized translations. Please check the logs.`,
-    failed
-  );
-}
-
-console.log(
-  `👍 All translation files have been normalized to match the English schema!`
-);
-
-process.exit(0);
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

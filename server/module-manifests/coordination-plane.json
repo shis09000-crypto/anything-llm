@@ -53,6 +53,7 @@
       "module.quiesce",
       "module.resume",
       "module.self-test",
+      "operations.catalog",
       "operations.guard",
       "operations.ingest-batch",
       "scheduler.create",
@@ -74,16 +75,12 @@
     ]
   },
   "data": {
-    "schemas": [
-      "coordination"
-    ],
+    "schemas": ["coordination"],
     "objectPrefixes": []
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/coordination-plane",
-    "keyDomains": [
-      "audit"
-    ],
+    "keyDomains": ["audit"],
     "allowedCallers": [
       "agent-runtime",
       "athena-api",
@@ -436,6 +433,22 @@
         "dataClassification": "internal"
       },
       {
+        "id": "operations.catalog",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/operations.catalog/request/1.0",
+        "responseSchema": "athena://contracts/operations.catalog/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
         "id": "operations.guard",
         "version": "1.0",
         "callType": "Call",
@@ -502,13 +515,9 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "coordination"
-    ],
+    "dataSchemas": ["coordination"],
     "objectPrefixes": [],
-    "keyDomains": [
-      "audit"
-    ],
+    "keyDomains": ["audit"],
     "configuration": [
       "runtime:coordination-plane",
       "policy:graduated-autonomy"
@@ -519,13 +528,7 @@
     ]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "data",
-      "cache",
-      "recovery",
-      "optimistic"
-    ],
+    "centers": ["task", "data", "cache", "recovery", "optimistic"],
     "acceptedCommands": [
       "coordination.plan",
       "coordination.status",
@@ -572,11 +575,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

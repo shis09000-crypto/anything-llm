@@ -68,7 +68,7 @@ export function useAssetAllocationDonutData({
     try {
       const payload = await cryptoHubFetch<GateAllocationResponse>(
         "/allocation",
-        { signal }
+        { signal, communicationScene: "crypto-visible" }
       );
       if (signal?.aborted) return false;
       if (!payload?.success) {

@@ -57,6 +57,11 @@ class BackgroundService {
       timeout: "5m",
       interval: process.env.ATHENA_RETENTION_SWEEP_INTERVAL || "12hr",
     },
+    {
+      name: "image-asset-maintenance",
+      timeout: "5m",
+      interval: process.env.ATHENA_IMAGE_ASSET_MAINTENANCE_INTERVAL || "5m",
+    },
   ];
 
   #documentSyncJobs = [

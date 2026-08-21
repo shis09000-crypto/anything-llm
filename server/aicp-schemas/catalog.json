@@ -2,7 +2,7 @@
   "schema": "athena.aicp.schema-catalog",
   "schemaVersion": "1.1",
   "generatedAt": "1970-01-01T00:00:00.000Z",
-  "digest": "9edf378f6229c99eb76b688e3f4eb74464b4883a9086bda6e95c05e25f02d730",
+  "digest": "4663070531474c3c0b2fbdbf8c0d1c0b2fa553d947befd02bb53cc503232be5f",
   "schemas": {
     "athena://aicp/stream-frame/1.1": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -65,6 +65,851 @@
         }
       },
       "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.context.prepare/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.context.prepare/error/1.0",
+      "title": "athena://contracts/3d-center.memory.context.prepare/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.context.prepare/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.context.prepare/request/1.0",
+      "title": "athena://contracts/3d-center.memory.context.prepare/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.context.prepare/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.context.prepare/response/1.0",
+      "title": "athena://contracts/3d-center.memory.context.prepare/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.context.resolve/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.context.resolve/error/1.0",
+      "title": "athena://contracts/3d-center.memory.context.resolve/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.context.resolve/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.context.resolve/request/1.0",
+      "title": "athena://contracts/3d-center.memory.context.resolve/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.context.resolve/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.context.resolve/response/1.0",
+      "title": "athena://contracts/3d-center.memory.context.resolve/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.long-term.archive/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.archive/error/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.archive/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.long-term.archive/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.archive/request/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.archive/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.long-term.archive/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.archive/response/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.archive/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.long-term.context/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.context/error/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.context/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.long-term.context/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.context/request/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.context/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.long-term.context/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.context/response/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.context/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.long-term.profile.reset/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.profile.reset/error/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.profile.reset/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.long-term.profile.reset/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.profile.reset/request/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.profile.reset/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.long-term.profile.reset/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.profile.reset/response/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.profile.reset/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.long-term.reconsolidate/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.reconsolidate/error/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.reconsolidate/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.long-term.reconsolidate/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.reconsolidate/request/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.reconsolidate/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.long-term.reconsolidate/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.reconsolidate/response/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.reconsolidate/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.long-term.session.delete/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.session.delete/error/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.session.delete/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.long-term.session.delete/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.session.delete/request/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.session.delete/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.long-term.session.delete/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.session.delete/response/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.session.delete/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.long-term.status/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.status/error/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.status/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.long-term.status/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.status/request/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.status/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.long-term.status/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.long-term.status/response/1.0",
+      "title": "athena://contracts/3d-center.memory.long-term.status/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.maintenance/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.maintenance/error/1.0",
+      "title": "athena://contracts/3d-center.memory.maintenance/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.maintenance/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.maintenance/request/1.0",
+      "title": "athena://contracts/3d-center.memory.maintenance/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.maintenance/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.maintenance/response/1.0",
+      "title": "athena://contracts/3d-center.memory.maintenance/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.session.create/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.session.create/error/1.0",
+      "title": "athena://contracts/3d-center.memory.session.create/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.session.create/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.session.create/request/1.0",
+      "title": "athena://contracts/3d-center.memory.session.create/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.session.create/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.session.create/response/1.0",
+      "title": "athena://contracts/3d-center.memory.session.create/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.session.delete/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.session.delete/error/1.0",
+      "title": "athena://contracts/3d-center.memory.session.delete/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.session.delete/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.session.delete/request/1.0",
+      "title": "athena://contracts/3d-center.memory.session.delete/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.session.delete/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.session.delete/response/1.0",
+      "title": "athena://contracts/3d-center.memory.session.delete/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.status/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.status/error/1.0",
+      "title": "athena://contracts/3d-center.memory.status/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.status/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.status/request/1.0",
+      "title": "athena://contracts/3d-center.memory.status/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.status/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.status/response/1.0",
+      "title": "athena://contracts/3d-center.memory.status/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/3d-center.memory.turn.commit/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.turn.commit/error/1.0",
+      "title": "athena://contracts/3d-center.memory.turn.commit/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/3d-center.memory.turn.commit/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.turn.commit/request/1.0",
+      "title": "athena://contracts/3d-center.memory.turn.commit/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/3d-center.memory.turn.commit/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/3d-center.memory.turn.commit/response/1.0",
+      "title": "athena://contracts/3d-center.memory.turn.commit/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
     },
     "athena://contracts/agent.status/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -233,6 +1078,201 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "athena://contracts/agent.submit/response/1.0",
       "title": "athena://contracts/agent.submit/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/agent.turn.action/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.action/error/1.0",
+      "title": "athena://contracts/agent.turn.action/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/agent.turn.action/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.action/request/1.0",
+      "title": "athena://contracts/agent.turn.action/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/agent.turn.action/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.action/response/1.0",
+      "title": "athena://contracts/agent.turn.action/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/agent.turn.cancel/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.cancel/error/1.0",
+      "title": "athena://contracts/agent.turn.cancel/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/agent.turn.cancel/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.cancel/request/1.0",
+      "title": "athena://contracts/agent.turn.cancel/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/agent.turn.cancel/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.cancel/response/1.0",
+      "title": "athena://contracts/agent.turn.cancel/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/agent.turn.stream/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.stream/error/1.0",
+      "title": "athena://contracts/agent.turn.stream/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/agent.turn.stream/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.stream/request/1.0",
+      "title": "athena://contracts/agent.turn.stream/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/agent.turn.stream/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/agent.turn.stream/response/1.0",
+      "title": "athena://contracts/agent.turn.stream/response/1.0",
       "description": "Capability-scoped AICP business response.",
       "type": "object",
       "required": [
@@ -961,10 +2001,10 @@
       "maxProperties": 256,
       "additionalProperties": true
     },
-    "athena://contracts/chat.agent-turn.finalize/error/1.0": {
+    "athena://contracts/character-performance.events.retrieve/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/chat.agent-turn.finalize/error/1.0",
-      "title": "athena://contracts/chat.agent-turn.finalize/error/1.0",
+      "$id": "athena://contracts/character-performance.events.retrieve/error/1.0",
+      "title": "athena://contracts/character-performance.events.retrieve/error/1.0",
       "type": "object",
       "required": [
         "success",
@@ -993,10 +2033,10 @@
       },
       "additionalProperties": false
     },
-    "athena://contracts/chat.agent-turn.finalize/request/1.0": {
+    "athena://contracts/character-performance.events.retrieve/request/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/chat.agent-turn.finalize/request/1.0",
-      "title": "athena://contracts/chat.agent-turn.finalize/request/1.0",
+      "$id": "athena://contracts/character-performance.events.retrieve/request/1.0",
+      "title": "athena://contracts/character-performance.events.retrieve/request/1.0",
       "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
       "anyOf": [
         {
@@ -1009,10 +2049,10 @@
         }
       ]
     },
-    "athena://contracts/chat.agent-turn.finalize/response/1.0": {
+    "athena://contracts/character-performance.events.retrieve/response/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/chat.agent-turn.finalize/response/1.0",
-      "title": "athena://contracts/chat.agent-turn.finalize/response/1.0",
+      "$id": "athena://contracts/character-performance.events.retrieve/response/1.0",
+      "title": "athena://contracts/character-performance.events.retrieve/response/1.0",
       "description": "Capability-scoped AICP business response.",
       "type": "object",
       "required": [
@@ -1026,10 +2066,10 @@
       "maxProperties": 256,
       "additionalProperties": true
     },
-    "athena://contracts/chat.agent-turn.reserve/error/1.0": {
+    "athena://contracts/character-performance.feedback.create/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/chat.agent-turn.reserve/error/1.0",
-      "title": "athena://contracts/chat.agent-turn.reserve/error/1.0",
+      "$id": "athena://contracts/character-performance.feedback.create/error/1.0",
+      "title": "athena://contracts/character-performance.feedback.create/error/1.0",
       "type": "object",
       "required": [
         "success",
@@ -1058,10 +2098,10 @@
       },
       "additionalProperties": false
     },
-    "athena://contracts/chat.agent-turn.reserve/request/1.0": {
+    "athena://contracts/character-performance.feedback.create/request/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/chat.agent-turn.reserve/request/1.0",
-      "title": "athena://contracts/chat.agent-turn.reserve/request/1.0",
+      "$id": "athena://contracts/character-performance.feedback.create/request/1.0",
+      "title": "athena://contracts/character-performance.feedback.create/request/1.0",
       "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
       "anyOf": [
         {
@@ -1074,10 +2114,1505 @@
         }
       ]
     },
-    "athena://contracts/chat.agent-turn.reserve/response/1.0": {
+    "athena://contracts/character-performance.feedback.create/response/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/chat.agent-turn.reserve/response/1.0",
-      "title": "athena://contracts/chat.agent-turn.reserve/response/1.0",
+      "$id": "athena://contracts/character-performance.feedback.create/response/1.0",
+      "title": "athena://contracts/character-performance.feedback.create/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.packs.retrieve/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.packs.retrieve/error/1.0",
+      "title": "athena://contracts/character-performance.packs.retrieve/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.packs.retrieve/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.packs.retrieve/request/1.0",
+      "title": "athena://contracts/character-performance.packs.retrieve/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.packs.retrieve/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.packs.retrieve/response/1.0",
+      "title": "athena://contracts/character-performance.packs.retrieve/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.plans.compile/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.plans.compile/error/1.0",
+      "title": "athena://contracts/character-performance.plans.compile/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.plans.compile/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.plans.compile/request/1.0",
+      "title": "athena://contracts/character-performance.plans.compile/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.plans.compile/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.plans.compile/response/1.0",
+      "title": "athena://contracts/character-performance.plans.compile/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.sessions.cancel/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.cancel/error/1.0",
+      "title": "athena://contracts/character-performance.sessions.cancel/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.sessions.cancel/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.cancel/request/1.0",
+      "title": "athena://contracts/character-performance.sessions.cancel/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.sessions.cancel/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.cancel/response/1.0",
+      "title": "athena://contracts/character-performance.sessions.cancel/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.sessions.create/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.create/error/1.0",
+      "title": "athena://contracts/character-performance.sessions.create/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.sessions.create/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.create/request/1.0",
+      "title": "athena://contracts/character-performance.sessions.create/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.sessions.create/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.create/response/1.0",
+      "title": "athena://contracts/character-performance.sessions.create/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.sessions.link/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.link/error/1.0",
+      "title": "athena://contracts/character-performance.sessions.link/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.sessions.link/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.link/request/1.0",
+      "title": "athena://contracts/character-performance.sessions.link/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.sessions.link/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.link/response/1.0",
+      "title": "athena://contracts/character-performance.sessions.link/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.sessions.resolve-scope/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.resolve-scope/error/1.0",
+      "title": "athena://contracts/character-performance.sessions.resolve-scope/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.sessions.resolve-scope/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.resolve-scope/request/1.0",
+      "title": "athena://contracts/character-performance.sessions.resolve-scope/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.sessions.resolve-scope/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.resolve-scope/response/1.0",
+      "title": "athena://contracts/character-performance.sessions.resolve-scope/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character-performance.sessions.retrieve/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.retrieve/error/1.0",
+      "title": "athena://contracts/character-performance.sessions.retrieve/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character-performance.sessions.retrieve/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.retrieve/request/1.0",
+      "title": "athena://contracts/character-performance.sessions.retrieve/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character-performance.sessions.retrieve/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character-performance.sessions.retrieve/response/1.0",
+      "title": "athena://contracts/character-performance.sessions.retrieve/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.capabilities.retrieve/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.capabilities.retrieve/error/1.0",
+      "title": "athena://contracts/character.capabilities.retrieve/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.capabilities.retrieve/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.capabilities.retrieve/request/1.0",
+      "title": "athena://contracts/character.capabilities.retrieve/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.capabilities.retrieve/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.capabilities.retrieve/response/1.0",
+      "title": "athena://contracts/character.capabilities.retrieve/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.responses.create/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.responses.create/error/1.0",
+      "title": "athena://contracts/character.responses.create/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.responses.create/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.responses.create/request/1.0",
+      "title": "athena://contracts/character.responses.create/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.responses.create/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.responses.create/response/1.0",
+      "title": "athena://contracts/character.responses.create/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.capabilities.retrieve/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.capabilities.retrieve/error/2.0",
+      "title": "athena://contracts/character.v2.capabilities.retrieve/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.capabilities.retrieve/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.capabilities.retrieve/request/2.0",
+      "title": "athena://contracts/character.v2.capabilities.retrieve/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.capabilities.retrieve/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.capabilities.retrieve/response/2.0",
+      "title": "athena://contracts/character.v2.capabilities.retrieve/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.create/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.create/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.create/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.create/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.create/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.create/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.create/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.create/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.create/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.end/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.end/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.end/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.end/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.end/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.end/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.end/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.end/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.end/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.events/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.events/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.events/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.events/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.events/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.events/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.events/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.events/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.events/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.resume/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.resume/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.resume/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.resume/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.resume/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.resume/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.resume/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.resume/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.resume/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.retrieve/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.retrieve/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.retrieve/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.retrieve/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.retrieve/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.retrieve/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.retrieve/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.retrieve/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.retrieve/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.suspend/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.suspend/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.suspend/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.suspend/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.suspend/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.suspend/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.suspend/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.suspend/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.suspend/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.turns.create/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.turns.create/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.turns.create/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.turns.create/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.turns.create/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.turns.create/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.turns.create/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.turns.create/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.turns.create/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.conversations.turns.stream/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.turns.stream/error/2.0",
+      "title": "athena://contracts/character.v2.conversations.turns.stream/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.conversations.turns.stream/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.turns.stream/request/2.0",
+      "title": "athena://contracts/character.v2.conversations.turns.stream/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.conversations.turns.stream/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.conversations.turns.stream/response/2.0",
+      "title": "athena://contracts/character.v2.conversations.turns.stream/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.responses.cancel/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.cancel/error/2.0",
+      "title": "athena://contracts/character.v2.responses.cancel/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.responses.cancel/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.cancel/request/2.0",
+      "title": "athena://contracts/character.v2.responses.cancel/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.responses.cancel/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.cancel/response/2.0",
+      "title": "athena://contracts/character.v2.responses.cancel/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.responses.create/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.create/error/2.0",
+      "title": "athena://contracts/character.v2.responses.create/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.responses.create/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.create/request/2.0",
+      "title": "athena://contracts/character.v2.responses.create/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.responses.create/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.create/response/2.0",
+      "title": "athena://contracts/character.v2.responses.create/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.responses.retrieve/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.retrieve/error/2.0",
+      "title": "athena://contracts/character.v2.responses.retrieve/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.responses.retrieve/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.retrieve/request/2.0",
+      "title": "athena://contracts/character.v2.responses.retrieve/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.responses.retrieve/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.retrieve/response/2.0",
+      "title": "athena://contracts/character.v2.responses.retrieve/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.responses.stream/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.stream/error/2.0",
+      "title": "athena://contracts/character.v2.responses.stream/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.responses.stream/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.stream/request/2.0",
+      "title": "athena://contracts/character.v2.responses.stream/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.responses.stream/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.responses.stream/response/2.0",
+      "title": "athena://contracts/character.v2.responses.stream/response/2.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
+    "athena://contracts/character.v2.sessions/error/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.sessions/error/2.0",
+      "title": "athena://contracts/character.v2.sessions/error/2.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/character.v2.sessions/request/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.sessions/request/2.0",
+      "title": "athena://contracts/character.v2.sessions/request/2.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/character.v2.sessions/response/2.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/character.v2.sessions/response/2.0",
+      "title": "athena://contracts/character.v2.sessions/response/2.0",
       "description": "Capability-scoped AICP business response.",
       "type": "object",
       "required": [
@@ -3301,71 +5836,6 @@
       "maxProperties": 256,
       "additionalProperties": true
     },
-    "athena://contracts/knowledge.metrics.recompute/error/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/knowledge.metrics.recompute/error/1.0",
-      "title": "athena://contracts/knowledge.metrics.recompute/error/1.0",
-      "type": "object",
-      "required": [
-        "success",
-        "error",
-        "reasonCode"
-      ],
-      "properties": {
-        "success": {
-          "const": false
-        },
-        "error": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
-        },
-        "reasonCode": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 160
-        },
-        "retryable": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
-    },
-    "athena://contracts/knowledge.metrics.recompute/request/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/knowledge.metrics.recompute/request/1.0",
-      "title": "athena://contracts/knowledge.metrics.recompute/request/1.0",
-      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
-      "anyOf": [
-        {
-          "type": "object",
-          "maxProperties": 256,
-          "additionalProperties": true
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "athena://contracts/knowledge.metrics.recompute/response/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/knowledge.metrics.recompute/response/1.0",
-      "title": "athena://contracts/knowledge.metrics.recompute/response/1.0",
-      "description": "Capability-scoped AICP business response.",
-      "type": "object",
-      "required": [
-        "success"
-      ],
-      "properties": {
-        "success": {
-          "type": "boolean"
-        }
-      },
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
     "athena://contracts/model.agent.complete/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "athena://contracts/model.agent.complete/error/1.0",
@@ -4875,71 +7345,6 @@
       "maxProperties": 256,
       "additionalProperties": true
     },
-    "athena://contracts/responses.agent-run.status/error/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/responses.agent-run.status/error/1.0",
-      "title": "athena://contracts/responses.agent-run.status/error/1.0",
-      "type": "object",
-      "required": [
-        "success",
-        "error",
-        "reasonCode"
-      ],
-      "properties": {
-        "success": {
-          "const": false
-        },
-        "error": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
-        },
-        "reasonCode": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 160
-        },
-        "retryable": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
-    },
-    "athena://contracts/responses.agent-run.status/request/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/responses.agent-run.status/request/1.0",
-      "title": "athena://contracts/responses.agent-run.status/request/1.0",
-      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
-      "anyOf": [
-        {
-          "type": "object",
-          "maxProperties": 256,
-          "additionalProperties": true
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "athena://contracts/responses.agent-run.status/response/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/responses.agent-run.status/response/1.0",
-      "title": "athena://contracts/responses.agent-run.status/response/1.0",
-      "description": "Capability-scoped AICP business response.",
-      "type": "object",
-      "required": [
-        "success"
-      ],
-      "properties": {
-        "success": {
-          "type": "boolean"
-        }
-      },
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
     "athena://contracts/responses.background.claim/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "athena://contracts/responses.background.claim/error/1.0",
@@ -5870,6 +8275,71 @@
       "maxProperties": 256,
       "additionalProperties": true
     },
+    "athena://contracts/responses.quiz.execute/error/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/responses.quiz.execute/error/1.0",
+      "title": "athena://contracts/responses.quiz.execute/error/1.0",
+      "type": "object",
+      "required": [
+        "success",
+        "error",
+        "reasonCode"
+      ],
+      "properties": {
+        "success": {
+          "const": false
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 160
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "athena://contracts/responses.quiz.execute/request/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/responses.quiz.execute/request/1.0",
+      "title": "athena://contracts/responses.quiz.execute/request/1.0",
+      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
+      "anyOf": [
+        {
+          "type": "object",
+          "maxProperties": 256,
+          "additionalProperties": true
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "athena://contracts/responses.quiz.execute/response/1.0": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "athena://contracts/responses.quiz.execute/response/1.0",
+      "title": "athena://contracts/responses.quiz.execute/response/1.0",
+      "description": "Capability-scoped AICP business response.",
+      "type": "object",
+      "required": [
+        "success"
+      ],
+      "properties": {
+        "success": {
+          "type": "boolean"
+        }
+      },
+      "maxProperties": 256,
+      "additionalProperties": true
+    },
     "athena://contracts/responses.retrieve/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "athena://contracts/responses.retrieve/error/1.0",
@@ -6624,71 +9094,6 @@
       "maxProperties": 256,
       "additionalProperties": true
     },
-    "athena://contracts/workspace.cognition.turn.sync/error/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/workspace.cognition.turn.sync/error/1.0",
-      "title": "athena://contracts/workspace.cognition.turn.sync/error/1.0",
-      "type": "object",
-      "required": [
-        "success",
-        "error",
-        "reasonCode"
-      ],
-      "properties": {
-        "success": {
-          "const": false
-        },
-        "error": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 160
-        },
-        "reasonCode": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 160
-        },
-        "retryable": {
-          "type": "boolean"
-        }
-      },
-      "additionalProperties": false
-    },
-    "athena://contracts/workspace.cognition.turn.sync/request/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/workspace.cognition.turn.sync/request/1.0",
-      "title": "athena://contracts/workspace.cognition.turn.sync/request/1.0",
-      "description": "Capability-scoped AICP business request. Domain fields remain owned by the provider.",
-      "anyOf": [
-        {
-          "type": "object",
-          "maxProperties": 256,
-          "additionalProperties": true
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "athena://contracts/workspace.cognition.turn.sync/response/1.0": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://contracts/workspace.cognition.turn.sync/response/1.0",
-      "title": "athena://contracts/workspace.cognition.turn.sync/response/1.0",
-      "description": "Capability-scoped AICP business response.",
-      "type": "object",
-      "required": [
-        "success"
-      ],
-      "properties": {
-        "success": {
-          "type": "boolean"
-        }
-      },
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
     "athena://contracts/workspace.thread-title.claim/error/1.0": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "athena://contracts/workspace.thread-title.claim/error/1.0",
@@ -6816,374 +9221,6 @@
           "type": "boolean"
         }
       },
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/*/payload/1.1",
-      "title": "athena://events/*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/account.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/account.*/payload/1.1",
-      "title": "athena://events/account.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/agent.run.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/agent.run.*/payload/1.1",
-      "title": "athena://events/agent.run.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/approval.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/approval.*/payload/1.1",
-      "title": "athena://events/approval.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/auth.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/auth.*/payload/1.1",
-      "title": "athena://events/auth.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/background.job.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/background.job.*/payload/1.1",
-      "title": "athena://events/background.job.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/background.requested/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/background.requested/payload/1.1",
-      "title": "athena://events/background.requested/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/browser.egress.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/browser.egress.*/payload/1.1",
-      "title": "athena://events/browser.egress.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/browser.node.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/browser.node.*/payload/1.1",
-      "title": "athena://events/browser.node.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/browser.session.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/browser.session.*/payload/1.1",
-      "title": "athena://events/browser.session.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/browser.task.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/browser.task.*/payload/1.1",
-      "title": "athena://events/browser.task.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/browser.worker.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/browser.worker.*/payload/1.1",
-      "title": "athena://events/browser.worker.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/chat.run.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/chat.run.*/payload/1.1",
-      "title": "athena://events/chat.run.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/collector.job.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/collector.job.*/payload/1.1",
-      "title": "athena://events/collector.job.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/coordination.escalation.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/coordination.escalation.*/payload/1.1",
-      "title": "athena://events/coordination.escalation.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/coordination.run.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/coordination.run.*/payload/1.1",
-      "title": "athena://events/coordination.run.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/crypto.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/crypto.*/payload/1.1",
-      "title": "athena://events/crypto.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/crypto.account.equity_recording.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/crypto.account.equity_recording.*/payload/1.1",
-      "title": "athena://events/crypto.account.equity_recording.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/crypto.account.read.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/crypto.account.read.*/payload/1.1",
-      "title": "athena://events/crypto.account.read.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/crypto.connection.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/crypto.connection.*/payload/1.1",
-      "title": "athena://events/crypto.connection.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/crypto.forecast.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/crypto.forecast.*/payload/1.1",
-      "title": "athena://events/crypto.forecast.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/crypto.market.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/crypto.market.*/payload/1.1",
-      "title": "athena://events/crypto.market.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/deployment.slot.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/deployment.slot.*/payload/1.1",
-      "title": "athena://events/deployment.slot.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/edge.route.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/edge.route.*/payload/1.1",
-      "title": "athena://events/edge.route.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/key-custody.quarantine.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/key-custody.quarantine.*/payload/1.1",
-      "title": "athena://events/key-custody.quarantine.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/key-custody.rotation.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/key-custody.rotation.*/payload/1.1",
-      "title": "athena://events/key-custody.rotation.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/knowledge.index.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/knowledge.index.*/payload/1.1",
-      "title": "athena://events/knowledge.index.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/model.configuration.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/model.configuration.*/payload/1.1",
-      "title": "athena://events/model.configuration.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/model.provider.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/model.provider.*/payload/1.1",
-      "title": "athena://events/model.provider.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/model.stream.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/model.stream.*/payload/1.1",
-      "title": "athena://events/model.stream.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/module.lifecycle.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/module.lifecycle.*/payload/1.1",
-      "title": "athena://events/module.lifecycle.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/operations.action.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/operations.action.*/payload/1.1",
-      "title": "athena://events/operations.action.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/operations.semantic.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/operations.semantic.*/payload/1.1",
-      "title": "athena://events/operations.semantic.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/operations.shadow.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/operations.shadow.*/payload/1.1",
-      "title": "athena://events/operations.shadow.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/rag.result.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/rag.result.*/payload/1.1",
-      "title": "athena://events/rag.result.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/reader.job.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/reader.job.*/payload/1.1",
-      "title": "athena://events/reader.job.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/reader.requested/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/reader.requested/payload/1.1",
-      "title": "athena://events/reader.requested/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/response.protocol.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/response.protocol.*/payload/1.1",
-      "title": "athena://events/response.protocol.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/response.state.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/response.state.*/payload/1.1",
-      "title": "athena://events/response.state.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/scheduler.run.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/scheduler.run.*/payload/1.1",
-      "title": "athena://events/scheduler.run.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/security.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/security.*/payload/1.1",
-      "title": "athena://events/security.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/stream.connection.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/stream.connection.*/payload/1.1",
-      "title": "athena://events/stream.connection.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/sync.client.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/sync.client.*/payload/1.1",
-      "title": "athena://events/sync.client.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/tool.invocation.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/tool.invocation.*/payload/1.1",
-      "title": "athena://events/tool.invocation.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/tool.registry.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/tool.registry.*/payload/1.1",
-      "title": "athena://events/tool.registry.*/payload/1.1",
-      "type": "object",
-      "maxProperties": 256,
-      "additionalProperties": true
-    },
-    "athena://events/workspace.*/payload/1.1": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "$id": "athena://events/workspace.*/payload/1.1",
-      "title": "athena://events/workspace.*/payload/1.1",
-      "type": "object",
       "maxProperties": 256,
       "additionalProperties": true
     }

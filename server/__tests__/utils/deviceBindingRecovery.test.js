@@ -156,9 +156,7 @@ describe("device binding login preflight", () => {
         authUserId: 20,
         shadowUserId: 10,
         status: "recovery_required",
-        recoveryTicketHash: _deviceBindingInternals.hash(
-          result.recoveryTicket
-        ),
+        recoveryTicketHash: _deviceBindingInternals.hash(result.recoveryTicket),
       }),
     });
     expect(mockEmitSemanticEvent).toHaveBeenCalledWith(
@@ -167,6 +165,95 @@ describe("device binding login preflight", () => {
       })
     );
   });
+
+  test.each(["password", "passkey"])(
+    "uses successful %s authentication to rebind the device without a second confirmation",
+    async (authenticatedMethod) => {
+      const challenge = `challenge-${authenticatedMethod}`;
+      mockChallengeFindUnique.mockResolvedValue({
+        id: `challenge-${authenticatedMethod}`,
+        challengeHash: _deviceBindingInternals.hash(challenge),
+        clientId: "client-web",
+        status: "issued",
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockGetClientRecord.mockResolvedValue({
+        publicKey: "old-p256",
+        pqPublicKey: "old-mldsa",
+        revokedAt: null,
+      });
+
+      const result = await evaluateDeviceBindingForLogin({
+        request: {},
+        user: { id: 10 },
+        authUser: { id: 20 },
+        authenticatedMethod,
+        assertion: {
+          challengeId: `challenge-${authenticatedMethod}`,
+          challenge,
+          p256: {
+            publicKey: "new-p256",
+            keyAlgorithm: "device-p256-webcrypto-v1",
+            signature: "p256-proof",
+          },
+          postQuantum: {
+            publicKey: "new-mldsa",
+            signature: "mldsa-proof",
+          },
+        },
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        status: "rebound_after_primary_auth",
+        recovered: true,
+      });
+      expect(mockRecoverClientDeviceIdentity).toHaveBeenCalledWith({
+        userId: 10,
+        clientId: "client-web",
+        p256PublicKey: "new-p256",
+        p256KeyAlgorithm: "device-p256-webcrypto-v1",
+        pqPublicKey: "new-mldsa",
+      });
+      expect(mockChallengeUpdateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          id: `challenge-${authenticatedMethod}`,
+          status: "issued",
+          consumedAt: null,
+        }),
+        data: expect.objectContaining({
+          authUserId: 20,
+          shadowUserId: 10,
+          status: "primary_auth_rebinding",
+        }),
+      });
+      expect(mockTxChallengeUpdateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          id: `challenge-${authenticatedMethod}`,
+          status: "primary_auth_rebinding",
+          consumedAt: null,
+        }),
+        data: { status: "completed", consumedAt: expect.any(Date) },
+      });
+      expect(mockTxSessionUpdateMany).toHaveBeenCalledWith({
+        where: {
+          authUserId: 20,
+          clientId: "client-web",
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: expect.any(Date),
+          revokeReason: "device_identity_rebound_after_primary_auth",
+        },
+      });
+      expect(mockEmitSemanticEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "auth.device_binding.rebound_after_primary_auth",
+          metadata: { method: authenticatedMethod },
+        })
+      );
+    }
+  );
 
   test("uses the same canonical proof contract as the web client", () => {
     expect(

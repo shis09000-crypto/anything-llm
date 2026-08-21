@@ -15,6 +15,7 @@ import showToast from "@/utils/toast";
 import FileUploadWarningModal from "./FileUploadWarningModal";
 import pluralize from "pluralize";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
+import { uploadChatAttachment } from "@/lib/communication/chatAttachmentClient";
 
 export const DndUploaderContext = createContext();
 export const REMOVE_ATTACHMENT_EVENT = "ATTACHMENT_REMOVE";
@@ -30,8 +31,9 @@ export const PARSED_FILE_ATTACHMENT_REMOVED_EVENT =
  * @typedef Attachment
  * @property {string} uid - unique file id.
  * @property {File} file - native File object
- * @property {string|null} contentString - base64 encoded string of file
+ * @property {string|null} contentString - legacy Base64 input during migration only.
  * @property {string|null} previewUrl - local object URL for immediate previews.
+ * @property {Object|null} uploadedAttachment - internal persistent asset reference.
  * @property {string|null} mime - normalized mime type for the file.
  * @property {('in_progress'|'failed'|'success'|'embedded'|'added_context')} status - the automatic upload status.
  * @property {string|null} error - Error message
@@ -219,23 +221,24 @@ export function DnDFileUploaderProvider({
   /**
    * Turns files into attachments we can send as body request to backend
    * for a chat.
-   * @returns {{name:string,mime:string,contentString:string}[]}
+   * @returns {Object[]}
    */
   const parseAttachments = useCallback(() => {
     return (
       files
         ?.filter((file) => file.type === "attachment")
-        ?.filter((file) => !!file.contentString)
+        ?.filter((file) => !!file.uploadedAttachment)
+        ?.filter(
+          (file) =>
+            !file.uploadedAttachment?.providerSyncStatus ||
+            file.uploadedAttachment.providerSyncStatus === "ready"
+        )
         ?.map(
           (
             /** @type {Attachment} */
             attachment
           ) => {
-            return {
-              name: attachment.file.name,
-              mime: attachment.mime || normalizedFileMime(attachment.file),
-              contentString: attachment.contentString,
-            };
+            return attachment.uploadedAttachment;
           }
         ) || []
     );
@@ -277,18 +280,30 @@ export function DnDFileUploaderProvider({
       items: acceptedFiles.map(fileDebugPayload),
     });
     if (!acceptedFiles.length) return;
-    const processorReady = await ensureDocumentProcessorReady("P0");
-    if (!processorReady) {
-      showToast(
-        "Document processor is offline. Please try again later.",
-        "error"
-      );
-      return;
-    }
     /** @type {Attachment[]} */
-    const newAccepted = acceptedFiles.map((file) =>
+    const incomingRecords = acceptedFiles.map((file) =>
       createAttachmentRecord(file, source)
     );
+    const hasDocuments = incomingRecords.some(
+      (attachment) => attachment.type !== "attachment"
+    );
+    const processorReady = hasDocuments
+      ? await ensureDocumentProcessorReady("P0")
+      : true;
+    const newAccepted = processorReady
+      ? incomingRecords
+      : incomingRecords.filter(
+          (attachment) => attachment.type === "attachment"
+        );
+    if (!processorReady) {
+      showToast(
+        newAccepted.length
+          ? "Document processor is offline. Images will still be attached."
+          : "Document processor is offline. Please try again later.",
+        "error"
+      );
+    }
+    if (!newAccepted.length) return;
     emitAttachmentDebug("attachment-records-created", {
       source,
       records: newAccepted.map(attachmentDebugPayload),
@@ -310,7 +325,8 @@ export function DnDFileUploaderProvider({
   }
 
   /**
-   * Convert queued image attachments to request-ready base64.
+   * Upload queued images as original blobs and keep only the internal asset
+   * reference in the message payload. The object URL remains preview-only.
    * @param {Attachment[]} newAttachments
    */
   async function processImageAttachments(newAttachments = []) {
@@ -322,19 +338,37 @@ export function DnDFileUploaderProvider({
     await Promise.all(
       imageAttachments.map(async (attachment) => {
         const mime = attachment.mime || normalizedFileMime(attachment.file);
-        emitAttachmentDebug("attachment-image-convert-start", {
+        emitAttachmentDebug("attachment-image-upload-start", {
           uid: attachment.uid,
           mime,
           asset: fileDebugPayload(attachment.file),
         });
         try {
-          const contentString = await toBase64(attachment.file, mime);
+          const uploadedAttachment = await uploadChatAttachment(
+            workspace.slug,
+            {
+              file: attachment.file,
+              name: attachment.file.name,
+              mime,
+            }
+          );
+          if (
+            uploadedAttachment.providerSyncStatus &&
+            uploadedAttachment.providerSyncStatus !== "ready"
+          ) {
+            const error = new Error(
+              uploadedAttachment.providerFailureCode ||
+                "图片已保存，但模型文件同步失败，请在图片资产中重试"
+            );
+            error.uploadedAttachment = uploadedAttachment;
+            throw error;
+          }
           setFiles((prev) =>
             prev.map((prevFile) =>
               prevFile.uid === attachment.uid
                 ? {
                     ...prevFile,
-                    contentString,
+                    uploadedAttachment,
                     mime,
                     status: "success",
                     error: null,
@@ -342,11 +376,11 @@ export function DnDFileUploaderProvider({
                 : prevFile
             )
           );
-          emitAttachmentDebug("attachment-image-convert-success", {
+          emitAttachmentDebug("attachment-image-upload-success", {
             uid: attachment.uid,
             mime,
-            contentStringLength: contentString.length,
-            dataPrefix: contentString.slice(0, 32),
+            uploadId: uploadedAttachment.uploadId || null,
+            contentObjectId: uploadedAttachment.contentObjectId || null,
           });
         } catch (error) {
           setFiles((prev) =>
@@ -354,13 +388,15 @@ export function DnDFileUploaderProvider({
               prevFile.uid === attachment.uid
                 ? {
                     ...prevFile,
+                    uploadedAttachment:
+                      error?.uploadedAttachment || prevFile.uploadedAttachment,
                     status: "failed",
                     error: error?.message || "Image processing failed",
                   }
                 : prevFile
             )
           );
-          emitAttachmentDebug("attachment-image-convert-failed", {
+          emitAttachmentDebug("attachment-image-upload-failed", {
             uid: attachment.uid,
             error: error?.message || String(error),
           });
@@ -732,6 +768,7 @@ function attachmentDebugPayload(attachment = {}) {
     mime: attachment.mime || null,
     hasPreviewUrl: !!attachment.previewUrl,
     hasContentString: !!attachment.contentString,
+    hasUploadedAttachment: !!attachment.uploadedAttachment,
     asset: fileDebugPayload(attachment.file),
   };
 }
@@ -801,6 +838,7 @@ function createAttachmentRecord(file, source = "upload") {
       file,
       contentString: null,
       previewUrl: createObjectPreviewUrl(file),
+      uploadedAttachment: null,
       mime: normalizedFileMime(file, source),
       status: "in_progress",
       error: null,
@@ -813,29 +851,10 @@ function createAttachmentRecord(file, source = "upload") {
     file,
     contentString: null,
     previewUrl: null,
+    uploadedAttachment: null,
     mime: normalizedFileMime(file, source),
     status: "in_progress",
     error: null,
     type: "upload",
   };
-}
-
-/**
- * Convert image types into Base64 strings for requests.
- * @param {File} file
- * @param {string|null} fallbackMime
- * @returns {Promise<string>}
- */
-async function toBase64(file, fallbackMime = null) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || "");
-      const base64String = result.includes(",") ? result.split(",")[1] : result;
-      const mime = fallbackMime || normalizedFileMime(file);
-      resolve(`data:${mime};base64,${base64String}`);
-    };
-    reader.onerror = (error) => reject(error);
-    reader.readAsDataURL(file);
-  });
 }

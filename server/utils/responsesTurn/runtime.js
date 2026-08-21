@@ -8,6 +8,9 @@ const {
 } = require("../agents/invocationClient");
 const { DataAccessCenter } = require("../dataAccess");
 const { DEEPSEEK_RESPONSE_MODELS } = require("../responsesRuntime/contract");
+const {
+  sanitizeReasoningText,
+} = require("../responsesRuntime/reasoningStream");
 const { newPublicChatId } = require("../chats/chatIdentifiers");
 
 const activeResponsesTurns = new Map();
@@ -54,6 +57,8 @@ class ResponsesTurnProjector {
     this.publicChatId = publicChatId;
     this.clientTurnId = clientTurnId;
     this.metrics = {};
+    this.reasoningStarted = false;
+    this.reasoningDone = false;
     this.terminal = false;
     this.emit("response.created", {
       response: responseEnvelope(responseId, "in_progress", {
@@ -138,12 +143,54 @@ class ResponsesTurnProjector {
   appendText(delta = "") {
     delta = String(delta || "");
     if (!delta) return;
+    this.finishReasoning("completed");
     this.text += delta;
     this.emit("response.output_text.delta", {
       item_id: `${this.responseId}:message`,
       output_index: 0,
       content_index: 0,
       delta,
+    });
+  }
+
+  startReasoning() {
+    if (this.reasoningStarted || this.reasoningDone) return;
+    this.reasoningStarted = true;
+    this.emit("athena.reasoning.started", {
+      item_id: `${this.responseId}:reasoning`,
+    });
+  }
+
+  appendReasoning(content = {}) {
+    const delta = sanitizeReasoningText(content.content || "").trim();
+    if (!delta) return;
+    this.startReasoning();
+    this.emit("athena.reasoning.delta", {
+      item_id: `${this.responseId}:reasoning`,
+      content_index: Math.max(0, Number(content.sequence || 1) - 1),
+      delta,
+      truncated: content.truncated === true,
+    });
+  }
+
+  finishReasoning(status = "completed", content = {}) {
+    if (!this.reasoningStarted || this.reasoningDone) return;
+    this.reasoningDone = true;
+    this.emit("athena.reasoning.done", {
+      item_id: `${this.responseId}:reasoning`,
+      status,
+      truncated: content.truncated === true,
+    });
+  }
+
+  agentProgress(content = {}) {
+    this.emit("athena.agent.progress", {
+      item_id: `${this.responseId}:agent-progress`,
+      uuid: content.uuid || null,
+      phase: content.phase,
+      status: content.status,
+      sequence: content.sequence,
+      details: content.details || {},
     });
   }
 
@@ -182,6 +229,17 @@ class ResponsesTurnProjector {
       if (content.type === "toolCallInvocation")
         return this.toolStarted(content);
       if (content.type === "toolCallResult") return this.toolCompleted(content);
+      if (content.type === "agentProgress") return this.agentProgress(content);
+      if (content.type === "reasoningContentStart") {
+        this.startReasoning();
+        return;
+      }
+      if (content.type === "reasoningContentChunk")
+        return this.appendReasoning(content);
+      if (content.type === "reasoningContentDone") {
+        this.finishReasoning(content.status || "completed", content);
+        return;
+      }
       if (content.type === "textResponseChunk")
         return this.appendText(content.content);
       if (content.type === "fullTextResponse") {
@@ -216,6 +274,12 @@ class ResponsesTurnProjector {
           "Responses turn failed."
       );
     }
+    if (event.type === "response.incomplete") {
+      return this.incomplete(
+        event.response?.incomplete_details?.reason || "generation_incomplete"
+      );
+    }
+    if (event.type === "response.cancelled") return this.cancel();
     if (event.type === "response.completed") {
       this.complete(event.response || {});
     }
@@ -224,6 +288,7 @@ class ResponsesTurnProjector {
   complete(innerResponse = {}) {
     if (this.terminal) return;
     this.pendingThoughts = [];
+    this.finishReasoning("completed");
     this.emit("response.output_text.done", {
       item_id: `${this.responseId}:message`,
       output_index: 0,
@@ -248,10 +313,31 @@ class ResponsesTurnProjector {
 
   fail(code, message) {
     if (this.terminal) return;
+    this.finishReasoning("failed");
     this.emit("response.failed", {
       response: responseEnvelope(this.responseId, "failed", {
         error: { code, message },
       }),
+    });
+    this.terminal = true;
+  }
+
+  incomplete(reason = "generation_incomplete") {
+    if (this.terminal) return;
+    this.finishReasoning("incomplete");
+    this.emit("response.incomplete", {
+      response: responseEnvelope(this.responseId, "incomplete", {
+        incomplete_details: { reason },
+      }),
+    });
+    this.terminal = true;
+  }
+
+  cancel() {
+    if (this.terminal) return;
+    this.finishReasoning("cancelled");
+    this.emit("response.cancelled", {
+      response: responseEnvelope(this.responseId, "cancelled"),
     });
     this.terminal = true;
   }

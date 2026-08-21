@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CaretDown,
   Check,
@@ -119,14 +119,23 @@ export default function ThoughtTimeline({
   toolEvents = [],
   isRunning = false,
   stateId = null,
+  answerStarted = false,
+  turnStatus = null,
 }) {
   const { t } = useTranslation();
   const { expanded: persistedExpanded, setExpanded: setPersistedExpanded } =
     useThoughtExpansion(stateId);
   const [localExpanded, setLocalExpanded] = useState(false);
   const [clock, setClock] = useState(0);
+  const userOverrideRef = useRef(false);
+  const autoExpandedRef = useRef(false);
+  const autoCollapsedRef = useRef(false);
   const isExpanded = stateId ? persistedExpanded : localExpanded;
   const setIsExpanded = stateId ? setPersistedExpanded : setLocalExpanded;
+  const setExpandedRef = useRef(setIsExpanded);
+  useEffect(() => {
+    setExpandedRef.current = setIsExpanded;
+  }, [setIsExpanded]);
   const hasStructuredProgress = events.some(
     (event) => event?.type === "agent_progress"
   );
@@ -137,7 +146,8 @@ export default function ThoughtTimeline({
         .filter((event) => {
           if (event.displayType === "progress") return !!event.phase;
           if (event.displayType === "tool") return !!event.displayContent;
-          if (hasStructuredProgress) return isReconnectStatus(event);
+          if (hasStructuredProgress && event.type === "thought")
+            return isReconnectStatus(event);
           return !!event.content;
         })
         .sort((a, b) => {
@@ -159,10 +169,42 @@ export default function ThoughtTimeline({
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [isRunning, progress]);
+  useEffect(() => {
+    userOverrideRef.current = false;
+    autoExpandedRef.current = false;
+    autoCollapsedRef.current = false;
+  }, [stateId]);
+  useEffect(() => {
+    if (
+      !isRunning ||
+      answerStarted ||
+      visibleEvents.length === 0 ||
+      userOverrideRef.current ||
+      autoExpandedRef.current
+    )
+      return;
+    autoExpandedRef.current = true;
+    setExpandedRef.current(true);
+  }, [answerStarted, isRunning, visibleEvents.length]);
+  useEffect(() => {
+    if (!answerStarted || autoCollapsedRef.current) return;
+    autoCollapsedRef.current = true;
+    userOverrideRef.current = false;
+    setExpandedRef.current(false);
+  }, [answerStarted]);
+  useEffect(() => {
+    if (
+      !["failed", "interrupted"].includes(turnStatus) ||
+      visibleEvents.length === 0 ||
+      userOverrideRef.current
+    )
+      return;
+    setExpandedRef.current(true);
+  }, [turnStatus, visibleEvents.length]);
   if (visibleEvents.length === 0 && !isRunning) return null;
 
   const currentEvent = visibleEvents[visibleEvents.length - 1];
-  const canExpand = visibleEvents.length > 1;
+  const canExpand = visibleEvents.length > 0;
   const summary = progress
     ? progress.failed
       ? t("chat_window.toolTimeline.progress.failedSummary", {
@@ -187,8 +229,10 @@ export default function ThoughtTimeline({
           })
     : null;
 
-  function handleExpandClick() {
+  function handleExpandClick(event) {
+    event?.stopPropagation?.();
     if (!canExpand) return;
+    userOverrideRef.current = true;
     setIsExpanded(!isExpanded);
   }
 

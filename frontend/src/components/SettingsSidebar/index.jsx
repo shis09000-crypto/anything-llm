@@ -419,6 +419,14 @@ const SidebarOptions = ({ user = null, t }) => {
                 roles: ["admin"],
               },
               {
+                btnText: t("settings.image-assets", {
+                  defaultValue: "图片资产",
+                }),
+                href: paths.settings.imageAssets(),
+                flex: true,
+                roles: ["user", "developer", "admin"],
+              },
+              {
                 btnText: t("settings.scheduled-jobs"),
                 href: paths.settings.scheduledJobs(),
                 flex: true,

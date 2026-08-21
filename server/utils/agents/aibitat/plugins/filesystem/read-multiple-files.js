@@ -13,7 +13,6 @@ module.exports.FilesystemReadMultipleFiles = {
           description:
             "Read multiple files at once when you know their exact paths. " +
             "Supports many file types: text, code, PDFs, Word docs, audio/video (transcribed to text), and more. " +
-            "Image files (png, jpg, jpeg, gif, webp, svg, bmp) are automatically attached for you to view and analyze visually. " +
             "IMPORTANT: If you don't know the file paths, use 'filesystem-search-files' first " +
             "with 'includeFileContents: true' to find and read files in one step. " +
             "Each file's content is returned with its path. Failed reads won't stop the operation.",
@@ -26,12 +25,6 @@ module.exports.FilesystemReadMultipleFiles = {
               prompt: "Compare the config files in dev and prod folders",
               call: JSON.stringify({
                 paths: ["dev/config.json", "prod/config.json"],
-              }),
-            },
-            {
-              prompt: "Show me all the screenshots",
-              call: JSON.stringify({
-                paths: ["screenshot1.png", "screenshot2.png"],
               }),
             },
           ],

@@ -1,8 +1,6 @@
 /* global process */
-import { resources } from "./resources.js";
-const languageNames = new Intl.DisplayNames(Object.keys(resources), {
-  type: "language",
-});
+import { loadAllLanguageResources } from "./resources.js";
+let languageNames;
 
 function langDisplayName(lang) {
   return languageNames.of(lang);
@@ -53,20 +51,19 @@ function compareStructures(lang, a, b, subdir = null) {
       keysB = Object.keys(b).sort();
 
     const extraKeys = keysA.filter((key) => !keysB.includes(key));
-    if (extraKeys.length) {
-      console.log("Translation contains keys outside the English schema", {
+    const missingKeys = keysB.filter((key) => !keysA.includes(key));
+    if (extraKeys.length || missingKeys.length) {
+      console.log("Translation does not match the English schema", {
         [lang]: keysA,
         en: keysB,
         ...(!!subdir ? { subdir } : {}),
         extraKeys,
+        missingKeys,
       });
       return false;
     }
 
-    // Missing translation keys intentionally fall back to English at runtime.
-    // Validate only keys that this locale actually defines so the verification
-    // gate does not force thousands of null placeholders into the client bundle.
-    return keysA.every(function (key) {
+    return keysB.every(function (key) {
       return compareStructures(lang, a[key], b[key], key);
     });
 
@@ -74,6 +71,71 @@ function compareStructures(lang, a, b, subdir = null) {
   } else {
     return true;
   }
+}
+
+function tokenSet(value, pattern) {
+  return [...String(value ?? "").matchAll(pattern)].map((match) => match[0]);
+}
+
+function validateTranslationValue(lang, translated, english, path = "") {
+  if (english && typeof english === "object") {
+    if (Array.isArray(english)) {
+      return english.every((value, index) =>
+        validateTranslationValue(
+          lang,
+          translated?.[index],
+          value,
+          `${path}[${index}]`
+        )
+      );
+    }
+    return Object.entries(english).every(([key, value]) =>
+      validateTranslationValue(
+        lang,
+        translated?.[key],
+        value,
+        path ? `${path}.${key}` : key
+      )
+    );
+  }
+
+  if (typeof english === "string" && !english.trim())
+    return translated === english;
+
+  if (
+    translated === null ||
+    translated === undefined ||
+    (typeof translated === "string" && !translated.trim())
+  ) {
+    console.log("Missing translation value", { lang, path });
+    return false;
+  }
+
+  if (typeof english !== "string" || typeof translated !== "string")
+    return true;
+
+  const placeholders = tokenSet(english, /\{\{[^}]+\}\}/g);
+  const translatedPlaceholders = tokenSet(translated, /\{\{[^}]+\}\}/g);
+  const tags = tokenSet(english, /<\/?[a-zA-Z][a-zA-Z0-9]*\s*\/?>/g);
+  const translatedTags = tokenSet(
+    translated,
+    /<\/?[a-zA-Z][a-zA-Z0-9]*\s*\/?>/g
+  );
+  if (
+    placeholders.join("|") !== translatedPlaceholders.join("|") ||
+    tags.join("|") !== translatedTags.join("|")
+  ) {
+    console.log("Translation changed required interpolation tokens", {
+      lang,
+      path,
+      placeholders,
+      translatedPlaceholders,
+      tags,
+      translatedTags,
+    });
+    return false;
+  }
+  return true;
 }
 
 function translationCoverage(source, target) {
@@ -90,37 +152,46 @@ function translationCoverage(source, target) {
   return { total, translated };
 }
 
-const failed = [];
-const TRANSLATIONS = {};
-for (const [lang, { common }] of Object.entries(resources))
-  TRANSLATIONS[lang] = common;
-const PRIMARY = { ...TRANSLATIONS["en"] };
-delete TRANSLATIONS["en"];
+async function main() {
+  const resources = await loadAllLanguageResources();
+  languageNames = new Intl.DisplayNames(Object.keys(resources), {
+    type: "language",
+  });
+  const failed = [];
+  const TRANSLATIONS = {};
+  for (const [lang, { common }] of Object.entries(resources))
+    TRANSLATIONS[lang] = common;
+  const PRIMARY = { ...TRANSLATIONS["en"] };
+  delete TRANSLATIONS["en"];
 
-console.log(
-  `The following translation files will be verified: [${Object.keys(
-    TRANSLATIONS
-  ).join(",")}]`
-);
-for (const [lang, translations] of Object.entries(TRANSLATIONS)) {
-  const passed = compareStructures(lang, translations, PRIMARY);
-  const coverage = translationCoverage(PRIMARY, translations);
-  const percent = coverage.total
-    ? ((coverage.translated / coverage.total) * 100).toFixed(1)
-    : "100.0";
   console.log(
-    `${langDisplayName(lang)} (${lang}): ${passed ? "✅" : "❌"} ` +
-      `(coverage ${percent}%, fallback keys ${coverage.total - coverage.translated})`
+    `The following translation files will be verified: [${Object.keys(
+      TRANSLATIONS
+    ).join(",")}]`
   );
-  !passed && failed.push(lang);
+  for (const [lang, translations] of Object.entries(TRANSLATIONS)) {
+    const passed = compareStructures(lang, translations, PRIMARY);
+    const valuesPassed = validateTranslationValue(lang, translations, PRIMARY);
+    const coverage = translationCoverage(PRIMARY, translations);
+    const percent = coverage.total
+      ? ((coverage.translated / coverage.total) * 100).toFixed(1)
+      : "100.0";
+    console.log(
+      `${langDisplayName(lang)} (${lang}): ${passed && valuesPassed ? "✅" : "❌"} ` +
+        `(coverage ${percent}%, fallback keys ${coverage.total - coverage.translated})`
+    );
+    (!passed || !valuesPassed) && failed.push(lang);
+  }
+
+  if (failed.length !== 0)
+    throw new Error(
+      `The following translations files are INVALID and need fixing. Please see logs`,
+      failed
+    );
+  console.log(`👍 Every locale fully matches the English translation schema.`);
 }
 
-if (failed.length !== 0)
-  throw new Error(
-    `The following translations files are INVALID and need fixing. Please see logs`,
-    failed
-  );
-console.log(
-  `👍 All defined translation keys match the English schema; missing keys use the configured English fallback.`
-);
-process.exit(0);
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

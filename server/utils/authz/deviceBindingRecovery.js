@@ -191,6 +191,7 @@ async function evaluateDeviceBindingForLogin({
   user,
   authUser,
   assertion,
+  authenticatedMethod = null,
 }) {
   const context = getClientContext(request, { user });
   if (context.legacy || !assertion) {
@@ -232,6 +233,106 @@ async function evaluateDeviceBindingForLogin({
     });
     return { ok: true, status: "matched" };
   }
+
+  if (["password", "passkey"].includes(authenticatedMethod)) {
+    const now = new Date();
+    const claimed = await authPrisma.auth_device_recovery_challenges.updateMany(
+      {
+        where: {
+          id: proof.record.id,
+          status: "issued",
+          consumedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: {
+          authUserId: Number(authUser.id),
+          shadowUserId: Number(user.id),
+          status: "primary_auth_rebinding",
+        },
+      }
+    );
+    if (claimed.count !== 1) {
+      return {
+        ok: false,
+        reasonCode: "device_binding_challenge_replayed",
+      };
+    }
+
+    try {
+      const rebound = await recoverClientDeviceIdentity({
+        userId: user.id,
+        clientId: context.clientId,
+        p256PublicKey: proof.p256PublicKey,
+        p256KeyAlgorithm: proof.p256KeyAlgorithm,
+        pqPublicKey: proof.pqPublicKey,
+      });
+      if (!rebound) throw new Error("device_recovery_client_missing");
+    } catch (error) {
+      await authPrisma.auth_device_recovery_challenges.updateMany({
+        where: {
+          id: proof.record.id,
+          status: "primary_auth_rebinding",
+          consumedAt: null,
+        },
+        data: { status: "issued" },
+      });
+      return {
+        ok: false,
+        reasonCode: error?.code || error?.message || "device_rebind_failed",
+      };
+    }
+
+    const completed = await authPrisma.$transaction(async (tx) => {
+      const challenge = await tx.auth_device_recovery_challenges.updateMany({
+        where: {
+          id: proof.record.id,
+          status: "primary_auth_rebinding",
+          consumedAt: null,
+        },
+        data: { status: "completed", consumedAt: now },
+      });
+      if (challenge.count !== 1) return false;
+      await tx.auth_sessions.updateMany({
+        where: {
+          authUserId: Number(authUser.id),
+          clientId: context.clientId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokeReason: "device_identity_rebound_after_primary_auth",
+        },
+      });
+      return true;
+    });
+    if (!completed) {
+      return {
+        ok: false,
+        reasonCode: "device_binding_challenge_replayed",
+      };
+    }
+
+    emitSemanticEvent({
+      eventType: "auth.device_binding.rebound_after_primary_auth",
+      category: "auth",
+      severity: "info",
+      outcome: "completed",
+      subject: {
+        type: "component",
+        component: "identity",
+        operation: "device-binding-rebind",
+      },
+      correlation: { clientId: context.clientId },
+      metadata: { method: authenticatedMethod },
+      sensitivity: "metadata_only",
+    });
+    return {
+      ok: true,
+      status: "rebound_after_primary_auth",
+      recovered: true,
+    };
+  }
+
   const recoveryTicket = randomToken(32);
   const expiresAt = new Date(Date.now() + RECOVERY_TTL_MS);
   await authPrisma.auth_device_recovery_challenges.update({

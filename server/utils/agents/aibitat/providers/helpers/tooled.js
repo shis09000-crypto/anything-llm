@@ -132,15 +132,43 @@ function formatMessageWithAttachments(message) {
     return message;
   }
 
-  // Transform message with attachments into multimodal format
+  // Keep provider file identifiers server-side. Persistent images carry only
+  // the internal asset id until the Responses image adapter resolves them.
   const content = [{ type: "text", text: message.content }];
   for (const attachment of message.attachments) {
-    content.push({
-      type: "image_url",
-      image_url: {
-        url: attachment.contentString,
-      },
-    });
+    const assetId = attachment.assetId || attachment.contentObjectId;
+    if (attachment.kind === "persistent" || assetId) {
+      content.push({
+        type: "input_image",
+        asset_id: String(assetId),
+        attachment_ref_id:
+          attachment.attachmentRefId || attachment.attachmentId || null,
+        name: attachment.name || "image",
+        mime_type: attachment.mimeType || attachment.mime,
+        byte_size: attachment.byteSize,
+        sha256: attachment.sha256,
+        detail: "original",
+      });
+      continue;
+    }
+    if (attachment.kind === "remote" || attachment.url) {
+      content.push({
+        type: "input_image",
+        image_url: attachment.url,
+        detail: "original",
+      });
+      continue;
+    }
+    const dataUrl = attachment.dataUrl || attachment.contentString;
+    if (dataUrl) {
+      content.push({
+        type: "input_image",
+        image_url: dataUrl,
+        image_lifetime: "turn",
+        image_source: attachment.source || "runtime_capture",
+        detail: "original",
+      });
+    }
   }
 
   // Return message without attachments property, with content as array
@@ -207,6 +235,7 @@ function formatMessagesForTools(messages, options = {}) {
             typeof message.content === "string"
               ? message.content
               : JSON.stringify(message.content),
+          attachments: message.attachments || [],
         });
       } else {
         const toolCallId = `call_${v4()}`;
@@ -232,6 +261,7 @@ function formatMessagesForTools(messages, options = {}) {
             typeof message.content === "string"
               ? message.content
               : JSON.stringify(message.content),
+          attachments: message.attachments || [],
         });
       }
     } else if (

@@ -21,6 +21,7 @@ const DEFAULT_DEEPSEEK_MAX_TOKENS = 65_536;
 const DEFAULT_DEEPSEEK_REASONING_EFFORT = "high";
 const DEEPSEEK_CHAT_MODELS = new Set([
   "deepseek-v4-flash",
+  "deepseek-v4-flash-vision-exp",
   "deepseek-v4-pro",
   "deepseek-chat",
   "deepseek-reasoner",
@@ -76,10 +77,7 @@ async function resilientDeepSeekStream(
         activeStream = await createStream();
         return activeStream;
       } catch (error) {
-        if (
-          attempt >= attempts ||
-          !isRecoverableDeepSeekStreamError(error)
-        )
+        if (attempt >= attempts || !isRecoverableDeepSeekStreamError(error))
           throw error;
         await waitBeforeRetry();
       }

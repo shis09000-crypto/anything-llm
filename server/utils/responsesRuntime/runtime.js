@@ -8,6 +8,7 @@ const {
   sha256,
   validateCreateRequest,
 } = require("./contract");
+const { isReasoningProviderEvent } = require("./reasoningStream");
 const { ResponsesRepository, mapConcurrent } = require("./repository");
 const ModelClient = require("./modelClient");
 const { DurableEventBatcher } = require("./eventBatcher");
@@ -19,6 +20,26 @@ const {
 
 function stateInputWithoutDynamicTime(input = []) {
   return input.map((item) => {
+    const sanitizeParts = (parts) =>
+      parts.flatMap((part) => {
+        if (part?.type !== "input_image") return [part];
+        if (part.athena_asset_id) {
+          return [
+            {
+              type: "input_image",
+              athena_asset_id: String(part.athena_asset_id),
+            },
+          ];
+        }
+        if (String(part.image_url || "").startsWith("data:")) return [];
+        return [part];
+      });
+    if (Array.isArray(item?.content)) {
+      return { ...item, content: sanitizeParts(item.content) };
+    }
+    if (Array.isArray(item?.output)) {
+      return { ...item, output: sanitizeParts(item.output) };
+    }
     if (
       item?.type === "message" &&
       item?.role === "user" &&
@@ -53,12 +74,17 @@ function emitRuntimeEvent(
       outcome,
       subject: {
         type: "response",
-        id: sha256(response.id).slice(0, 24),
+        id: response.id,
         component: "responses-runtime",
         operation: eventType,
       },
-      impact: { scope: "deepseek-v4-flash", status: response.status },
-      metadata,
+      impact: { scope: response.model || "responses", status: response.status },
+      metadata: {
+        responseId: response.id,
+        model: response.model || null,
+        requestedProtocol: "responses",
+        ...metadata,
+      },
       sensitivity: "metadata_only",
     });
   } catch {
@@ -332,7 +358,10 @@ class ResponsesRuntime {
       request.previousResponseId || request.conversation
     );
     let effectiveInput = request.input;
-    let prefixLength = commonPrefixLength(previousInput, effectiveInput);
+    let prefixLength = commonPrefixLength(
+      previousInput,
+      stateInputWithoutDynamicTime(effectiveInput)
+    );
     let historyChanged =
       !explicitStateReference &&
       previousInput.length > 0 &&
@@ -472,6 +501,16 @@ class ResponsesRuntime {
       this.hotResponses.set(id, hot);
       this.hotResponseBytes += hotBytes;
     }
+    emitRuntimeEvent("response.created", response, {
+      sequenceNumber: 0,
+      background: request.background,
+      taskPriority:
+        request.athena.taskPriority || (request.background ? "P2" : "P0"),
+    });
+    if (!request.background)
+      emitRuntimeEvent("response.in_progress", response, {
+        sequenceNumber: 1,
+      });
     return {
       request: executionRequest,
       scope,
@@ -553,12 +592,19 @@ class ResponsesRuntime {
     await this.repository.updateResponse(row.id, { status: "in_progress" });
     const response = await this.hydrateResponse(row);
     response.status = "in_progress";
+    const inProgressSequence = await this.nextSequence(row.id);
     await this.persistEvent(
       row.id,
-      await this.nextSequence(row.id),
+      inProgressSequence,
       "response.in_progress",
-      { response }
+      {
+        response,
+      }
     );
+    emitRuntimeEvent("response.in_progress", response, {
+      sequenceNumber: inProgressSequence,
+      background: true,
+    });
     return this.executeComplete({ request, conversation, response });
   }
 
@@ -653,6 +699,10 @@ class ResponsesRuntime {
               sequence_number: sequence,
               response_id: response.id,
             };
+            // Provider reasoning stays ephemeral. The agent adapter consumes it
+            // in-memory and only the separately projected, sanitized Athena
+            // reasoning events are persisted with the completed chat turn.
+            const ephemeralReasoningEvent = isReasoningProviderEvent(event);
             if (providerEvent.type === "response.output_text.delta")
               outputText += providerEvent.delta || "";
             if (
@@ -665,7 +715,8 @@ class ResponsesRuntime {
             }
             if (
               providerEvent.type === "response.output_item.done" &&
-              providerEvent.item
+              providerEvent.item &&
+              !ephemeralReasoningEvent
             )
               collectedOutput.push(providerEvent.item);
             if (
@@ -704,7 +755,11 @@ class ResponsesRuntime {
               continue;
             }
             providerMaterialEventCount += 1;
-            if (request.store && !deferredForeground)
+            if (
+              request.store &&
+              !deferredForeground &&
+              !ephemeralReasoningEvent
+            )
               eventBatcher.append(event, {
                 boundary: [
                   "response.output_item.added",
@@ -714,7 +769,8 @@ class ResponsesRuntime {
                   "response.function_call_arguments.done",
                 ].includes(event.type),
               });
-            if (deferredForeground) deferredEvents.push(event);
+            if (deferredForeground && !ephemeralReasoningEvent)
+              deferredEvents.push(event);
             yield event;
             sequence += 1;
           }
@@ -1002,14 +1058,19 @@ class ResponsesRuntime {
         });
       }
     }
+    if (finalized.athena.degradedReason)
+      emitRuntimeEvent("response.protocol.degraded", finalized, {
+        requestedProtocol: "responses",
+        effectiveProtocol: finalized.athena.effectiveProtocol,
+        degradedReason: finalized.athena.degradedReason,
+      });
     emitRuntimeEvent(
-      finalized.athena.degradedReason
-        ? "response.protocol.degraded"
-        : finalized.status === "incomplete"
-          ? "response.state.incomplete"
-          : "response.state.completed",
+      finalized.status === "incomplete"
+        ? "response.incomplete"
+        : "response.completed",
       finalized,
       {
+        sequenceNumber: sequence,
         requestedProtocol: "responses",
         effectiveProtocol: finalized.athena.effectiveProtocol,
         degradedReason: finalized.athena.degradedReason,
@@ -1053,9 +1114,13 @@ class ResponsesRuntime {
       );
     }
     emitRuntimeEvent(
-      cancelled ? "response.state.cancelled" : "response.state.failed",
+      cancelled ? "response.incomplete" : "response.failed",
       failed,
-      { errorCode: error?.code || error?.message || "response_failed" },
+      {
+        sequenceNumber: sequence,
+        terminalReason: cancelled ? "cancelled" : "failed",
+        errorCode: error?.code || error?.message || "response_failed",
+      },
       cancelled ? "cancelled" : "failed"
     );
     return failed;
@@ -1326,4 +1391,9 @@ class ResponsesRuntime {
   }
 }
 
-module.exports = { ResponsesRuntime, runtimeError, scopeFromAthena };
+module.exports = {
+  ResponsesRuntime,
+  runtimeError,
+  scopeFromAthena,
+  stateInputWithoutDynamicTime,
+};

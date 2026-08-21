@@ -65,7 +65,10 @@ class SchedulerRuntime {
           timeoutMs: 10_000,
         });
         const responseId = claim?.response?.id;
-        if (!responseId) return;
+        if (!responseId) {
+          this.lastError = null;
+          return;
+        }
         const taskPriority = ["P0", "P1", "P2", "P3", "P4"].includes(
           claim.response.taskPriority
         )
@@ -87,6 +90,7 @@ class SchedulerRuntime {
             process.env.ATHENA_RESPONSES_BACKGROUND_TIMEOUT_MS || 900_000
           ),
         });
+        this.lastError = null;
       } catch (error) {
         this.lastError = error?.code || error?.message || String(error);
       } finally {

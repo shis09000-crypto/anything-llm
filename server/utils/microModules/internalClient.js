@@ -44,7 +44,7 @@ function inheritedCoordinationContext(explicitContext = null) {
     !context.coordinationDeadlineAt
   )
     return null;
-  return {
+  const inherited = {
     coordinationRunId: context.coordinationRunId,
     stepId: context.stepId,
     correlationId: context.correlationId,
@@ -53,6 +53,15 @@ function inheritedCoordinationContext(explicitContext = null) {
     deadlineAt: context.coordinationDeadlineAt,
     causationId: context.coordinationCausationId || context.operationId || null,
   };
+  // Coordination metadata arriving from an ordinary browser request is only
+  // advisory for downstream module calls. A request may legitimately outlive
+  // the frontend task deadline (for example while a hidden tab reconnects),
+  // so an expired inherited context must not make authentication unavailable.
+  // Explicit coordination contexts remain strict and are still rejected by
+  // aicpRequestHeaders when invalid.
+  return validateCoordinationContext(inherited, { required: true }).valid
+    ? inherited
+    : null;
 }
 
 function aicpRequestHeaders({

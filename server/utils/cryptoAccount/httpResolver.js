@@ -8,6 +8,8 @@ const {
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 const { metrics } = require("../observability/metrics");
 
+const accountResolutionInFlight = new Map();
+
 async function hasUniquePrimaryOwner() {
   const owners = await User.where(
     { status: "active", ownerType: "primary" },
@@ -47,16 +49,40 @@ function emitLegacyFallback() {
 async function resolveCryptoHubForHttp(user) {
   const eligibility = await cryptoAccountEligibility(user);
   if (eligibility.available) {
-    const resolved = await resolveApprovedConnection({
-      user,
-      expectedCredentialVersion: eligibility.credentialVersion,
-      expectedRootKeyId: eligibility.rootKeyId,
-      expectedDomainKeyVersion: eligibility.domainKeyVersion,
+    const existingHub = accountCryptoHubRegistry.getExisting?.({
+      authUserId: user?.authUserId,
+      connectionId: eligibility.connectionId,
+      credentialVersion: eligibility.credentialVersion,
     });
-    return {
-      hub: accountCryptoHubRegistry.get(resolved),
-      mode: "account",
-    };
+    if (existingHub) return { hub: existingHub, mode: "account" };
+
+    const resolutionKey = [
+      Number(user?.authUserId || 0),
+      String(eligibility.connectionId || "unknown"),
+      Number(eligibility.credentialVersion || 0),
+    ].join(":");
+    const currentResolution = accountResolutionInFlight.get(resolutionKey);
+    if (currentResolution) return currentResolution;
+
+    const resolution = (async () => {
+      const resolved = await resolveApprovedConnection({
+        user,
+        prevalidatedEligibility: eligibility,
+        expectedCredentialVersion: eligibility.credentialVersion,
+        expectedRootKeyId: eligibility.rootKeyId,
+        expectedDomainKeyVersion: eligibility.domainKeyVersion,
+      });
+      return {
+        hub: accountCryptoHubRegistry.get(resolved),
+        mode: "account",
+      };
+    })().finally(() => {
+      if (accountResolutionInFlight.get(resolutionKey) === resolution) {
+        accountResolutionInFlight.delete(resolutionKey);
+      }
+    });
+    accountResolutionInFlight.set(resolutionKey, resolution);
+    return resolution;
   }
   if (legacyFallbackAllowed(user) && (await hasUniquePrimaryOwner())) {
     emitLegacyFallback();

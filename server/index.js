@@ -135,6 +135,7 @@ const { readerLibraryEndpoints } = require("./endpoints/readerLibrary");
 const {
   workspaceChatAttachmentEndpoints,
 } = require("./endpoints/workspaceChatAttachments");
+const { imageAssetEndpoints } = require("./endpoints/imageAssets");
 const { httpLogger } = require("./middleware/httpLogger");
 const {
   applyTransportSecurity,
@@ -261,6 +262,7 @@ securityKeyEndpoints(apiRouter);
 devControlEndpoints(apiRouter);
 readerLibraryEndpoints(apiRouter);
 workspaceChatAttachmentEndpoints(apiRouter);
+imageAssetEndpoints(apiRouter);
 syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);

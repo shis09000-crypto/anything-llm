@@ -9,6 +9,18 @@ const {
 const {
   internalRouteCapability,
 } = require("../../utils/microModules/serviceHost");
+const http = require("http");
+const {
+  AicpContractRegistry,
+} = require("../../utils/modulePlatform/aicp/contractRegistry");
+const {
+  AICP_CONTEXT_HEADER,
+  AICP_RESULT_HEADER,
+  createAicpContext,
+  decodeAicpContext,
+  encodeAicpContext,
+  payloadHash,
+} = require("../../utils/modulePlatform/aicp/context");
 
 describe("MicroModuleServiceHost", () => {
   test("resolves method-specific dynamic AICP route capabilities", () => {
@@ -112,16 +124,13 @@ describe("MicroModuleServiceHost", () => {
         ATHENA_AICP_ENFORCEMENT_MODE: "enforce",
       },
       registerRoutes: (app) => {
-        app.get(
-          "/internal/v1/operations/health",
-          (request, response) => {
-            expect(response.locals.aicp.context.schemaVersion).toBe("1.1");
-            expect(response.locals.aicp.context.capability.id).toBe(
-              "operations.catalog"
-            );
-            response.json({ success: true, modules: [] });
-          }
-        );
+        app.get("/internal/v1/operations/health", (request, response) => {
+          expect(response.locals.aicp.context.schemaVersion).toBe("1.1");
+          expect(response.locals.aicp.context.capability.id).toBe(
+            "operations.catalog"
+          );
+          response.json({ success: true, modules: [] });
+        });
         app.post(
           "/internal/v1/operations/ingest-batch",
           (_request, response) => {
@@ -181,6 +190,114 @@ describe("MicroModuleServiceHost", () => {
       expect(serverObservedAbort).toBe(true);
     } finally {
       await host.stop();
+    }
+  });
+
+  test("projects a unified scheduler context into an AICP result header", async () => {
+    const operationsEvents = [];
+    const info = jest.spyOn(console, "info").mockImplementation((...args) => {
+      operationsEvents.push(args.join(" "));
+    });
+    const env = {
+      NODE_ENV: "test",
+      APP_ENV: "test",
+      ATHENA_RUNTIME_TOPOLOGY: "local",
+      ATHENA_AICP_EMIT_VERSION: "1.1",
+      ATHENA_AICP_ENFORCEMENT_MODE: "observe",
+    };
+    const host = new MicroModuleServiceHost({
+      manifestId: "responses-runtime",
+      role: "responses-runtime",
+      port: 0,
+      env,
+      registerRoutes: (app) => {
+        app.post(
+          "/internal/v1/responses/background/claim",
+          (_request, response) =>
+            response.json({ success: true, response: null })
+        );
+      },
+    });
+
+    await host.start();
+    try {
+      const body = {
+        ownerId: "scheduler:test",
+        leaseMs: 300_000,
+        taskPriority: "P3",
+      };
+      const url = `http://127.0.0.1:${host.port}/internal/v1/responses/background/claim`;
+      const payload = Buffer.from(JSON.stringify(body));
+      const negotiation = new AicpContractRegistry().negotiate({
+        callerModule: "scheduler",
+        targetModule: "responses-runtime",
+        capability: "responses.background.claim",
+        version: "1.0",
+        protocolVersion: "1.1",
+      });
+      const context = createAicpContext({
+        negotiation,
+        payload: body,
+        method: "POST",
+        path: url,
+        idempotencyKey: "scheduler-claim:test",
+      });
+      const headers = {
+        "x-athena-aicp-link-id": negotiation.linkId,
+        "x-athena-aicp-capability": negotiation.capability,
+        "x-athena-aicp-contract-version": negotiation.version,
+        "x-athena-aicp-contract-fingerprint": negotiation.contractFingerprint,
+        "x-athena-aicp-caller": negotiation.callerModule,
+        "x-athena-aicp-target": negotiation.targetModule,
+        [AICP_CONTEXT_HEADER]: encodeAicpContext(context),
+      };
+      const received = await new Promise((resolve, reject) => {
+        const request = http.request(
+          url,
+          {
+            method: "POST",
+            headers: {
+              ...headers,
+              "content-type": "application/json",
+              "content-length": payload.length,
+            },
+          },
+          (response) => {
+            const chunks = [];
+            response.on("data", (chunk) => chunks.push(chunk));
+            response.on("end", () =>
+              resolve({
+                statusCode: response.statusCode,
+                headers: response.headers,
+                body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+              })
+            );
+          }
+        );
+        request.once("error", reject);
+        request.end(payload);
+      });
+      const result = decodeAicpContext(received.headers[AICP_RESULT_HEADER]);
+
+      expect(received).toMatchObject({
+        statusCode: 200,
+        body: { success: true, response: null },
+      });
+      expect(result).toMatchObject({
+        schema: "athena.aicp.result",
+        schemaVersion: "1.1",
+        capability: { id: "responses.background.claim", version: "1.0" },
+        status: "completed",
+        resultHash: payloadHash(received.body),
+      });
+      expect(
+        operationsEvents.some((event) =>
+          event.includes('"eventType":"aicp.result.projected"')
+        )
+      ).toBe(true);
+    } finally {
+      await host.stop();
+      info.mockRestore();
     }
   });
 

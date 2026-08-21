@@ -192,6 +192,9 @@ export default {
     cryptoCenter: () => {
       return "/settings/crypto-center";
     },
+    imageAssets: () => {
+      return "/settings/image-assets";
+    },
     batchJobs: () => {
       return "/settings/batch-jobs";
     },

@@ -151,4 +151,78 @@ describe("unified Responses turn projection", () => {
       clientTurnId: "turn-identity",
     });
   });
+
+  test("projects reasoning and agent progress before the first answer delta", () => {
+    const events = [];
+    const projector = new ResponsesTurnProjector({
+      responseId: "resp-reasoning",
+      emit: (event) => events.push(event),
+    });
+
+    projector.accept({
+      type: "reportStreamEvent",
+      content: { type: "reasoningContentStart" },
+    });
+    projector.accept({
+      type: "reportStreamEvent",
+      content: {
+        type: "reasoningContentChunk",
+        sequence: 1,
+        content: "先理解问题。",
+      },
+    });
+    projector.accept({
+      type: "reportStreamEvent",
+      content: {
+        type: "agentProgress",
+        uuid: "progress-1",
+        phase: "synthesis",
+        status: "running",
+        sequence: 1,
+        details: {},
+      },
+    });
+    projector.accept({
+      type: "reportStreamEvent",
+      content: { type: "textResponseChunk", content: "答案" },
+    });
+    projector.accept({ type: "response.completed", response: {} });
+
+    const types = events.map((event) => event.type);
+    expect(types).toEqual([
+      "response.created",
+      "response.in_progress",
+      "athena.reasoning.started",
+      "athena.reasoning.delta",
+      "athena.agent.progress",
+      "athena.reasoning.done",
+      "response.output_text.delta",
+      "response.output_text.done",
+      "response.completed",
+    ]);
+    expect(types.indexOf("athena.reasoning.done")).toBeLessThan(
+      types.indexOf("response.output_text.delta")
+    );
+  });
+
+  test("keeps failed reasoning visible and emits one terminal", () => {
+    const events = [];
+    const projector = new ResponsesTurnProjector({
+      responseId: "resp-reasoning-failed",
+      emit: (event) => events.push(event),
+    });
+    projector.accept({
+      type: "reportStreamEvent",
+      content: { type: "reasoningContentChunk", content: "检查失败原因" },
+    });
+    projector.accept({ type: "wssFailure", content: "provider failed" });
+
+    expect(events.map((event) => event.type).slice(-2)).toEqual([
+      "athena.reasoning.done",
+      "response.failed",
+    ]);
+    expect(
+      events.filter((event) => event.type === "response.failed")
+    ).toHaveLength(1);
+  });
 });

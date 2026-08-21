@@ -164,7 +164,7 @@ describe("managed Responses protocol contracts", () => {
     ).toBe(true);
   });
 
-  test("forces Agent tool turns through the same Responses input contract", () => {
+  test("forces Agent tool turns through the same Responses input contract", async () => {
     expect(
       agentEnabled({
         provider: "deepseek",
@@ -175,29 +175,100 @@ describe("managed Responses protocol contracts", () => {
         },
       })
     ).toBe(true);
-    expect(
-      responsesInput([
+    await expect(
+      responsesInput(
+        [
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_1",
+                type: "function",
+                function: { name: "probe", arguments: '{"ok":true}' },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "call_1", content: "done" },
+        ],
+        { model: "deepseek-v4-pro" }
+      )
+    ).resolves.toMatchObject({
+      model: "deepseek-v4-pro",
+      input: [
         {
-          role: "assistant",
-          content: null,
-          tool_calls: [
-            {
-              id: "call_1",
-              type: "function",
-              function: { name: "probe", arguments: '{"ok":true}' },
-            },
-          ],
+          type: "function_call",
+          call_id: "call_1",
+          name: "probe",
+          arguments: '{"ok":true}',
         },
-        { role: "tool", tool_call_id: "call_1", content: "done" },
-      ])
+        { type: "function_call_output", call_id: "call_1", output: "done" },
+      ],
+    });
+  });
+
+  test("accepts native Responses image parts only on user messages", () => {
+    expect(
+      validateCreateRequest({
+        ...baseRequest,
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: "describe" },
+              { type: "input_image", file_id: "file-api-1" },
+            ],
+          },
+        ],
+      }).input
     ).toEqual([
       {
-        type: "function_call",
-        call_id: "call_1",
-        name: "probe",
-        arguments: '{"ok":true}',
+        type: "message",
+        role: "user",
+        content: [
+          { type: "input_text", text: "describe" },
+          { type: "input_image", file_id: "file-api-1" },
+        ],
       },
-      { type: "function_call_output", call_id: "call_1", output: "done" },
+    ]);
+    expect(() =>
+      validateCreateRequest({
+        ...baseRequest,
+        input: [
+          {
+            role: "assistant",
+            content: [{ type: "input_image", file_id: "file-api-1" }],
+          },
+        ],
+      })
+    ).toThrow("response_input_image_role_invalid");
+  });
+
+  test("accepts turn-scoped images inside function call output", () => {
+    const imageUrl = "data:image/jpeg;base64,ZmFrZQ==";
+    expect(
+      validateCreateRequest({
+        ...baseRequest,
+        input: [
+          {
+            type: "function_call_output",
+            call_id: "call_capture",
+            output: [
+              { type: "input_text", text: '{"captured":true}' },
+              { type: "input_image", image_url: imageUrl, detail: "original" },
+            ],
+          },
+        ],
+      }).input
+    ).toEqual([
+      {
+        type: "function_call_output",
+        call_id: "call_capture",
+        output: [
+          { type: "input_text", text: '{"captured":true}' },
+          { type: "input_image", image_url: imageUrl, detail: "original" },
+        ],
+      },
     ]);
   });
 

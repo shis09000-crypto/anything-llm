@@ -127,6 +127,7 @@ async function main() {
   const prisma = require("../utils/prisma");
   const { ContentObject } = require("../models/contentObject");
   const { prepareChatPayload } = require("../utils/contentObjects/chatPayload");
+  const { sha256 } = require("../utils/contentObjects/policy");
   const {
     decryptWorkspaceChatRecordAsync,
     encryptWorkspaceChatFieldAsync,
@@ -249,6 +250,20 @@ async function main() {
             workspaceSlug.get(group.scope.workspaceId)?.slug ||
             String(group.scope.workspaceId),
         });
+        for (const attachment of prepared.attachments) {
+          const asset = await ContentObject.assetForWorkspace({
+            assetId: attachment.contentObjectId,
+            workspaceId: group.scope.workspaceId,
+          });
+          if (!asset)
+            throw new Error("chat_attachment_migration_asset_missing");
+          const plaintext = await ContentObject.readWhole(asset);
+          if (
+            sha256(plaintext) !== asset.plaintextSha256 ||
+            plaintext.length !== Number(asset.plaintextSize)
+          )
+            throw new Error("chat_attachment_migration_hash_mismatch");
+        }
         const encryptedResponse = await encryptWorkspaceChatFieldAsync(
           JSON.stringify(prepared.response),
           group.scope

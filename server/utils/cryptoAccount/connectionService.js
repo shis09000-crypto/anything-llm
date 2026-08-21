@@ -283,6 +283,7 @@ async function cryptoAccountEligibility(user) {
     schedulable: true,
     provider: connection.provider,
     environment: connection.environment,
+    connectionId: connection.id,
     credentialVersion: connection.credentialVersion,
     rootKeyId: connection.rootKeyId,
     domainKeyVersion: connection.domainKeyVersion,
@@ -472,11 +473,15 @@ async function platformDekMaterial(connectionId, userId) {
 
 async function resolveApprovedConnection({
   user,
+  prevalidatedEligibility = null,
   expectedCredentialVersion = null,
   expectedRootKeyId = null,
   expectedDomainKeyVersion = null,
 } = {}) {
-  const eligibility = await cryptoAccountEligibility(user);
+  const eligibility =
+    prevalidatedEligibility?.available === true
+      ? prevalidatedEligibility
+      : await cryptoAccountEligibility(user);
   if (!eligibility.available)
     throw cryptoAccountError(
       eligibility.reason || "crypto_account_unavailable"

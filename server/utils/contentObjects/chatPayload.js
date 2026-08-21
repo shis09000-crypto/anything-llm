@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 const {
   FileStorageProvider,
 } = require("../../providers/storage/fileStorageProvider");
@@ -44,6 +45,7 @@ function contentUrl(workspaceSlug, attachmentId, kind = "chat-attachments") {
 }
 
 function attachmentDescriptor({ refId, object, attachment, workspaceSlug }) {
+  const imageAssetId = attachment.imageAssetId || attachment.assetId || null;
   return {
     attachmentId: refId,
     name: safeName(attachment.name),
@@ -51,8 +53,38 @@ function attachmentDescriptor({ refId, object, attachment, workspaceSlug }) {
     byteSize: Number(object.plaintextSize),
     sha256: object.plaintextSha256,
     contentUrl: contentUrl(workspaceSlug, refId),
+    ...(imageAssetId
+      ? {
+          assetId: imageAssetId,
+          imageAssetId,
+          previewUrl: `/api/image-assets/${encodeURIComponent(imageAssetId)}/preview`,
+        }
+      : {}),
     payloadVersion: 2,
   };
+}
+
+async function imageMetadataForObject(object) {
+  if (!String(object?.mimeType || "").startsWith("image/")) return null;
+  try {
+    const plaintext = await DataAccessCenter.contentObject.readWhole(object);
+    const metadata = await sharp(plaintext, { animated: true }).metadata();
+    const actualMime = {
+      jpeg: "image/jpeg",
+      png: "image/png",
+      gif: "image/gif",
+      webp: "image/webp",
+    }[metadata.format];
+    return {
+      actualMime: actualMime || object.mimeType,
+      width: Number(metadata.width || 0) || null,
+      height: Number(metadata.height || 0) || null,
+      animated: Number(metadata.pages || 1) > 1,
+      originalName: null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function objectFromCompletedUpload({ attachment, scope }) {
@@ -122,16 +154,25 @@ async function prepareChatPayload({ response = {}, scope, workspaceSlug }) {
         maxBytes: contentObjectLimits().maxTurnBytes,
       });
     const refId = crypto.randomUUID();
+    const imageMetadata = await imageMetadataForObject(object);
+    const normalizedAttachment = {
+      ...attachment,
+      mime: imageMetadata?.actualMime || attachment.mime || object.mimeType,
+    };
     const descriptor = attachmentDescriptor({
       refId,
       object,
-      attachment,
+      attachment: normalizedAttachment,
       workspaceSlug,
     });
     descriptors.push(descriptor);
     preparedAttachments.push({
       refId,
       contentObjectId: object.id,
+      imageAssetId:
+        normalizedAttachment.imageAssetId ||
+        normalizedAttachment.assetId ||
+        null,
       ordinal,
       name: descriptor.name,
       mime: descriptor.mime,
@@ -139,6 +180,8 @@ async function prepareChatPayload({ response = {}, scope, workspaceSlug }) {
       metadata: {
         wasDataUrl: Boolean(content?.wasDataUrl),
         source: content ? "inline" : "upload",
+        ...(imageMetadata || {}),
+        originalName: safeName(attachment.name),
       },
     });
   }
@@ -195,17 +238,41 @@ async function prepareChatPayload({ response = {}, scope, workspaceSlug }) {
   };
 }
 
-async function hydrateIncomingAttachments({ attachments = [], scope }) {
+async function hydrateIncomingAttachments({
+  attachments = [],
+  scope,
+  attachmentMode = "inline",
+}) {
   const hydrated = [];
   for (const attachment of attachments) {
-    if (attachment?.contentString) {
+    if (attachment?.contentString && attachmentMode === "inline") {
       hydrated.push(attachment);
       continue;
     }
     const object = await objectFromCompletedUpload({ attachment, scope });
     if (!object) throw contentObjectError("chat_attachment_upload_not_ready");
-    const plaintext = await DataAccessCenter.contentObject.readWhole(object);
     const mime = safeMime(attachment.mime || object.mimeType);
+    if (attachmentMode === "reference") {
+      const imageAssetId =
+        attachment.imageAssetId || attachment.assetId || object.id;
+      hydrated.push({
+        ...attachment,
+        kind: "persistent",
+        assetId: imageAssetId,
+        imageAssetId,
+        contentObjectId: object.id,
+        attachmentRefId:
+          attachment.attachmentRefId || attachment.attachmentId || undefined,
+        name: safeName(attachment.name),
+        mime,
+        mimeType: mime,
+        byteSize: Number(object.plaintextSize),
+        sha256: object.plaintextSha256,
+        detail: "original",
+      });
+      continue;
+    }
+    const plaintext = await DataAccessCenter.contentObject.readWhole(object);
     hydrated.push({
       ...attachment,
       name: safeName(attachment.name),
@@ -234,15 +301,63 @@ async function hydrateChatPayload(chat, { attachmentMode = "inline" } = {}) {
   const attachments = [];
   for (let ordinal = 0; ordinal < refs.length; ordinal += 1) {
     const ref = refs[ordinal];
+    if (ref.status === "deleted" || !ref.contentObjectId) {
+      attachments.push({
+        ...(current[ordinal] || {}),
+        kind: "deleted",
+        assetId: ref.imageAssetId || undefined,
+        imageAssetId: ref.imageAssetId || undefined,
+        attachmentId: ref.id,
+        attachmentRefId: ref.id,
+        name: "图片已由用户删除",
+        mime: "application/x-athena-image-tombstone",
+        mimeType: "application/x-athena-image-tombstone",
+        byteSize: 0,
+        deleted: true,
+      });
+      continue;
+    }
     const object = byId.get(ref.contentObjectId);
     if (!object) continue;
     const metadata = ref.metadataJson ? JSON.parse(ref.metadataJson) : {};
+    let imageAssetId = ref.imageAssetId || null;
+    if (!imageAssetId && String(ref.mimeType || "").startsWith("image/")) {
+      try {
+        const {
+          backfillImageAssetForAttachment,
+        } = require("../imageAssets/service");
+        const asset = await backfillImageAssetForAttachment({
+          chat,
+          ref,
+          object,
+          metadata,
+        });
+        imageAssetId = asset?.id || null;
+      } catch (error) {
+        console.warn("[ImageAsset] lazy attachment backfill failed", {
+          chatId: chat.id,
+          attachmentRefId: ref.id,
+          code: error?.code || error?.message || "image_asset_backfill_failed",
+        });
+      }
+    }
     const descriptor = {
       ...(current[ordinal] || {}),
+      kind: "persistent",
+      assetId: imageAssetId || object.id,
+      imageAssetId: imageAssetId || undefined,
+      contentObjectId: object.id,
       attachmentId: ref.id,
+      attachmentRefId: ref.id,
       name: ref.displayName,
       mime: ref.mimeType,
+      mimeType: ref.mimeType,
       byteSize: ref.byteSize,
+      sha256: object.plaintextSha256,
+      detail: "original",
+      previewUrl: imageAssetId
+        ? `/api/image-assets/${encodeURIComponent(imageAssetId)}/preview`
+        : undefined,
     };
     if (attachmentMode === "inline") {
       const plaintext = await DataAccessCenter.contentObject.readWhole(object);

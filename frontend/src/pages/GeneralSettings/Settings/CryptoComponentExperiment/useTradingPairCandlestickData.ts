@@ -450,7 +450,11 @@ export function useTradingPairCandlestickData({
       }
 
       const payload = await cryptoHubFetch<TradingPairCandlesResponse>(
-        `/market-candles?${params.toString()}`
+        `/market-candles?${params.toString()}`,
+        {
+          communicationScene:
+            direction === "snapshot" ? "crypto-background" : "crypto-visible",
+        }
       );
 
       const incoming = Array.isArray(payload.candles) ? payload.candles : [];

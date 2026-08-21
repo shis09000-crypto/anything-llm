@@ -94,7 +94,10 @@ async function compressImageAttachment(attachment = {}) {
 }
 
 function visionToolEnabled() {
-  return process.env.VISION_TOOL_ENABLED !== "false";
+  return (
+    process.env.ATHENA_CHAT_IMAGE_MODE === "legacy" &&
+    process.env.VISION_TOOL_ENABLED !== "false"
+  );
 }
 
 function shouldUseVisionTool(attachments = []) {

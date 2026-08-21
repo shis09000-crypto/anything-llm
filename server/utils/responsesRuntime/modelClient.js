@@ -14,11 +14,33 @@ function baseUrl(env = process.env) {
   return value;
 }
 
+function providerInput(input = []) {
+  return input.map((item) => {
+    if (!Array.isArray(item?.content) && !Array.isArray(item?.output))
+      return item;
+    const sanitizeParts = (parts) =>
+      parts.map((part) => {
+        if (part?.type !== "input_image") return part;
+        const { athena_asset_id: _assetId, ...providerPart } = part;
+        return providerPart;
+      });
+    return {
+      ...item,
+      ...(Array.isArray(item.content)
+        ? { content: sanitizeParts(item.content) }
+        : {}),
+      ...(Array.isArray(item.output)
+        ? { output: sanitizeParts(item.output) }
+        : {}),
+    };
+  });
+}
+
 function providerBody(request, stream) {
   return {
     provider: request.provider,
     model: request.model,
-    input: request.input,
+    input: providerInput(request.input),
     instructions: request.instructions,
     tools: request.tools,
     tool_choice: request.toolChoice,
@@ -91,4 +113,4 @@ async function* events(response) {
   }
 }
 
-module.exports = { complete, events, providerBody, stream };
+module.exports = { complete, events, providerBody, providerInput, stream };

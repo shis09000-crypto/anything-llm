@@ -345,12 +345,17 @@ function ChatAttachments({ attachments = [] }) {
       ),
     [attachments]
   );
+  const deletedAttachments = useMemo(
+    () => attachments.filter((attachment) => attachment?.deleted),
+    [attachments]
+  );
   const attachmentKey = useMemo(
     () =>
       imageAttachments
         .map(
           (attachment, index) =>
             attachment.attachmentId ||
+            attachment.previewUrl ||
             attachment.contentUrl ||
             `${attachment.name}:${index}`
         )
@@ -384,9 +389,10 @@ function ChatAttachments({ attachments = [] }) {
     Promise.all(
       imageAttachments.map(async (attachment, index) => {
         if (attachment.contentString) return [index, attachment.contentString];
-        if (!attachment.contentUrl) return [index, null];
+        const previewSource = attachment.previewUrl || attachment.contentUrl;
+        if (!previewSource) return [index, null];
         try {
-          const { blob } = await requestBlob(attachment.contentUrl, {
+          const { blob } = await requestBlob(previewSource, {
             signal: controller.signal,
             blobKind: BLOB_KINDS.chatAttachment,
             communicationScene: "workspace-chat-attachment",
@@ -416,7 +422,7 @@ function ChatAttachments({ attachments = [] }) {
     ...attachment,
     contentString: attachment.contentString || resolvedUrls[index] || null,
   }));
-  if (!imageAttachments.length) return null;
+  if (!imageAttachments.length && !deletedAttachments.length) return null;
   return (
     <div ref={containerRef} className="flex flex-wrap gap-4 mt-4">
       {imageAttachments.map((item, index) => (
@@ -433,6 +439,14 @@ function ChatAttachments({ attachments = [] }) {
             className="w-[120px] h-[120px] object-cover rounded-lg"
           />
         </button>
+      ))}
+      {deletedAttachments.map((item, index) => (
+        <div
+          key={item.attachmentId || `deleted-image:${index}`}
+          className="min-h-[52px] px-3 py-2 rounded-lg border border-theme-sidebar-border bg-theme-bg-secondary text-theme-text-secondary text-xs flex items-center"
+        >
+          图片已由用户删除
+        </div>
       ))}
     </div>
   );

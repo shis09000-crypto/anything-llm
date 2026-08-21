@@ -1,7 +1,6 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { renderAssistantMarkdown } from "@/utils/chat/markdown";
 import DOMPurify from "@/utils/chat/purify";
-import { runIdleTask } from "@/utils/chat/idleChunk";
 import {
   THOUGHT_REGEX_CLOSE,
   THOUGHT_REGEX_COMPLETE,
@@ -30,12 +29,7 @@ function splitThoughtContent(message = "") {
   return { thoughtChain: null, markdown: message };
 }
 
-function MarkdownOutput({
-  content = "",
-  messageId,
-  isStreaming = false,
-  onLayoutChange = null,
-}) {
+function MarkdownOutput({ content = "", messageId, onLayoutChange = null }) {
   const { thoughtChain, markdown } = useMemo(
     () => splitThoughtContent(content),
     [content]
@@ -45,9 +39,8 @@ function MarkdownOutput({
   // headings, lists, code and tables can progressively take shape without ever
   // exposing raw provider HTML.
   const html = useMemo(
-    () =>
-      enhanced ? DOMPurify.sanitize(renderAssistantMarkdown(markdown)) : null,
-    [enhanced, markdown]
+    () => DOMPurify.sanitize(renderAssistantMarkdown(markdown)),
+    [markdown]
   );
 
   useEffect(() => {
@@ -66,18 +59,13 @@ function MarkdownOutput({
       {thoughtChain && (
         <ThoughtChainComponent content={thoughtChain} messageId={messageId} />
       )}
-      {markdown && enhanced && (
+      {markdown && (
         <div
           className="break-words flex flex-col gap-y-1 text-white light:text-slate-900"
           dangerouslySetInnerHTML={{
             __html: html,
           }}
         />
-      )}
-      {markdown && !enhanced && (
-        <div className="whitespace-pre-wrap break-words text-white light:text-slate-900">
-          {markdown}
-        </div>
       )}
     </div>
   );

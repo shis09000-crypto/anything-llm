@@ -17,6 +17,14 @@ const {
   decodeAicpHeader,
   validateCoordinationContext,
 } = require("../modulePlatform/aicp/contractRegistry");
+const {
+  AICP_CONTEXT_HEADER,
+  AICP_RESULT_HEADER,
+  createAicpResult,
+  decodeAicpContext,
+  encodeAicpContext,
+  validateAicpContext,
+} = require("../modulePlatform/aicp/context");
 
 const LIFECYCLE_CAPABILITIES = Object.freeze({
   "/internal/v1/describe": "module.describe",
@@ -71,6 +79,13 @@ function internalRouteCapability(capabilities, method, requestPath) {
   return null;
 }
 
+function aicpRequestPayload(request) {
+  const hasBody =
+    Number(request.get?.("content-length") || 0) > 0 ||
+    Boolean(request.get?.("transfer-encoding"));
+  return hasBody ? request.body ?? null : null;
+}
+
 function internalPeerAuthorized(request, manifest, env = process.env) {
   if (!distributedTopology(env)) return { authorized: true, caller: "local" };
   if (!request.socket?.authorized)
@@ -101,11 +116,25 @@ async function validateAicpPeerRequest(
     principalAssertionVerifier = null,
     operationsApprovalVerifier = null,
     expectedCapability = null,
+    response = null,
   } = {}
 ) {
   const globalMode = aicpEnforcementMode(env);
   if (globalMode === "off") return { authorized: true, mode: globalMode };
   const registry = new AicpContractRegistry();
+  let unifiedContext = null;
+  const encodedUnifiedContext = request.get(AICP_CONTEXT_HEADER);
+  if (encodedUnifiedContext) {
+    try {
+      unifiedContext = decodeAicpContext(encodedUnifiedContext);
+    } catch (error) {
+      return {
+        authorized: false,
+        mode: globalMode,
+        reason: error.code || "aicp_context_invalid",
+      };
+    }
+  }
   const callerRole = String(callerServiceId || "")
     .split("/")
     .filter(Boolean)
@@ -188,7 +217,41 @@ async function validateAicpPeerRequest(
       reason: "aicp_contract_fingerprint_mismatch",
     };
 
-  let coordinationContext = null;
+  if (unifiedContext) {
+    const validation = validateAicpContext(unifiedContext, {
+      payload: aicpRequestPayload(request),
+      method: request.method,
+      path: request.originalUrl || request.path,
+    });
+    if (!validation.valid)
+      return {
+        authorized: false,
+        mode,
+        reason: validation.findings[0],
+      };
+    if (
+      unifiedContext.source !== caller.id ||
+      unifiedContext.target !== manifest.id ||
+      unifiedContext.capability?.id !== capability
+    )
+      return {
+        authorized: false,
+        mode,
+        reason: "aicp_context_contract_mismatch",
+      };
+  }
+
+  let coordinationContext = unifiedContext
+    ? {
+        coordinationRunId: unifiedContext.coordination.runId,
+        stepId: unifiedContext.coordination.stepId,
+        correlationId: unifiedContext.correlation.correlationId,
+        center: unifiedContext.coordination.center,
+        priority: unifiedContext.coordination.priority,
+        deadlineAt: unifiedContext.coordination.deadlineAt,
+        causationId: unifiedContext.correlation.causationId || null,
+      }
+    : null;
   const encodedContext = request.get("x-athena-aicp-coordination");
   if (encodedContext) {
     try {
@@ -278,6 +341,12 @@ async function validateAicpPeerRequest(
   ) {
     return { authorized: false, mode, reason: "aicp_principal_required" };
   }
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  request.once("aborted", abort);
+  response?.once("close", () => {
+    if (!response.writableEnded) abort();
+  });
   return {
     authorized: true,
     mode,
@@ -286,6 +355,8 @@ async function validateAicpPeerRequest(
     capability,
     linkId: negotiation.linkId,
     coordinationContext,
+    context: unifiedContext,
+    abortSignal: abortController.signal,
   };
 }
 
@@ -455,8 +526,9 @@ class MicroModuleServiceHost {
     const componentReady =
       component.ready === undefined ? true : Boolean(component.ready);
     const enforceContractReadiness =
-      String(this.env.ATHENA_AICP_READINESS_ENFORCEMENT || "false").toLowerCase() ===
-      "true";
+      String(
+        this.env.ATHENA_AICP_READINESS_ENFORCEMENT || "false"
+      ).toLowerCase() === "true";
     const contractReady =
       !enforceContractReadiness || this.contractClosure.valid === true;
     return {
@@ -537,6 +609,7 @@ class MicroModuleServiceHost {
           request.method,
           String(request.originalUrl || request.path || "").split("?")[0]
         ),
+        response,
       });
       if (!aicp.authorized)
         return response.status(409).json({
@@ -545,6 +618,61 @@ class MicroModuleServiceHost {
           reasonCode: aicp.reason,
         });
       response.locals.aicp = aicp;
+      if (aicp.context) {
+        const sendJson = response.json.bind(response);
+        response.json = (value) => {
+          const failed = response.statusCode >= 400 || value?.success === false;
+          const result = createAicpResult({
+            context: aicp.context,
+            status: failed ? "failed" : "completed",
+            payload: value,
+            errorCode: failed
+              ? value?.error || "internal_service_failed"
+              : null,
+          });
+          response.setHeader(AICP_RESULT_HEADER, encodeAicpContext(result));
+          response.setHeader(
+            "x-athena-aicp-capability-version",
+            aicp.context.capability.version
+          );
+          try {
+            emitSemanticEvent({
+              eventId: result.messageId,
+              eventType: "aicp.result.projected",
+              category: "aicp_runtime",
+              severity: result.status === "completed" ? "info" : "warning",
+              outcome: result.status,
+              subject: {
+                type: "module-call",
+                id: result.messageId,
+                component: this.manifest.id,
+                operation: aicp.context.capability.id,
+              },
+              correlation: {
+                traceId: aicp.context.correlation.traceId,
+                correlationId: aicp.context.correlation.correlationId,
+                operationId: aicp.context.correlation.operationId,
+              },
+              impact: {
+                scope: this.manifest.id,
+                status: result.status,
+              },
+              metadata: {
+                source: aicp.context.source,
+                target: aicp.context.target,
+                capability: aicp.context.capability.id,
+                capabilityVersion: aicp.context.capability.version,
+                coordinationRunId: aicp.context.coordination.runId,
+                taskPriority: aicp.context.coordination.priority,
+              },
+              sensitivity: "metadata_only",
+            });
+          } catch {
+            // Operations projection must never alter an RPC result.
+          }
+          return sendJson(value);
+        };
+      }
       next();
     });
     this.app.post("/internal/drain", async (_request, response) => {
@@ -662,7 +790,9 @@ class MicroModuleServiceHost {
       );
       if (!capability) findings.push(`route_unbound:${identity}`);
       else if (!provided.has(capability))
-        findings.push(`route_capability_not_provided:${identity}:${capability}`);
+        findings.push(
+          `route_capability_not_provided:${identity}:${capability}`
+        );
     }
     const registeredSet = new Set(registered);
     for (const binding of this.manifest.routes?.bindings || []) {
@@ -694,9 +824,9 @@ class MicroModuleServiceHost {
       findings,
       registeredRoutes: registered.length,
       manifestRouteBindings: (this.manifest.routes?.bindings || []).length,
-      boundRoutes: registered.length - findings.filter((value) =>
-        value.startsWith("route_")
-      ).length,
+      boundRoutes:
+        registered.length -
+        findings.filter((value) => value.startsWith("route_")).length,
       checkedAt: new Date().toISOString(),
     };
   }

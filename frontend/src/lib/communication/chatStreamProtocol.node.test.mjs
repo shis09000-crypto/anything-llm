@@ -42,6 +42,39 @@ test("response.created binds the reserved public identity before deltas", async 
     assert.equal(event.publicChatId, "chat_88");
     assert.equal(event.clientTurnId, "turn-88");
     assert.equal(event.responseId, "response-1");
+
+    const reasoning = protocol.normalizeChatTurnEvent({
+      type: "athena.reasoning.delta",
+      response_id: "response-1",
+      sequence_number: 3,
+      content_index: 0,
+      delta: "正在检查上下文。",
+    });
+    assert.equal(reasoning.type, "timeline_event");
+    assert.equal(reasoning.event.type, "reasoning");
+    assert.equal(reasoning.event.content, "正在检查上下文。");
+
+    const progress = protocol.normalizeChatTurnEvent({
+      type: "athena.agent.progress",
+      response_id: "response-1",
+      sequence_number: 4,
+      phase: "synthesis",
+      status: "running",
+      sequence: 2,
+      details: { evidenceCount: 3 },
+    });
+    assert.equal(progress.type, "timeline_event");
+    assert.equal(progress.event.type, "agent_progress");
+    assert.equal(progress.event.phase, "synthesis");
+
+    const done = protocol.normalizeChatTurnEvent({
+      type: "athena.reasoning.done",
+      response_id: "response-1",
+      sequence_number: 5,
+      status: "completed",
+    });
+    assert.equal(done.type, "response_lifecycle");
+    assert.equal(done.status, "athena.reasoning.done");
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }

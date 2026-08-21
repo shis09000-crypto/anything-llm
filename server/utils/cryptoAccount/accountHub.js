@@ -292,8 +292,7 @@ class AccountCryptoHub {
   }
 
   async init() {
-    await this.equityProtection.start();
-    await this.overview();
+    this.start();
     return {
       success: true,
       status: this.getStatus(),
@@ -558,6 +557,18 @@ class AccountCryptoHubRegistry {
     });
     this.hubs.set(key, hub);
     return hub;
+  }
+
+  getExisting({ authUserId, connectionId, credentialVersion }) {
+    if (!connectionId) return null;
+    const existing = this.hubs.get(
+      `${Number(authUserId)}:${String(connectionId)}`
+    );
+    if (!existing) return null;
+    if (Number(existing.credentialVersion) !== Number(credentialVersion)) {
+      return null;
+    }
+    return existing;
   }
 
   invalidateConnection(connectionId) {
