@@ -56,6 +56,7 @@
       "chat.agent-turn.finalize",
       "model.stream",
       "operations.ingest-batch",
+      "rag.retrieve",
       "responses.create",
       "responses.stream",
       "tool.invoke"
@@ -358,6 +359,24 @@
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
+      },
+      {
+        "id": "rag.retrieve",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/rag.retrieve/request/1.0",
+        "responseSchema": "athena://contracts/rag.retrieve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "internal",
+        "targetModule": "rag",
+        "requiredForReadiness": true
       },
       {
         "id": "responses.stream",
