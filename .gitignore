@@ -4,6 +4,8 @@ v-env
 !.env.example
 *.key
 *.pem
+!server/character-performance-keys/
+!server/character-performance-keys/*.pem
 
 node_modules
 __pycache__
