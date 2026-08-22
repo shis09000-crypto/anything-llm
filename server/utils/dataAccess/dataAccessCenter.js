@@ -1996,6 +1996,20 @@ const runtimeLifecycle = makeRepositoryFacade(
   },
   repositoryBoundaryScopeFromArgs
 );
+const coordination = makeRepositoryFacade(
+  "coordination",
+  {
+    upsertModuleHeartbeat: "write",
+    appendLifecycleEvent: "write",
+    listModuleInstances: "read",
+    createRun: "write",
+    getRun: "read",
+    transitionRun: "write",
+    addStep: "write",
+    createOptimisticReceipt: "write",
+  },
+  repositoryBoundaryScopeFromArgs
+);
 const scheduledJob = repositoryBoundaryFacade("scheduledJob");
 const systemPatrol = repositoryBoundaryFacade("systemPatrol");
 const operationsAction = makeRepositoryFacade(
@@ -2296,6 +2310,7 @@ const DataAccessCenter = {
   communityHub,
   chatStreamRun,
   contentObject,
+  coordination,
   crypto,
   document,
   documentEmbeddingBatch,

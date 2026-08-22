@@ -5,6 +5,7 @@ const { CoordinationRuntime } = require("../../utils/coordination/runtime");
 const {
   loadManifests,
 } = require("../../utils/modulePlatform/manifestRegistry");
+const { DataAccessCenter } = require("../../utils/dataAccess");
 
 function memoryRepository() {
   const runs = new Map();
@@ -70,6 +71,19 @@ function memoryRepository() {
 }
 
 describe("CoordinationRuntime", () => {
+  test("uses the registered coordination data-access facade by default", () => {
+    const runtime = new CoordinationRuntime({ env: {}, emit: jest.fn() });
+
+    expect(runtime.repository).toBe(DataAccessCenter.coordination);
+    expect(runtime.repository).toEqual(
+      expect.objectContaining({
+        appendLifecycleEvent: expect.any(Function),
+        upsertModuleHeartbeat: expect.any(Function),
+        listModuleInstances: expect.any(Function),
+      })
+    );
+  });
+
   test("keeps all five centers shadow-only by default and is idempotent", async () => {
     const repository = memoryRepository();
     const runtime = new CoordinationRuntime({
@@ -238,8 +252,8 @@ describe("CoordinationRuntime", () => {
     }
 
     await expect(runtime.moduleCoverage({ now })).resolves.toMatchObject({
-      expected: 23,
-      healthy: 23,
+      expected: manifestIds.length,
+      healthy: manifestIds.length,
       complete: true,
       unknown: [],
       degraded: [],
@@ -255,8 +269,8 @@ describe("CoordinationRuntime", () => {
     });
     const coverage = await runtime.moduleCoverage({ now });
     expect(coverage).toMatchObject({
-      expected: 23,
-      healthy: 22,
+      expected: manifestIds.length,
+      healthy: manifestIds.length - 1,
       complete: false,
       unknown: ["unknown-module"],
       degraded: ["reader-worker"],
