@@ -227,6 +227,18 @@ const host = new MicroModuleServiceHost({
   role,
   port,
   jsonLimit: process.env.ATHENA_MODEL_GATEWAY_JSON_LIMIT || "10mb",
+  internalRouteCapabilities: {
+    "GET /internal/v1/models/responses/capabilities":
+      "model.responses.capabilities",
+    "GET /internal/v1/models/health": "model.health",
+    "GET /internal/v1/models/catalog": "model.catalog",
+    "POST /internal/v1/models/complete": "model.responses.complete",
+    "POST /internal/v1/models/stream": "model.stream",
+    "POST /internal/v1/models/responses/complete": "model.responses.complete",
+    "POST /internal/v1/models/responses/stream": "model.responses.stream",
+    "POST /internal/v1/models/agent/complete": "model.agent.complete",
+    "POST /internal/v1/models/agent/stream": "model.agent.stream",
+  },
   readiness: () => ({
     ...state,
     threeDContext: threeDContextCache.status(),
