@@ -52,6 +52,8 @@
       "identity.session.validate",
       "identity.user-domain-wrap.queue",
       "key-custody.audit-descriptor",
+      "chat.agent-turn.reserve",
+      "chat.agent-turn.finalize",
       "model.stream",
       "operations.ingest-batch",
       "responses.create",
@@ -290,6 +292,42 @@
       }
     ],
     "consumes": [
+      {
+        "id": "chat.agent-turn.reserve",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.reserve/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.reserve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted",
+        "targetModule": "chat-runtime",
+        "requiredForReadiness": true
+      },
+      {
+        "id": "chat.agent-turn.finalize",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.finalize/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.finalize/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 60000,
+        "idempotency": "required",
+        "dataClassification": "restricted",
+        "targetModule": "chat-runtime",
+        "requiredForReadiness": true
+      },
       {
         "id": "key-custody.audit-descriptor",
         "version": "1.0",

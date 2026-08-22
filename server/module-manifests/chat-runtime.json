@@ -60,6 +60,8 @@
     "provides": [
       "chat.submit",
       "chat.status",
+      "chat.agent-turn.reserve",
+      "chat.agent-turn.finalize",
       "chat.memory.status",
       "chat.memory.compact",
       "chat.memory.context.resolve",
@@ -234,6 +236,38 @@
         "timeoutMs": 30000,
         "idempotency": "none",
         "dataClassification": "internal"
+      },
+      {
+        "id": "chat.agent-turn.reserve",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.reserve/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.reserve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
+      },
+      {
+        "id": "chat.agent-turn.finalize",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/chat.agent-turn.finalize/request/1.0",
+        "responseSchema": "athena://contracts/chat.agent-turn.finalize/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 60000,
+        "idempotency": "required",
+        "dataClassification": "restricted"
       },
       {
         "id": "3d-center.memory.session.create",

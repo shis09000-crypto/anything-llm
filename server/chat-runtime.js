@@ -250,12 +250,31 @@ const host = new MicroModuleServiceHost({
       "3d-center.memory.session.create",
     "/internal/v1/3d-center/memory/sessions/context/resolve":
       "3d-center.memory.context.resolve",
+    "/internal/v1/3d-center/memory/sessions/context/prepare":
+      "3d-center.memory.context.prepare",
     "/internal/v1/3d-center/memory/sessions/turns/commit":
       "3d-center.memory.turn.commit",
     "/internal/v1/3d-center/memory/sessions/status": "3d-center.memory.status",
     "/internal/v1/3d-center/memory/sessions/delete":
       "3d-center.memory.session.delete",
     "/internal/v1/3d-center/memory/maintenance": "3d-center.memory.maintenance",
+    "/internal/v1/3d-center/memory/long-term/archive":
+      "3d-center.memory.long-term.archive",
+    "/internal/v1/3d-center/memory/long-term/finalize":
+      "3d-center.memory.long-term.archive",
+    "/internal/v1/3d-center/memory/long-term/context":
+      "3d-center.memory.long-term.context",
+    "/internal/v1/3d-center/memory/long-term/recall/freeze":
+      "3d-center.memory.long-term.context",
+    "/internal/v1/3d-center/memory/long-term/status":
+      "3d-center.memory.long-term.status",
+    "/internal/v1/3d-center/memory/long-term/session/delete":
+      "3d-center.memory.long-term.session.delete",
+    "/internal/v1/3d-center/memory/long-term/profile/reset":
+      "3d-center.memory.long-term.profile.reset",
+    "/internal/v1/3d-center/memory/long-term/reconsolidate":
+      "3d-center.memory.long-term.reconsolidate",
+    "GET /internal/v1/chat/runs/:clientTurnId": "chat.status",
     "/internal/v1/chat/thread-title/generate": "chat.thread-title.generate",
     "/internal/v1/chat/thread-title/reconcile": "chat.thread-title.reconcile",
   },
