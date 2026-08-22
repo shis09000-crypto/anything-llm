@@ -12,6 +12,9 @@ const { validateRegistered } = require("./schemaRegistry");
 const { metrics } = require("../observability/metrics");
 const { loadManifests } = require("../modulePlatform/manifestRegistry");
 const { aicpShadowObserver } = require("../modulePlatform/aicp/shadowObserver");
+const {
+  parseExpectedModuleStates,
+} = require("./moduleHealthMonitor");
 
 const MAX_RETRY_QUEUE = 1_000;
 
@@ -123,6 +126,9 @@ class OperationsPlane {
       loadManifests()
         .map((manifest) => manifest.id)
         .sort()
+    );
+    this.plannedModuleStates = Object.freeze(
+      parseExpectedModuleStates(this.env)
     );
   }
 
