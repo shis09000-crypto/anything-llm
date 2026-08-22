@@ -33,6 +33,7 @@
       "module.resume"
     ],
     "consumes": [
+      "key-custody.audit-descriptor",
       "key-custody.wrap",
       "key-custody.unwrap",
       "operations.ingest-batch"
@@ -256,6 +257,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
       {
         "id": "key-custody.wrap",
         "version": "1.0",

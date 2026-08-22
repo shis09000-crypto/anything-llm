@@ -23,6 +23,23 @@ const {
 } = require("../../utils/modulePlatform/aicp/context");
 
 describe("MicroModuleServiceHost", () => {
+  test("loads declared manifest route bindings by default", () => {
+    const host = new MicroModuleServiceHost({
+      manifestId: "key-custody",
+      role: "key-custody",
+      port: 0,
+    });
+
+    expect(
+      host.internalRouteCapabilities[
+        "POST /internal/v1/keys/audit-descriptor"
+      ]
+    ).toBe("key-custody.audit-descriptor");
+    expect(host.internalRouteCapabilities["POST /internal/drain"]).toBe(
+      "module.drain"
+    );
+  });
+
   test("resolves method-specific dynamic AICP route capabilities", () => {
     const capabilities = {
       "GET /internal/v1/responses/:responseId": "responses.retrieve",

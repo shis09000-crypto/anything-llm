@@ -116,9 +116,7 @@
     "subscribes": []
   },
   "data": {
-    "schemas": [
-      "key_custody"
-    ],
+    "schemas": ["key_custody"],
     "objectPrefixes": []
   },
   "security": {
@@ -150,7 +148,8 @@
       "reader-worker",
       "scheduler",
       "sync-v2",
-      "coordination-plane"
+      "coordination-plane",
+      "character-performance-runtime"
     ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 10000
@@ -163,9 +162,7 @@
     "availabilityTarget": 0.999,
     "reconnectP95Ms": 0
   },
-  "dependsOn": [
-    "infra:postgresql"
-  ],
+  "dependsOn": ["infra:postgresql"],
   "domain": "security",
   "responsibilities": [
     "remote-wrap",
@@ -394,9 +391,7 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "key_custody"
-    ],
+    "dataSchemas": ["key_custody"],
     "objectPrefixes": [],
     "keyDomains": [
       "platform",
@@ -406,24 +401,12 @@
       "agent",
       "browser-profile"
     ],
-    "configuration": [
-      "runtime:key-custody"
-    ],
-    "runtimeState": [
-      "module-instance:key-custody"
-    ]
+    "configuration": ["runtime:key-custody"],
+    "runtimeState": ["module-instance:key-custody"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -451,11 +434,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

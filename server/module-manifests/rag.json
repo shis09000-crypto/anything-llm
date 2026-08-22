@@ -34,6 +34,7 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "key-custody.audit-descriptor",
       "operations.ingest-batch"
     ]
   },
@@ -69,6 +70,7 @@
   },
   "dependsOn": [
     "authentication",
+    "key-custody",
     "infra:postgresql",
     "infra:vector-database",
     "infra:embedding-provider",
@@ -212,6 +214,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
       {
         "id": "coordination.lifecycle.event",
         "version": "1.0",

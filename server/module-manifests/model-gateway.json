@@ -56,6 +56,7 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "key-custody.audit-descriptor",
       "operations.ingest-batch"
     ]
   },
@@ -69,18 +70,12 @@
     "subscribes": []
   },
   "data": {
-    "schemas": [
-      "model_runtime"
-    ],
-    "objectPrefixes": [
-      "models/artifacts"
-    ]
+    "schemas": ["model_runtime"],
+    "objectPrefixes": ["models/artifacts"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/model-gateway",
-    "keyDomains": [
-      "provider"
-    ],
+    "keyDomains": ["provider"],
     "allowedCallers": [
       "chat-runtime",
       "agent-runtime",
@@ -102,6 +97,7 @@
   },
   "dependsOn": [
     "authentication",
+    "key-custody",
     "infra:model-provider",
     "infra:nats"
   ],
@@ -126,7 +122,11 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/model.responses.capabilities/request/1.0",
         "responseSchema": "athena://contracts/model.responses.capabilities/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "none",
         "dataClassification": "internal"
@@ -342,6 +342,22 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "coordination.lifecycle.event",
         "version": "1.0",
         "callType": "Command",
@@ -408,34 +424,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "model_runtime"
-    ],
-    "objectPrefixes": [
-      "models/artifacts"
-    ],
-    "keyDomains": [
-      "provider"
-    ],
-    "configuration": [
-      "runtime:model-gateway"
-    ],
-    "runtimeState": [
-      "module-instance:model-gateway"
-    ]
+    "dataSchemas": ["model_runtime"],
+    "objectPrefixes": ["models/artifacts"],
+    "keyDomains": ["provider"],
+    "configuration": ["runtime:model-gateway"],
+    "runtimeState": ["module-instance:model-gateway"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data",
-      "cache"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data", "cache"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -463,11 +460,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

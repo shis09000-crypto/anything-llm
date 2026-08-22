@@ -90,6 +90,7 @@
       "coordination.lifecycle.heartbeat",
       "identity.assert",
       "identity.session.validate",
+      "key-custody.audit-descriptor",
       "key-custody.wrap",
       "key-custody.unwrap",
       "model.responses.complete",
@@ -155,8 +156,8 @@
     "resume",
     "3d-session-language-memory",
     "3d-persistent-performance-state-window",
-    "3d-session-memory-compaction"
-    ,"3d-long-term-raw-dialogue-archive",
+    "3d-session-memory-compaction",
+    "3d-long-term-raw-dialogue-archive",
     "3d-long-term-relationship-and-emotion-consolidation",
     "3d-cross-session-character-recall",
     "character-core-pinning",
@@ -176,7 +177,12 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/chat.thread-title.generate/request/1.0",
         "responseSchema": "athena://contracts/chat.thread-title.generate/response/1.0",
-        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "required",
         "dataClassification": "confidential"
@@ -187,7 +193,12 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/chat.thread-title.reconcile/request/1.0",
         "responseSchema": "athena://contracts/chat.thread-title.reconcile/response/1.0",
-        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "confidential"
@@ -230,7 +241,12 @@
         "callType": "Command",
         "requestSchema": "athena://contracts/3d-center.memory.session.create/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.session.create/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable", "athena_3d_memory_state_window_too_large"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable",
+          "athena_3d_memory_state_window_too_large"
+        ],
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -241,7 +257,12 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/3d-center.memory.context.resolve/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.context.resolve/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable", "athena_3d_memory_session_not_found"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable",
+          "athena_3d_memory_session_not_found"
+        ],
         "timeoutMs": 30000,
         "idempotency": "none",
         "dataClassification": "restricted"
@@ -266,7 +287,13 @@
         "callType": "Command",
         "requestSchema": "athena://contracts/3d-center.memory.turn.commit/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.turn.commit/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable", "athena_3d_memory_revision_conflict", "athena_3d_memory_state_window_too_large"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable",
+          "athena_3d_memory_revision_conflict",
+          "athena_3d_memory_state_window_too_large"
+        ],
         "timeoutMs": 120000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -277,7 +304,11 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/3d-center.memory.status/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.status/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "athena_3d_memory_session_not_found"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "athena_3d_memory_session_not_found"
+        ],
         "timeoutMs": 10000,
         "idempotency": "none",
         "dataClassification": "confidential"
@@ -299,7 +330,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/3d-center.memory.maintenance/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.maintenance/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "supported",
         "dataClassification": "restricted"
@@ -310,7 +345,11 @@
         "callType": "Command",
         "requestSchema": "athena://contracts/3d-center.memory.long-term.archive/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.long-term.archive/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -321,7 +360,11 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/3d-center.memory.long-term.context/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.long-term.context/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 30000,
         "idempotency": "none",
         "dataClassification": "restricted"
@@ -332,7 +375,11 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/3d-center.memory.long-term.status/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.long-term.status/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 30000,
         "idempotency": "none",
         "dataClassification": "restricted"
@@ -343,7 +390,11 @@
         "callType": "Command",
         "requestSchema": "athena://contracts/3d-center.memory.long-term.session.delete/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.long-term.session.delete/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -354,7 +405,11 @@
         "callType": "Command",
         "requestSchema": "athena://contracts/3d-center.memory.long-term.profile.reset/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.long-term.profile.reset/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -365,7 +420,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/3d-center.memory.long-term.reconsolidate/request/1.0",
         "responseSchema": "athena://contracts/3d-center.memory.long-term.reconsolidate/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -523,6 +582,22 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "model.responses.complete",
         "version": "1.0",
         "callType": "Call",
@@ -544,7 +619,12 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/workspace.thread-title.claim/request/1.0",
         "responseSchema": "athena://contracts/workspace.thread-title.claim/response/1.0",
-        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "required",
         "dataClassification": "confidential"
@@ -555,7 +635,12 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/workspace.thread-title.commit/request/1.0",
         "responseSchema": "athena://contracts/workspace.thread-title.commit/response/1.0",
-        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 10000,
         "idempotency": "required",
         "dataClassification": "confidential"
@@ -630,7 +715,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.create/request/1.0",
         "responseSchema": "athena://contracts/responses.create/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"
@@ -641,7 +730,11 @@
         "callType": "Task",
         "requestSchema": "athena://contracts/responses.stream/request/1.0",
         "responseSchema": "athena://contracts/responses.stream/response/1.0",
-        "errorCodes": ["contract_invalid", "caller_denied", "responses_runtime_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "caller_denied",
+          "responses_runtime_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "restricted"

@@ -45,6 +45,7 @@
       "chat.thread-title.reconcile",
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
+      "key-custody.audit-descriptor",
       "operations.ingest-batch",
       "tool.invoke"
     ]
@@ -78,6 +79,7 @@
   },
   "dependsOn": [
     "authentication",
+    "key-custody",
     "agent-runtime",
     "responses-runtime",
     "tool-runtime",
@@ -229,12 +231,33 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "chat.thread-title.reconcile",
         "version": "1.0",
         "callType": "Task",
         "requestSchema": "athena://contracts/chat.thread-title.reconcile/request/1.0",
         "responseSchema": "athena://contracts/chat.thread-title.reconcile/response/1.0",
-        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"],
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
         "timeoutMs": 300000,
         "idempotency": "required",
         "dataClassification": "confidential"

@@ -21,9 +21,7 @@
     "downloads"
   ],
   "routes": {
-    "public": [
-      "/browser-stream"
-    ],
+    "public": ["/browser-stream"],
     "internal": [
       "/internal/v1/browser/sessions",
       "/internal/v1/browser/profiles"
@@ -139,34 +137,24 @@
     "consumes": [
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
+      "key-custody.audit-descriptor",
       "key-custody.unwrap",
       "key-custody.wrap",
       "operations.ingest-batch"
     ]
   },
   "events": {
-    "publishes": [
-      "browser.worker.*",
-      "module.lifecycle.*"
-    ],
+    "publishes": ["browser.worker.*", "module.lifecycle.*"],
     "subscribes": []
   },
   "data": {
     "schemas": [],
-    "objectPrefixes": [
-      "browser/profiles",
-      "browser/artifacts"
-    ]
+    "objectPrefixes": ["browser/profiles", "browser/artifacts"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/browser-worker",
-    "keyDomains": [
-      "browser-profile"
-    ],
-    "allowedCallers": [
-      "browser-plane",
-      "coordination-plane"
-    ],
+    "keyDomains": ["browser-profile"],
+    "allowedCallers": ["browser-plane", "coordination-plane"],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 30000
   },
@@ -178,10 +166,7 @@
     "availabilityTarget": 0.99,
     "reconnectP95Ms": 5000
   },
-  "dependsOn": [
-    "key-custody",
-    "infra:object-store"
-  ],
+  "dependsOn": ["key-custody", "infra:object-store"],
   "domain": "browser",
   "responsibilities": [
     "playwright-chromium",
@@ -311,6 +296,22 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "coordination.lifecycle.event",
         "version": "1.0",
         "callType": "Command",
@@ -394,30 +395,14 @@
   },
   "ownership": {
     "dataSchemas": [],
-    "objectPrefixes": [
-      "browser/profiles",
-      "browser/artifacts"
-    ],
-    "keyDomains": [
-      "browser-profile"
-    ],
-    "configuration": [
-      "runtime:browser-worker"
-    ],
-    "runtimeState": [
-      "module-instance:browser-worker"
-    ]
+    "objectPrefixes": ["browser/profiles", "browser/artifacts"],
+    "keyDomains": ["browser-profile"],
+    "configuration": ["runtime:browser-worker"],
+    "runtimeState": ["module-instance:browser-worker"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -445,11 +430,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

@@ -456,7 +456,15 @@ class MicroModuleServiceHost {
     this.onLifecycleTransition = onLifecycleTransition;
     this.principalAssertionVerifier = principalAssertionVerifier;
     this.operationsApprovalVerifier = operationsApprovalVerifier;
+    const manifestRouteCapabilities = Object.fromEntries(
+      (this.manifest.routes?.bindings || []).map((binding) => [
+        `${String(binding.method || "GET").toUpperCase()} ${binding.path}`,
+        binding.capability,
+      ])
+    );
     this.internalRouteCapabilities = Object.freeze({
+      ...LIFECYCLE_CAPABILITIES,
+      ...manifestRouteCapabilities,
       ...internalRouteCapabilities,
     });
     this.lifecycle = new ModuleLifecycle({

@@ -20,13 +20,8 @@
     "worker-routing"
   ],
   "routes": {
-    "public": [
-      "/api/agent-skills/"
-    ],
-    "internal": [
-      "/internal/v1/tools/invoke",
-      "/internal/v1/tools/catalog"
-    ]
+    "public": ["/api/agent-skills/"],
+    "internal": ["/internal/v1/tools/invoke", "/internal/v1/tools/catalog"]
   },
   "rpc": {
     "provides": [
@@ -48,34 +43,22 @@
       "crypto.account",
       "crypto.market",
       "identity.assert",
+      "key-custody.audit-descriptor",
       "knowledge.ingest",
       "operations.ingest-batch"
     ]
   },
   "events": {
-    "publishes": [
-      "tool.invocation.*",
-      "tool.registry.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "approval.*",
-      "crypto.*"
-    ]
+    "publishes": ["tool.invocation.*", "tool.registry.*", "module.lifecycle.*"],
+    "subscribes": ["approval.*", "crypto.*"]
   },
   "data": {
-    "schemas": [
-      "tools"
-    ],
-    "objectPrefixes": [
-      "tool/results"
-    ]
+    "schemas": ["tools"],
+    "objectPrefixes": ["tool/results"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/tool-broker",
-    "keyDomains": [
-      "agent"
-    ],
+    "keyDomains": ["agent"],
     "allowedCallers": [
       "agent-runtime",
       "scheduler",
@@ -95,6 +78,7 @@
   },
   "dependsOn": [
     "authentication",
+    "key-custody",
     "crypto-market",
     "crypto-account-access",
     "browser-plane",
@@ -246,6 +230,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
       {
         "id": "browser.session",
         "version": "1.0",
@@ -409,33 +409,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "tools"
-    ],
-    "objectPrefixes": [
-      "tool/results"
-    ],
-    "keyDomains": [
-      "agent"
-    ],
-    "configuration": [
-      "runtime:tool-broker"
-    ],
-    "runtimeState": [
-      "module-instance:tool-runtime"
-    ]
+    "dataSchemas": ["tools"],
+    "objectPrefixes": ["tool/results"],
+    "keyDomains": ["agent"],
+    "configuration": ["runtime:tool-broker"],
+    "runtimeState": ["module-instance:tool-runtime"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -463,11 +445,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

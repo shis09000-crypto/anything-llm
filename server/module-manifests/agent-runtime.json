@@ -21,9 +21,7 @@
     "recovery"
   ],
   "routes": {
-    "public": [
-      "/api/agent-invocation/"
-    ],
+    "public": ["/api/agent-invocation/"],
     "internal": [
       "/internal/v1/agent/invocations",
       "/internal/v1/agent/invocations/:invocationId/actions/:actionId",
@@ -53,6 +51,7 @@
       "identity.assert",
       "identity.session.validate",
       "identity.user-domain-wrap.queue",
+      "key-custody.audit-descriptor",
       "model.stream",
       "operations.ingest-batch",
       "responses.create",
@@ -61,29 +60,16 @@
     ]
   },
   "events": {
-    "publishes": [
-      "agent.run.*",
-      "approval.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "tool.invocation.*",
-      "model.stream.*"
-    ]
+    "publishes": ["agent.run.*", "approval.*", "module.lifecycle.*"],
+    "subscribes": ["tool.invocation.*", "model.stream.*"]
   },
   "data": {
-    "schemas": [
-      "agent"
-    ],
-    "objectPrefixes": [
-      "agent/results"
-    ]
+    "schemas": ["agent"],
+    "objectPrefixes": ["agent/results"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/agent-runtime",
-    "keyDomains": [
-      "agent"
-    ],
+    "keyDomains": ["agent"],
     "allowedCallers": [
       "athena-api",
       "chat-runtime",
@@ -104,6 +90,7 @@
   },
   "dependsOn": [
     "authentication",
+    "key-custody",
     "model-gateway",
     "responses-runtime",
     "tool-runtime",
@@ -304,6 +291,22 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "responses.create",
         "version": "1.0",
         "callType": "Task",
@@ -466,34 +469,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "agent"
-    ],
-    "objectPrefixes": [
-      "agent/results"
-    ],
-    "keyDomains": [
-      "agent"
-    ],
-    "configuration": [
-      "runtime:agent-runtime"
-    ],
-    "runtimeState": [
-      "module-instance:agent-runtime"
-    ]
+    "dataSchemas": ["agent"],
+    "objectPrefixes": ["agent/results"],
+    "keyDomains": ["agent"],
+    "configuration": ["runtime:agent-runtime"],
+    "runtimeState": ["module-instance:agent-runtime"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data",
-      "optimistic"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data", "optimistic"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -521,11 +505,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

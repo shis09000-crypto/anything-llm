@@ -42,6 +42,7 @@
       "identity.session.validate",
       "identity.session.touch",
       "identity.audit.append",
+      "key-custody.audit-descriptor",
       "key-custody.unwrap",
       "operations.ingest-batch"
     ]
@@ -208,6 +209,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
       {
         "id": "coordination.lifecycle.event",
         "version": "1.0",

@@ -21,13 +21,8 @@
     "browser-audit"
   ],
   "routes": {
-    "public": [
-      "/api/browser/"
-    ],
-    "internal": [
-      "/internal/v1/browser/sessions",
-      "/internal/v1/browser/nodes"
-    ],
+    "public": ["/api/browser/"],
+    "internal": ["/internal/v1/browser/sessions", "/internal/v1/browser/nodes"],
     "bindings": [
       {
         "method": "GET",
@@ -114,6 +109,7 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "identity.assert",
+      "key-custody.audit-descriptor",
       "operations.ingest-batch"
     ]
   },
@@ -127,19 +123,12 @@
     "subscribes": ["approval.*", "sync.client.*"]
   },
   "data": {
-    "schemas": [
-      "browser_plane"
-    ],
-    "objectPrefixes": [
-      "browser/profiles",
-      "browser/artifacts"
-    ]
+    "schemas": ["browser_plane"],
+    "objectPrefixes": ["browser/profiles", "browser/artifacts"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/browser-plane",
-    "keyDomains": [
-      "browser-profile"
-    ],
+    "keyDomains": ["browser-profile"],
     "allowedCallers": [
       "athena-api",
       "tool-runtime",
@@ -344,6 +333,22 @@
       }
     ],
     "consumes": [
+      {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
       {
         "id": "browser.worker",
         "version": "1.0",

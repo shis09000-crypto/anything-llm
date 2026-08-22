@@ -13,18 +13,10 @@
     "server/modules/reader/",
     "server/utils/readerWorker/"
   ],
-  "capabilities": [
-    "preview",
-    "thumbnail",
-    "classification",
-    "postprocess"
-  ],
+  "capabilities": ["preview", "thumbnail", "classification", "postprocess"],
   "routes": {
     "public": [],
-    "internal": [
-      "/health",
-      "/snapshot"
-    ]
+    "internal": ["/health", "/snapshot"]
   },
   "rpc": {
     "provides": [
@@ -39,32 +31,22 @@
     "consumes": [
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
+      "key-custody.audit-descriptor",
       "sync.events.append",
       "operations.ingest-batch"
     ]
   },
   "events": {
-    "publishes": [
-      "reader.job.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "reader.requested"
-    ]
+    "publishes": ["reader.job.*", "module.lifecycle.*"],
+    "subscribes": ["reader.requested"]
   },
   "data": {
-    "schemas": [
-      "knowledge_reader"
-    ],
-    "objectPrefixes": [
-      "knowledge/previews"
-    ]
+    "schemas": ["knowledge_reader"],
+    "objectPrefixes": ["knowledge/previews"]
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/reader-worker",
-    "keyDomains": [
-      "file"
-    ],
+    "keyDomains": ["file"],
     "allowedCallers": [
       "knowledge-ingest",
       "background-worker",
@@ -88,12 +70,7 @@
     "infra:nats"
   ],
   "domain": "knowledge",
-  "responsibilities": [
-    "preview",
-    "thumbnail",
-    "classification",
-    "postprocess"
-  ],
+  "responsibilities": ["preview", "thumbnail", "classification", "postprocess"],
   "nonResponsibilities": [
     "foreign-schema-writes",
     "cross-module-business-policy"
@@ -215,6 +192,22 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "coordination.lifecycle.event",
         "version": "1.0",
         "callType": "Command",
@@ -281,34 +274,15 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "knowledge_reader"
-    ],
-    "objectPrefixes": [
-      "knowledge/previews"
-    ],
-    "keyDomains": [
-      "file"
-    ],
-    "configuration": [
-      "runtime:reader-worker"
-    ],
-    "runtimeState": [
-      "module-instance:reader-worker"
-    ]
+    "dataSchemas": ["knowledge_reader"],
+    "objectPrefixes": ["knowledge/previews"],
+    "keyDomains": ["file"],
+    "configuration": ["runtime:reader-worker"],
+    "runtimeState": ["module-instance:reader-worker"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data",
-      "cache"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data", "cache"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -336,11 +310,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },

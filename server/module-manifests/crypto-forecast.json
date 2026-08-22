@@ -18,12 +18,8 @@
     "atomic-model-activation"
   ],
   "routes": {
-    "public": [
-      "/api/crypto/forecast/"
-    ],
-    "internal": [
-      "/internal/v1/crypto/forecast"
-    ]
+    "public": ["/api/crypto/forecast/"],
+    "internal": ["/internal/v1/crypto/forecast"]
   },
   "rpc": {
     "provides": [
@@ -39,22 +35,16 @@
       "coordination.lifecycle.event",
       "coordination.lifecycle.heartbeat",
       "crypto.market",
+      "key-custody.audit-descriptor",
       "operations.ingest-batch"
     ]
   },
   "events": {
-    "publishes": [
-      "crypto.forecast.*",
-      "module.lifecycle.*"
-    ],
-    "subscribes": [
-      "crypto.market.*"
-    ]
+    "publishes": ["crypto.forecast.*", "module.lifecycle.*"],
+    "subscribes": ["crypto.market.*"]
   },
   "data": {
-    "schemas": [
-      "crypto_forecast"
-    ],
+    "schemas": ["crypto_forecast"],
     "objectPrefixes": [
       "crypto/models",
       "crypto/datasets",
@@ -63,9 +53,7 @@
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/crypto-forecast",
-    "keyDomains": [
-      "agent"
-    ],
+    "keyDomains": ["agent"],
     "allowedCallers": [
       "athena-api",
       "tool-runtime",
@@ -85,6 +73,7 @@
   },
   "dependsOn": [
     "crypto-market",
+    "key-custody",
     "infra:postgresql",
     "infra:object-store",
     "infra:nats"
@@ -216,6 +205,22 @@
     ],
     "consumes": [
       {
+        "id": "key-custody.audit-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
         "id": "coordination.lifecycle.event",
         "version": "1.0",
         "callType": "Command",
@@ -282,35 +287,19 @@
     ]
   },
   "ownership": {
-    "dataSchemas": [
-      "crypto_forecast"
-    ],
+    "dataSchemas": ["crypto_forecast"],
     "objectPrefixes": [
       "crypto/models",
       "crypto/datasets",
       "crypto/forecast/store-snapshots"
     ],
-    "keyDomains": [
-      "agent"
-    ],
-    "configuration": [
-      "runtime:crypto-forecast"
-    ],
-    "runtimeState": [
-      "module-instance:crypto-forecast"
-    ]
+    "keyDomains": ["agent"],
+    "configuration": ["runtime:crypto-forecast"],
+    "runtimeState": ["module-instance:crypto-forecast"]
   },
   "coordination": {
-    "centers": [
-      "task",
-      "recovery",
-      "data"
-    ],
-    "acceptedCommands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "centers": ["task", "recovery", "data"],
+    "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
     "aicpPolicy": {
       "defaultMode": "observe",
       "links": []
@@ -338,11 +327,7 @@
       "stop",
       "reconcile"
     ],
-    "commands": [
-      "module.drain",
-      "module.quiesce",
-      "module.resume"
-    ],
+    "commands": ["module.drain", "module.quiesce", "module.resume"],
     "heartbeatIntervalMs": 30000,
     "leaseTtlMs": 90000
   },
