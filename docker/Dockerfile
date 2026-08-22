@@ -172,7 +172,10 @@ WORKDIR /app
 FROM build AS backend-build
 COPY --chown=anythingllm:anythingllm ./server /app/server/
 WORKDIR /app/server
-RUN yarn install --production --network-timeout 100000 --ignore-engines && yarn cache clean
+# NodeSource ships the active runtime headers in /usr/include/node. Point
+# node-gyp at those local headers so native dependencies do not re-download
+# and unpack the moving Node 24 header archive during production builds.
+RUN npm_config_nodedir=/usr yarn install --production --network-timeout 100000 --ignore-engines && yarn cache clean
 RUN yarn prisma:postgresql:schema \
     && DATABASE_URL=postgresql://schema:validation@127.0.0.1:5432/athena \
       ./node_modules/.bin/prisma generate --schema=./prisma/postgresql/schema.prisma
