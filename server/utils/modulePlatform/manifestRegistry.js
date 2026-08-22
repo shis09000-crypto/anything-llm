@@ -5,9 +5,11 @@ const { sha256, canonicalJson } = require("./canonical");
 const MANIFEST_SCHEMA = "athena.module.manifest";
 const MANIFEST_VERSION = "1.0";
 const MANIFEST_VERSION_V11 = "1.1";
+const MANIFEST_VERSION_V12 = "1.2";
 const SUPPORTED_MANIFEST_VERSIONS = new Set([
   MANIFEST_VERSION,
   MANIFEST_VERSION_V11,
+  MANIFEST_VERSION_V12,
 ]);
 const DEFAULT_DIR = path.resolve(__dirname, "../../module-manifests");
 const KINDS = new Set([
@@ -161,6 +163,50 @@ function validateV11Manifest(manifest, findings) {
   }
 }
 
+function validateV12Manifest(manifest, findings) {
+  validateV11Manifest(manifest, findings);
+  for (const [index, contract] of (
+    manifest.contracts?.consumes || []
+  ).entries()) {
+    if (!String(contract.targetModule || ""))
+      findings.push(`contracts_consumes_${index}_target_module_missing`);
+    if (typeof contract.requiredForReadiness !== "boolean")
+      findings.push(
+        `contracts_consumes_${index}_readiness_requirement_invalid`
+      );
+  }
+  const bindings = manifest.routes?.bindings;
+  if (!Array.isArray(bindings)) findings.push("routes_bindings_invalid");
+  else {
+    const identities = new Set();
+    for (const [index, binding] of bindings.entries()) {
+      const prefix = `routes_bindings_${index}`;
+      if (!/^(GET|POST|PUT|PATCH|DELETE)$/.test(String(binding.method || "")))
+        findings.push(`${prefix}_method_invalid`);
+      if (!String(binding.path || "").startsWith("/internal/"))
+        findings.push(`${prefix}_path_invalid`);
+      if (!String(binding.capability || ""))
+        findings.push(`${prefix}_capability_missing`);
+      const identity = `${binding.method} ${binding.path}`;
+      if (identities.has(identity)) findings.push(`${prefix}_duplicate`);
+      identities.add(identity);
+    }
+  }
+  for (const section of ["streams", "eventContracts"])
+    if (!manifest[section] || typeof manifest[section] !== "object")
+      findings.push(`${section}_missing`);
+  if (manifest.streams) {
+    for (const direction of ["provides", "consumes"])
+      if (!Array.isArray(manifest.streams[direction]))
+        findings.push(`streams_${direction}_invalid`);
+  }
+  if (manifest.eventContracts) {
+    for (const direction of ["publishes", "subscribes"])
+      if (!Array.isArray(manifest.eventContracts[direction]))
+        findings.push(`event_contracts_${direction}_invalid`);
+  }
+}
+
 function validateManifest(manifest = {}, { env = process.env } = {}) {
   const findings = [];
   if (manifest.schema !== MANIFEST_SCHEMA) findings.push("schema_invalid");
@@ -172,6 +218,12 @@ function validateManifest(manifest = {}, { env = process.env } = {}) {
     manifest.schemaVersion !== MANIFEST_VERSION_V11
   )
     findings.push("schema_version_v11_required");
+  if (
+    String(env.ATHENA_MODULE_MANIFEST_V12_REQUIRED || "false").toLowerCase() ===
+      "true" &&
+    manifest.schemaVersion !== MANIFEST_VERSION_V12
+  )
+    findings.push("schema_version_v12_required");
   if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(String(manifest.id || "")))
     findings.push("id_invalid");
   if (!String(manifest.name || "")) findings.push("name_missing");
@@ -250,6 +302,8 @@ function validateManifest(manifest = {}, { env = process.env } = {}) {
   }
   if (manifest.schemaVersion === MANIFEST_VERSION_V11)
     validateV11Manifest(manifest, findings);
+  if (manifest.schemaVersion === MANIFEST_VERSION_V12)
+    validateV12Manifest(manifest, findings);
   return { valid: findings.length === 0, findings };
 }
 
@@ -328,6 +382,7 @@ module.exports = {
   MANIFEST_SCHEMA,
   MANIFEST_VERSION,
   MANIFEST_VERSION_V11,
+  MANIFEST_VERSION_V12,
   SUPPORTED_MANIFEST_VERSIONS,
   loadManifests,
   manifestSnapshot,
