@@ -29,6 +29,53 @@
       "/internal/v1/describe",
       "/internal/v1/self-test",
       "/internal/drain"
+    ],
+    "bindings": [
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/start",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/coordination/runs/:runId",
+        "capability": "coordination.status"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/autonomy-attempts",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/escalations",
+        "capability": "coordination.plan"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/runs/:runId/cancel",
+        "capability": "coordination.cancel"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/modules/heartbeat",
+        "capability": "coordination.lifecycle.heartbeat"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/coordination/modules/lifecycle-events",
+        "capability": "coordination.lifecycle.event"
+      },
+      {
+        "method": "GET",
+        "path": "/internal/v1/coordination/modules",
+        "capability": "coordination.status"
+      }
     ]
   },
   "rpc": {

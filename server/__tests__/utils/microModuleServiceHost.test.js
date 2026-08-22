@@ -31,12 +31,37 @@ describe("MicroModuleServiceHost", () => {
     });
 
     expect(
-      host.internalRouteCapabilities[
-        "POST /internal/v1/keys/audit-descriptor"
-      ]
+      host.internalRouteCapabilities["POST /internal/v1/keys/audit-descriptor"]
     ).toBe("key-custody.audit-descriptor");
     expect(host.internalRouteCapabilities["POST /internal/drain"]).toBe(
       "module.drain"
+    );
+  });
+
+  test("loads every coordination control-plane route binding", () => {
+    const host = new MicroModuleServiceHost({
+      manifestId: "coordination-plane",
+      role: "coordination-plane",
+      port: 0,
+    });
+
+    expect(host.internalRouteCapabilities).toEqual(
+      expect.objectContaining({
+        "POST /internal/v1/coordination/runs": "coordination.plan",
+        "POST /internal/v1/coordination/runs/:runId/start": "coordination.plan",
+        "GET /internal/v1/coordination/runs/:runId": "coordination.status",
+        "POST /internal/v1/coordination/runs/:runId/autonomy-attempts":
+          "coordination.plan",
+        "POST /internal/v1/coordination/runs/:runId/escalations":
+          "coordination.plan",
+        "POST /internal/v1/coordination/runs/:runId/cancel":
+          "coordination.cancel",
+        "POST /internal/v1/coordination/modules/heartbeat":
+          "coordination.lifecycle.heartbeat",
+        "POST /internal/v1/coordination/modules/lifecycle-events":
+          "coordination.lifecycle.event",
+        "GET /internal/v1/coordination/modules": "coordination.status",
+      })
     );
   });
 
