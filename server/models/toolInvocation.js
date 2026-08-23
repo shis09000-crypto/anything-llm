@@ -32,6 +32,71 @@ function scopeDigest(value = {}) {
 }
 
 const ToolInvocation = {
+  startExternalExecution: async function ({
+    approvalRequestId,
+    ownerUserId = null,
+    ownerAuthUserId = null,
+    toolName,
+    scope = {},
+    args = {},
+  } = {}) {
+    try {
+      return await prisma.tool_invocations.create({
+        data: {
+          approvalRequestId: bounded(approvalRequestId, 160),
+          ownerUserId: ownerUserId === null ? null : Number(ownerUserId),
+          ownerAuthUserId: bounded(ownerAuthUserId, 160),
+          toolName: bounded(toolName, 160),
+          approvalClass: "external-mcp-grant",
+          status: "running",
+          scopeJson: canonicalJson(scope),
+          scopeHash: scopeDigest(scope),
+          argumentHash: sha256(canonicalJson(args)),
+          approvedAt: new Date(),
+          startedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      if (error?.code === "P2002")
+        return prisma.tool_invocations.findUnique({
+          where: { approvalRequestId: String(approvalRequestId) },
+        });
+      throwModelDataAccessError("toolInvocation.startExternalExecution", error);
+    }
+  },
+
+  completeExternalExecution: async function ({
+    approvalRequestId,
+    result,
+  } = {}) {
+    return this.completeExecution({ approvalRequestId, result });
+  },
+
+  failExternalExecution: async function ({
+    approvalRequestId,
+    reasonCode,
+  } = {}) {
+    return this.failExecution({ approvalRequestId, reasonCode });
+  },
+
+  recentExternalExecutions: async function ({ ownerUserId, limit = 50 } = {}) {
+    try {
+      return await prisma.tool_invocations.findMany({
+        where: {
+          ownerUserId: Number(ownerUserId),
+          approvalClass: "external-mcp-grant",
+        },
+        orderBy: { approvalRequestedAt: "desc" },
+        take: Math.min(Math.max(Number(limit) || 50, 1), 100),
+      });
+    } catch (error) {
+      throwModelDataAccessError(
+        "toolInvocation.recentExternalExecutions",
+        error
+      );
+    }
+  },
+
   requestApproval: async function ({
     approvalRequestId,
     agentInvocationId,

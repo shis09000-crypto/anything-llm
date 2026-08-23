@@ -56,6 +56,27 @@ const ApiKey = {
     }
   },
 
+  rotate: async function (id, createdByUserId = null) {
+    try {
+      const existing = await this.get({
+        id: Number(id),
+        ...(createdByUserId ? { createdBy: Number(createdByUserId) } : {}),
+      });
+      if (!existing) return { apiKey: null, error: "API key not found." };
+      const plainSecret = this.makeSecret();
+      const apiKey = await prisma.api_keys.update({
+        where: { id: existing.id },
+        data: {
+          secret: saveSecret(plainSecret),
+          lastUpdatedAt: new Date(),
+        },
+      });
+      return { apiKey: publicApiKey(apiKey, plainSecret), error: null };
+    } catch (error) {
+      return { apiKey: null, error: error.message };
+    }
+  },
+
   get: async function (clause = {}) {
     try {
       const apiKey = await prisma.api_keys.findFirst({ where: clause });
@@ -100,11 +121,35 @@ const ApiKey = {
       if (!secret) return null;
 
       const plaintextMatch = await this.get({ secret: String(secret) });
-      if (plaintextMatch) return plaintextMatch;
+      if (plaintextMatch) {
+        if (
+          !plaintextMatch.lastUsedAt ||
+          Date.now() - plaintextMatch.lastUsedAt.getTime() > 300_000
+        )
+          prisma.api_keys
+            .update({
+              where: { id: plaintextMatch.id },
+              data: { lastUsedAt: new Date() },
+            })
+            .catch(() => {});
+        return plaintextMatch;
+      }
 
       const apiKeys = await prisma.api_keys.findMany({});
       for (const apiKey of apiKeys) {
-        if (readSecret(apiKey.secret) === String(secret)) return apiKey;
+        if (readSecret(apiKey.secret) === String(secret)) {
+          if (
+            !apiKey.lastUsedAt ||
+            Date.now() - apiKey.lastUsedAt.getTime() > 300_000
+          )
+            prisma.api_keys
+              .update({
+                where: { id: apiKey.id },
+                data: { lastUsedAt: new Date() },
+              })
+              .catch(() => {});
+          return apiKey;
+        }
       }
       return null;
     } catch (error) {

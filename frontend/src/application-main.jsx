@@ -79,6 +79,11 @@ const Athena3DCenter = React.lazy(
 const GeneralApiKeys = React.lazy(
   () => import("@/pages/GeneralSettings/ApiKeys")
 );
+const ExternalMcpAuthorizationConsent = React.lazy(() =>
+  import("@/pages/GeneralSettings/ApiKeys").then((module) => ({
+    default: module.ExternalMcpAuthorizationConsent,
+  }))
+);
 const ScheduledJobs = React.lazy(
   () => import("@/pages/GeneralSettings/ScheduledJobs")
 );
@@ -273,6 +278,10 @@ const router = createBrowserRouter([
           );
           return { element: <PrivateRoute Component={AccountSettings} /> };
         },
+      },
+      {
+        path: "/oauth/mcp/consent",
+        element: routeElement(PrivateRoute, ExternalMcpAuthorizationConsent),
       },
       // Admin routes
       {

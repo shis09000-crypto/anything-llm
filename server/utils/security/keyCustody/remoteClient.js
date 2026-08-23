@@ -171,6 +171,73 @@ function auditContext({
   };
 }
 
+function mcpTokenContext(operation) {
+  return {
+    purpose: "mcp-access-token",
+    domain: "external-mcp-oauth",
+    resource: "athena-external-mcp",
+    operation,
+  };
+}
+
+async function remoteMcpTokenDescriptor(keyId = null, env = process.env) {
+  const context = mcpTokenContext("token-descriptor");
+  const response = await requestInternalService({
+    callerRole: callerRole(env),
+    callerModule: callerModule(env),
+    targetModule: "key-custody",
+    capability: "key-custody.mcp-token-descriptor",
+    contractVersion: "1.0",
+    url: `${keyCustodyUrl(env)}/internal/v1/keys/mcp-token-descriptor`,
+    body: { keyId: bounded(keyId, 160) || null, context },
+    env,
+    timeoutMs: Number(env.ATHENA_KEY_CUSTODY_TIMEOUT_MS || 10_000),
+  });
+  if (
+    !response?.key?.keyId ||
+    response.key.algorithm !== "Ed25519" ||
+    !response.key.publicKey
+  ) {
+    const error = new Error("key_custody_mcp_descriptor_invalid");
+    error.code = "key_custody_mcp_descriptor_invalid";
+    throw error;
+  }
+  return response.key;
+}
+
+async function remoteSignMcpAccessToken(
+  { keyId = null, signingInput },
+  env = process.env
+) {
+  const context = mcpTokenContext("token-signature");
+  const response = await requestInternalService({
+    callerRole: callerRole(env),
+    callerModule: callerModule(env),
+    targetModule: "key-custody",
+    capability: "key-custody.mcp-token-sign",
+    contractVersion: "1.0",
+    url: `${keyCustodyUrl(env)}/internal/v1/keys/mcp-token-sign`,
+    body: {
+      keyId: bounded(keyId, 160) || null,
+      signingInput: String(signingInput || ""),
+      context,
+    },
+    idempotencyKey: idempotencyKey("mcp-token-sign", signingInput, context),
+    env,
+    timeoutMs: Number(env.ATHENA_KEY_CUSTODY_TIMEOUT_MS || 10_000),
+  });
+  if (
+    !response?.keyId ||
+    response.algorithm !== "Ed25519" ||
+    !/^[A-Za-z0-9_-]+$/.test(String(response.signature || ""))
+  ) {
+    const error = new Error("key_custody_mcp_signature_invalid");
+    error.code = "key_custody_mcp_signature_invalid";
+    throw error;
+  }
+  return response;
+}
+
 async function remoteAuditKeyDescriptor(
   keyId,
   { chainId = "security-v1", throughSequence = null } = {},
@@ -268,10 +335,12 @@ module.exports = {
   callerModule,
   callerRole,
   keyCustodyUrl,
+  remoteMcpTokenDescriptor,
   remoteAuditKeyDescriptor,
   remoteCustodyStatus,
   remoteKeyCustodyEnabled,
   remoteSignAuditCheckpoint,
+  remoteSignMcpAccessToken,
   safeContext,
   unwrapMaterial,
   wrapMaterial,

@@ -3,7 +3,8 @@ const {
   encryptSecret,
   isEncryptedSecret,
 } = require("../encryption");
-const { health } = require(".");
+const crypto = require("crypto");
+const { health, resolveActiveKey, resolveKey } = require(".");
 
 const RPC_VERSION = "athena-key-custody-rpc:v1";
 const MAX_MATERIAL_BYTES = 64 * 1024;
@@ -21,9 +22,11 @@ const CALLER_PURPOSES = Object.freeze({
     "chat-conversation-key",
   ]),
   "chat-runtime": new Set(["secret-store", "chat-conversation-key"]),
+  "agent-runtime": new Set(["chat-conversation-key", "agent-run-event"]),
   "responses-runtime": new Set(["responses-state"]),
   identity: new Set([
     "security-audit-checkpoint",
+    "mcp-access-token",
     "user-state:chat-draft",
   ]),
   "browser-worker": new Set(["browser-profile-dek"]),
@@ -134,6 +137,122 @@ function auditPayload(value) {
     throw error;
   }
   return payload;
+}
+
+const ED25519_PKCS8_SEED_PREFIX = Buffer.from(
+  "302e020100300506032b657004220420",
+  "hex"
+);
+
+function mcpSigningKey(keyId = null) {
+  const descriptor = keyId ? resolveKey(keyId) : resolveActiveKey();
+  if (!descriptor?.material || !descriptor?.keyId) {
+    const error = new Error("mcp_access_token_signing_key_unavailable");
+    error.code = "mcp_access_token_signing_key_unavailable";
+    error.httpStatus = 503;
+    throw error;
+  }
+  const seed = Buffer.from(
+    crypto.hkdfSync(
+      "sha256",
+      descriptor.material,
+      Buffer.from("athena-mcp-access-token-v1", "utf8"),
+      Buffer.from(descriptor.keyId, "utf8"),
+      32
+    )
+  );
+  const privateKey = crypto.createPrivateKey({
+    key: Buffer.concat([ED25519_PKCS8_SEED_PREFIX, seed]),
+    format: "der",
+    type: "pkcs8",
+  });
+  return {
+    keyId: descriptor.keyId,
+    privateKey,
+    publicKey: crypto
+      .createPublicKey(privateKey)
+      .export({ format: "der", type: "spki" })
+      .toString("base64"),
+  };
+}
+
+function mcpAccessTokenDescriptor(
+  { keyId = null, context } = {},
+  { caller, env } = {}
+) {
+  const normalized = normalizedContext(context);
+  authorizePurpose(caller, normalized, env);
+  const key = mcpSigningKey(keyId);
+  observe("mcp_token_descriptor", "success");
+  return {
+    version: RPC_VERSION,
+    key: {
+      keyId: key.keyId,
+      algorithm: "Ed25519",
+      publicKey: key.publicKey,
+    },
+  };
+}
+
+function mcpSigningInput(value, expectedKeyId) {
+  const signingInput = material(value, "mcp_access_token_signing_input", 8192);
+  const parts = signingInput.split(".");
+  if (parts.length !== 2) throw new Error("mcp_access_token_payload_invalid");
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+  } catch {
+    throw new Error("mcp_access_token_payload_invalid");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    header?.alg !== "EdDSA" ||
+    header?.typ !== "at+jwt" ||
+    header?.kid !== expectedKeyId ||
+    payload?.typ !== "athena-mcp-access" ||
+    payload?.aud !== "athena-external-mcp" ||
+    !String(payload?.iss || "").trim() ||
+    !String(payload?.client_id || "").trim() ||
+    !String(payload?.grant_id || "").trim() ||
+    !Number.isSafeInteger(payload?.iat) ||
+    !Number.isSafeInteger(payload?.exp) ||
+    payload.iat > now + 30 ||
+    payload.exp <= now ||
+    payload.exp - payload.iat > 660
+  ) {
+    const error = new Error("mcp_access_token_payload_invalid");
+    error.code = "mcp_access_token_payload_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  return signingInput;
+}
+
+function signMcpAccessToken(
+  { keyId = null, signingInput, context } = {},
+  { caller, env } = {}
+) {
+  try {
+    const normalized = normalizedContext(context);
+    authorizePurpose(caller, normalized, env);
+    const key = mcpSigningKey(keyId);
+    const input = mcpSigningInput(signingInput, key.keyId);
+    const signature = crypto
+      .sign(null, Buffer.from(input, "utf8"), key.privateKey)
+      .toString("base64url");
+    observe("mcp_token_sign", "success");
+    return {
+      version: RPC_VERSION,
+      keyId: key.keyId,
+      algorithm: "Ed25519",
+      signature,
+    };
+  } catch (error) {
+    observe("mcp_token_sign", error?.httpStatus === 403 ? "denied" : "failed");
+    throw error;
+  }
 }
 
 function auditKeyDescriptor(
@@ -255,8 +374,10 @@ module.exports = {
   authorizePurpose,
   callerRole,
   custodyStatus,
+  mcpAccessTokenDescriptor,
   normalizedContext,
   signAuditCheckpoint,
+  signMcpAccessToken,
   unwrapMaterial,
   wrapMaterial,
 };

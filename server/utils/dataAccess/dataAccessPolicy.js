@@ -109,6 +109,7 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   embedConfig: DATA_ACCESS_CLASSIFICATIONS.user,
   eventLog: DATA_ACCESS_CLASSIFICATIONS.internal,
   externalCommunication: DATA_ACCESS_CLASSIFICATIONS.sensitive,
+  externalMcpOAuth: DATA_ACCESS_CLASSIFICATIONS.secret,
   knowledgeGraph: DATA_ACCESS_CLASSIFICATIONS.user,
   iosPushToken: DATA_ACCESS_CLASSIFICATIONS.secret,
   mobile: DATA_ACCESS_CLASSIFICATIONS.sensitive,

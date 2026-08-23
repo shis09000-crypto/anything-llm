@@ -51,7 +51,7 @@ const MAIN_OWNERSHIP_RULES = Object.freeze([
   ["key_custody", /^security_key_/i],
   [
     "identity",
-    /^(users|memory_candidates|user_memory_|user_profile_overviews|user_state_preferences|vault_|user_domain_|athena_clients|athena_device_attestation_challenges|athena_request_nonces|auth_device_recovery_challenges)/i,
+    /^(users|memory_candidates|user_memory_|user_profile_overviews|user_state_preferences|vault_|user_domain_|athena_clients|athena_device_attestation_challenges|athena_request_nonces|auth_device_recovery_challenges|mcp_)/i,
   ],
   [
     "chat",

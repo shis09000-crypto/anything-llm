@@ -149,6 +149,14 @@ run_character_performance_runtime() {
     exec node /app/server/character-performance-runtime.js
 }
 
+run_external_mcp_gateway() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/external-mcp-gateway.js
+}
+
 run_tool_broker() {
   cd /app/server/ &&
     verify_crypto_runtime &&
@@ -296,6 +304,9 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   character-performance-runtime)
     run_character_performance_runtime
+    ;;
+  external-mcp-gateway)
+    run_external_mcp_gateway
     ;;
   tool-broker)
     run_tool_broker

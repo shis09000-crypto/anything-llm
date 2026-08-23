@@ -14,12 +14,120 @@ datasource db {
 }
 
 model api_keys {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   name          String?
-  secret        String?  @unique
+  secret        String?   @unique
   createdBy     Int?
+  createdAt     DateTime  @default(now())
+  lastUpdatedAt DateTime  @default(now())
+  lastUsedAt    DateTime?
+}
+
+model mcp_oauth_clients {
+  id                  String    @id @default(uuid())
+  clientId            String    @unique
+  name                String
+  clientType          String
+  secretHash          String?
+  redirectUrisJson    String    @default("[]")
+  maxScopesJson       String    @default("[]")
+  maxToolsJson        String    @default("[]")
+  maxWorkspacesJson   String    @default("[]")
+  status              String    @default("active")
+  policyVersion       String    @default("external-mcp-v1")
+  createdByUserId     Int
+  createdByAuthUserId String?
+  secretExpiresAt     DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([createdByUserId, status])
+  @@index([status, secretExpiresAt])
+}
+
+model mcp_access_grants {
+  id                   String    @id @default(uuid())
+  clientId             String
+  subjectType          String
+  ownerUserId          Int
+  ownerAuthUserId      String?
+  status               String    @default("active")
+  authorizationVersion Int       @default(1)
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  revokedByUserId      Int?
+  revokeReason         String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([clientId, status, expiresAt])
+  @@index([ownerUserId, status])
+}
+
+model mcp_grant_scopes {
+  id        String   @id @default(uuid())
+  grantId   String
+  scope     String
+  createdAt DateTime @default(now())
+
+  @@unique([grantId, scope])
+  @@index([grantId])
+}
+
+model mcp_grant_tools {
+  id        String   @id @default(uuid())
+  grantId   String
+  toolName  String
+  createdAt DateTime @default(now())
+
+  @@unique([grantId, toolName])
+  @@index([grantId])
+}
+
+model mcp_grant_workspaces {
+  id            String   @id @default(uuid())
+  grantId       String
+  workspaceId   Int
+  workspaceSlug String
   createdAt     DateTime @default(now())
-  lastUpdatedAt DateTime @default(now())
+
+  @@unique([grantId, workspaceId])
+  @@index([grantId])
+  @@index([workspaceId])
+}
+
+model mcp_authorization_codes {
+  id                  String    @id @default(uuid())
+  codeHash            String    @unique
+  clientId            String
+  grantId             String
+  redirectUri         String
+  codeChallenge       String
+  codeChallengeMethod String    @default("S256")
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  createdAt           DateTime  @default(now())
+
+  @@index([clientId, expiresAt])
+  @@index([grantId])
+}
+
+model mcp_refresh_tokens {
+  id                String    @id @default(uuid())
+  tokenHash         String    @unique
+  tokenFamily       String
+  clientId          String
+  grantId           String
+  parentTokenId     String?
+  expiresAt         DateTime
+  consumedAt        DateTime?
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  createdAt         DateTime  @default(now())
+
+  @@index([tokenFamily, revokedAt])
+  @@index([clientId, grantId])
+  @@index([expiresAt])
 }
 
 model workspace_documents {
@@ -3118,7 +3226,7 @@ model image_asset_sources {
 }
 
 model workspace_chat_attachment_refs {
-  id              String   @id
+  id              String    @id
   chatId          Int
   contentObjectId String?
   imageAssetId    String?
@@ -3127,9 +3235,9 @@ model workspace_chat_attachment_refs {
   mimeType        String
   byteSize        Int
   metadataJson    String?
-  status          String   @default("active")
+  status          String    @default("active")
   deletedAt       DateTime?
-  createdAt       DateTime @default(now())
+  createdAt       DateTime  @default(now())
 
   @@unique([chatId, ordinal])
   @@index([contentObjectId])

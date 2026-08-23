@@ -1181,6 +1181,60 @@ const System = {
         return false;
       });
   },
+  rotateApiKey: async function (apiKeyId = "") {
+    return postJson(`/system/api-key/${apiKeyId}/rotate`, {})
+      .then(({ data }) => data)
+      .catch((e) => ({ apiKey: null, error: responseError(e) }));
+  },
+  externalMcpConfig: async function () {
+    return getJson("/external-mcp/config")
+      .then(({ data }) => data)
+      .catch((e) => ({
+        success: false,
+        enabled: false,
+        error: responseError(e, "Could not load Third-party MCP."),
+      }));
+  },
+  externalMcpAuthorizePreview: async function (clientId = "", scope = "") {
+    return getJson(
+      `/external-mcp/authorize-preview?client_id=${encodeURIComponent(clientId)}&scope=${encodeURIComponent(scope)}`
+    )
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: responseError(e) }));
+  },
+  createExternalMcpClient: async function (input = {}) {
+    return postJson("/external-mcp/clients", input)
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: responseError(e) }));
+  },
+  rotateExternalMcpClient: async function (clientId = "") {
+    return postJson(
+      `/external-mcp/clients/${encodeURIComponent(clientId)}/rotate`,
+      {}
+    )
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: responseError(e) }));
+  },
+  setExternalMcpClientStatus: async function (
+    clientId = "",
+    status = "disabled"
+  ) {
+    return patchJson(`/external-mcp/clients/${encodeURIComponent(clientId)}`, {
+      status,
+    })
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: responseError(e) }));
+  },
+  revokeExternalMcpGrant: async function (grantId = "") {
+    return deleteJson(`/external-mcp/grants/${encodeURIComponent(grantId)}`)
+      .then(({ data }) => data || { success: true })
+      .catch((e) => ({ success: false, error: responseError(e) }));
+  },
+  emergencyRevokeExternalMcp: async function () {
+    return postJson("/external-mcp/emergency-revoke", {})
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: responseError(e) }));
+  },
   customModels: async function (
     provider,
     apiKey = null,

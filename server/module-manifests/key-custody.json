@@ -17,6 +17,7 @@
     "remote-wrap",
     "remote-unwrap",
     "remote-audit-signing",
+    "remote-mcp-token-signing",
     "rotation",
     "quarantine",
     "crypto-suite-registry"
@@ -28,6 +29,8 @@
       "/internal/v1/keys/unwrap",
       "/internal/v1/keys/audit-descriptor",
       "/internal/v1/keys/audit-sign",
+      "/internal/v1/keys/mcp-token-descriptor",
+      "/internal/v1/keys/mcp-token-sign",
       "/internal/v1/keys/status"
     ],
     "bindings": [
@@ -82,6 +85,16 @@
         "capability": "key-custody.audit-sign"
       },
       {
+        "method": "POST",
+        "path": "/internal/v1/keys/mcp-token-descriptor",
+        "capability": "key-custody.mcp-token-descriptor"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/keys/mcp-token-sign",
+        "capability": "key-custody.mcp-token-sign"
+      },
+      {
         "method": "GET",
         "path": "/internal/v1/keys/status",
         "capability": "key-custody.audit-descriptor"
@@ -94,6 +107,8 @@
       "key-custody.unwrap",
       "key-custody.audit-descriptor",
       "key-custody.audit-sign",
+      "key-custody.mcp-token-descriptor",
+      "key-custody.mcp-token-sign",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -239,6 +254,38 @@
           "dependency_unavailable"
         ],
         "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.mcp-token-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.mcp-token-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.mcp-token-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.mcp-token-sign",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.mcp-token-sign/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.mcp-token-sign/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
         "idempotency": "supported",
         "dataClassification": "confidential"
       },

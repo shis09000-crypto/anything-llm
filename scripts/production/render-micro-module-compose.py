@@ -31,6 +31,7 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-model-gateway",
     "anything-llm-responses-runtime",
     "anything-llm-character-performance-runtime",
+    "anything-llm-external-mcp-gateway",
     "anything-llm-tool-broker",
     "anything-llm-crypto-market",
     "anything-llm-crypto-account",
@@ -118,6 +119,7 @@ DEFAULT_SERVICE_PORTS = {
     "anything-llm-browser-egress": 3033,
     "anything-llm-responses-runtime": 3034,
     "anything-llm-character-performance-runtime": 3042,
+    "anything-llm-external-mcp-gateway": 3043,
 }
 
 
@@ -195,6 +197,7 @@ def service_port(service_name: str, environment: dict) -> int | None:
         "AGENT_RUNTIME_PORT",
         "MODEL_GATEWAY_PORT",
         "RESPONSES_RUNTIME_PORT",
+        "EXTERNAL_MCP_GATEWAY_PORT",
         "TOOL_BROKER_PORT",
         "CRYPTO_MARKET_PORT",
         "CRYPTO_ACCOUNT_PORT",

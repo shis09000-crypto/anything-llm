@@ -59,15 +59,8 @@ const {
   simpleSSOLoginDisabledMiddleware,
 } = require("../utils/middleware/simpleSSOEnabled");
 const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
-const { getClientContext } = require("../utils/clientIdentity");
-const {
-  authSessionFingerprintFromRequest,
-  revokeVaultAccessGrants,
-} = require("../utils/authz/vaultAccessGrants");
-const {
-  issueSensitiveSession,
-  revokeSensitiveSessions,
-} = require("../utils/authz/sensitiveSessions");
+const { revokeVaultAccessGrants } = require("../utils/authz/vaultAccessGrants");
+const { revokeSensitiveSessions } = require("../utils/authz/sensitiveSessions");
 const SystemSettings = DataAccessCenter.adminSystem;
 
 const DEFAULT_ADMIN_PAGE_LIMIT = 50;
@@ -931,38 +924,37 @@ function adminEndpoints(app) {
     [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
-        const user = await userFromSession(request, response);
-        const { name = null } = reqBody(request);
-        recordAdminCheckpoint(request, "admin_api_key_create", "api_key");
-        const { apiKey, error } = await ApiKey.create(user.id, name);
-        const context = getClientContext(request);
-        const sensitiveSession =
-          apiKey?.id && context?.clientId
-            ? issueSensitiveSession({
-                userId: user.id,
-                clientId: context.clientId,
-                resourceType: "api_key",
-                resourceId: apiKey.id,
-                ownerScope: `admin:api-key:${apiKey.id}`,
-                method: "admin-generate-api-key",
-                requestId:
-                  request.signedRequest?.requestId || context.requestId || null,
-                sessionFingerprint: authSessionFingerprintFromRequest(request),
-              })
-            : null;
-        await EventLogs.logEvent(
-          "api_key_created",
-          { createdBy: user?.username, name: apiKey?.name },
-          user?.id
-        );
-        return response.status(200).json({
-          apiKey,
-          sensitiveSession,
-          error,
+        return response.status(410).json({
+          apiKey: null,
+          error:
+            "New legacy REST API keys are disabled. Create a Third-party MCP client instead.",
+          code: "LEGACY_API_KEY_CREATION_DISABLED",
         });
       } catch (e) {
         console.error(e);
         response.sendStatus(e.httpStatus || 500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/admin/api-key/:id/rotate",
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const { apiKey, error } = await ApiKey.rotate(request.params.id);
+        await EventLogs.logEvent(
+          "api_key_rotated",
+          { keyId: apiKey?.id || Number(request.params.id) },
+          user?.id
+        );
+        return response.status(apiKey ? 200 : 404).json({ apiKey, error });
+      } catch (error) {
+        return response.status(error.httpStatus || 500).json({
+          apiKey: null,
+          error: "Could not rotate the legacy API key.",
+        });
       }
     }
   );

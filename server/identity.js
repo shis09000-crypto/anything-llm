@@ -37,6 +37,9 @@ const {
   deviceBindingRecoveryEndpoints,
 } = require("./endpoints/deviceBindingRecovery");
 const {
+  registerExternalMcpOAuthRoutes,
+} = require("./endpoints/externalMcpOAuth");
+const {
   MicroModuleServiceHost,
   installStandaloneShutdown,
   registerCompatibleApi,
@@ -106,6 +109,7 @@ const identityApiScope = createApiScope({
     "/system/user/memory/reauth/passkey/options",
     "/system/user/memory/reauth/passkey/verify",
     "/system/transport-security/status",
+    "/external-mcp/authorize-preview",
   ],
   prefixes: [
     "/auth",
@@ -114,6 +118,7 @@ const identityApiScope = createApiScope({
     "/client-identity",
     "/admin/security/keys",
     "/system/sessions",
+    "/external-mcp",
   ],
 });
 
@@ -134,6 +139,7 @@ const host = new MicroModuleServiceHost({
     "/internal/v1/user-state/upsert": "identity.user-state.upsert",
     "/internal/v1/user-state/delete": "identity.user-state.delete",
     "/internal/v1/user-domain-wraps/queue": "identity.user-domain-wrap.queue",
+    "/internal/v1/mcp/introspect": "identity.introspect",
   },
   readiness: () => {
     const securityAudit = securityAuditMaintenanceSnapshot();
@@ -195,6 +201,10 @@ const host = new MicroModuleServiceHost({
       authZkLoginEndpoints(api);
       authSessionRecoveryEndpoints(api);
       deviceBindingRecoveryEndpoints(api);
+    });
+    registerExternalMcpOAuthRoutes(app, {
+      includePublic: true,
+      includeInternal: true,
     });
     app.post("/internal/v1/session/introspect", async (request, response) => {
       if (request.body?.probe === true) {

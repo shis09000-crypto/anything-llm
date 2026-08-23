@@ -449,6 +449,11 @@ const Admin = {
         return false;
       });
   },
+  rotateApiKey: async function (apiKeyId = "") {
+    return postJson(`/admin/api-key/${apiKeyId}/rotate`, {})
+      .then(({ data }) => data)
+      .catch((e) => ({ apiKey: null, error: responseError(e) }));
+  },
 };
 
 export default Admin;

@@ -12,9 +12,7 @@ const { validateRegistered } = require("./schemaRegistry");
 const { metrics } = require("../observability/metrics");
 const { loadManifests } = require("../modulePlatform/manifestRegistry");
 const { aicpShadowObserver } = require("../modulePlatform/aicp/shadowObserver");
-const {
-  parseExpectedModuleStates,
-} = require("./moduleHealthMonitor");
+const { parseExpectedModuleStates } = require("./moduleHealthMonitor");
 
 const MAX_RETRY_QUEUE = 1_000;
 

@@ -1,12 +1,16 @@
 /* global describe, beforeAll, afterAll, test, expect */
 
+const crypto = require("crypto");
+
 const {
   EnvironmentKeyProvider,
 } = require("../../utils/security/keyCustody/providers");
 const { resetKeyProviderForTests } = require("../../utils/security/keyCustody");
 const {
   auditKeyDescriptor,
+  mcpAccessTokenDescriptor,
   signAuditCheckpoint,
+  signMcpAccessToken,
   unwrapMaterial,
   wrapMaterial,
 } = require("../../utils/security/keyCustody/serviceRuntime");
@@ -136,6 +140,58 @@ describe("Key Custody isolated service runtime", () => {
         }
       )
     ).toThrow("key_custody_purpose_denied");
+  });
+
+  test("signs bounded MCP access tokens for Identity without exposing the private key", () => {
+    const caller = "spiffe://athena/production/identity";
+    const context = {
+      purpose: "mcp-access-token",
+      domain: "external-mcp-oauth",
+      resource: "athena-external-mcp",
+      operation: "token-signature",
+    };
+    const descriptor = mcpAccessTokenDescriptor(
+      { context },
+      { caller, env: { NODE_ENV: "production" } }
+    );
+    const now = Math.floor(Date.now() / 1000);
+    const encode = (value) =>
+      Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+    const signingInput = `${encode({
+      alg: "EdDSA",
+      typ: "at+jwt",
+      kid: descriptor.key.keyId,
+    })}.${encode({
+      typ: "athena-mcp-access",
+      iss: "https://athena.example.com",
+      aud: "athena-external-mcp",
+      sub: "service:1",
+      client_id: "client-1",
+      grant_id: "grant-1",
+      grant_version: 1,
+      scope: "workspace:list",
+      iat: now,
+      exp: now + 600,
+    })}`;
+    const signed = signMcpAccessToken(
+      { keyId: descriptor.key.keyId, signingInput, context },
+      { caller, env: { NODE_ENV: "production" } }
+    );
+    const publicKey = crypto.createPublicKey({
+      key: Buffer.from(descriptor.key.publicKey, "base64"),
+      format: "der",
+      type: "spki",
+    });
+    expect(
+      crypto.verify(
+        null,
+        Buffer.from(signingInput, "utf8"),
+        publicKey,
+        Buffer.from(signed.signature, "base64url")
+      )
+    ).toBe(true);
+    expect(signed).not.toHaveProperty("privateKey");
+    expect(descriptor.key).not.toHaveProperty("privateKey");
   });
 
   test.each([

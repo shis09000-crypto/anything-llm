@@ -2868,38 +2868,40 @@ function systemEndpoints(app) {
           return response.sendStatus(401).end();
         }
 
-        const { name = null } = reqBody(request);
-        const { apiKey, error } = await ApiKey.create(null, name);
-        const context = getClientContext(request);
-        const sensitiveSession =
-          apiKey?.id && context?.clientId && response?.locals?.user?.id
-            ? issueSensitiveSession({
-                userId: response.locals.user.id,
-                clientId: context.clientId,
-                resourceType: "api_key",
-                resourceId: apiKey.id,
-                ownerScope: `system:api-key:${apiKey.id}`,
-                method: "generate-api-key",
-                requestId:
-                  request.signedRequest?.requestId || context.requestId || null,
-                sessionFingerprint: authSessionFingerprintFromRequest(request),
-              })
-            : null;
-        await EventLogs.logEvent(
-          "api_key_created",
-          { name: apiKey?.name },
-          response?.locals?.user?.id
-        );
-        return response.status(200).json({
-          apiKey,
-          sensitiveSession,
-          error,
+        return response.status(410).json({
+          apiKey: null,
+          error:
+            "New legacy REST API keys are disabled. Create a Third-party MCP client instead.",
+          code: "LEGACY_API_KEY_CREATION_DISABLED",
         });
       } catch (error) {
         console.error(error);
         response.status(httpStatus(error)).json({
           apiKey: null,
           error: "Error generating api key.",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/api-key/:id/rotate",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        if (response.locals.multiUserMode)
+          return response.sendStatus(401).end();
+        const { apiKey, error } = await ApiKey.rotate(request.params.id);
+        await EventLogs.logEvent(
+          "api_key_rotated",
+          { keyId: apiKey?.id || Number(request.params.id) },
+          response?.locals?.user?.id
+        );
+        return response.status(apiKey ? 200 : 404).json({ apiKey, error });
+      } catch (error) {
+        return response.status(httpStatus(error)).json({
+          apiKey: null,
+          error: "Could not rotate the legacy API key.",
         });
       }
     }

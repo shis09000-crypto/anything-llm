@@ -23,7 +23,9 @@ assertProductionSecurityConfig();
 const {
   auditKeyDescriptor,
   custodyStatus,
+  mcpAccessTokenDescriptor,
   signAuditCheckpoint,
+  signMcpAccessToken,
   unwrapMaterial,
   wrapMaterial,
 } = require("./utils/security/keyCustody/serviceRuntime");
@@ -100,6 +102,12 @@ const host = new MicroModuleServiceHost({
     );
     app.post("/internal/v1/keys/audit-sign", (request, response) =>
       execute(signAuditCheckpoint, request, response)
+    );
+    app.post("/internal/v1/keys/mcp-token-descriptor", (request, response) =>
+      execute(mcpAccessTokenDescriptor, request, response)
+    );
+    app.post("/internal/v1/keys/mcp-token-sign", (request, response) =>
+      execute(signMcpAccessToken, request, response)
     );
     app.get("/internal/v1/keys/status", (_request, response) =>
       response.json({ success: true, ...custodyStatus() })

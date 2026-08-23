@@ -20,6 +20,7 @@ case "$service" in
   anything-llm-model-gateway) image_variable=ATHENA_PROD_MODEL_GATEWAY_IMAGE ;;
   anything-llm-responses-runtime) image_variable=ATHENA_PROD_RESPONSES_RUNTIME_IMAGE ;;
   anything-llm-character-performance-runtime) image_variable=ATHENA_PROD_CHARACTER_PERFORMANCE_RUNTIME_IMAGE ;;
+  anything-llm-external-mcp-gateway) image_variable=ATHENA_PROD_EXTERNAL_MCP_GATEWAY_IMAGE ;;
   anything-llm-tool-broker) image_variable=ATHENA_PROD_TOOL_BROKER_IMAGE ;;
   anything-llm-crypto-market) image_variable=ATHENA_PROD_CRYPTO_MARKET_IMAGE ;;
   anything-llm-crypto-account) image_variable=ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE ;;

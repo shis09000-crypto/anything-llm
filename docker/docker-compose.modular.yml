@@ -84,6 +84,7 @@ services:
       ATHENA_CRYPTO_ACCOUNT_UPSTREAM: ${ATHENA_CRYPTO_ACCOUNT_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_CRYPTO_FORECAST_UPSTREAM: ${ATHENA_CRYPTO_FORECAST_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_IDENTITY_UPSTREAM: ${ATHENA_IDENTITY_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_EXTERNAL_MCP_UPSTREAM: ${ATHENA_EXTERNAL_MCP_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_KNOWLEDGE_INGEST_UPSTREAM: ${ATHENA_KNOWLEDGE_INGEST_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_BROWSER_STREAM_UPSTREAM: ${ATHENA_BROWSER_STREAM_UPSTREAM:-http://anything-llm-browser-worker:3031}
     networks:
@@ -426,6 +427,39 @@ services:
       ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: character-performance-runtime
       CHARACTER_PERFORMANCE_RUNTIME_PORT: 3042
+    networks:
+      - anything-llm
+
+  anything-llm-external-mcp-gateway:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: external-mcp-gateway-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    depends_on:
+      anything-llm-identity:
+        condition: service_healthy
+      anything-llm-tool-broker:
+        condition: service_healthy
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: external-mcp-gateway
+      ATHENA_EXTERNAL_MCP_ENABLED: ${ATHENA_EXTERNAL_MCP_ENABLED:-false}
+      ATHENA_IDENTITY_URL: https://anything-llm-identity:3026
+      ATHENA_TOOL_BROKER_URL: https://anything-llm-tool-broker:3019
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      EXTERNAL_MCP_GATEWAY_PORT: 3043
     networks:
       - anything-llm
 

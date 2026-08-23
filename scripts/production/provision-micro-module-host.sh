@@ -144,7 +144,7 @@ fi
 roles=(
   api background-worker realtime-gateway reader-worker scheduler
   operations-plane chat-runtime agent-runtime model-gateway tool-broker
-  responses-runtime character-performance-runtime
+  responses-runtime character-performance-runtime external-mcp-gateway
   crypto-market crypto-account crypto-forecast key-custody collector edge-web
   identity knowledge-ingest rag operations-shadow-agents prometheus minio
   browser-plane browser-worker
@@ -164,6 +164,7 @@ dns_for_role() {
     model-gateway) printf '%s' 'anything-llm-model-gateway,model-gateway' ;;
     responses-runtime) printf '%s' 'anything-llm-responses-runtime,responses-runtime' ;;
     character-performance-runtime) printf '%s' 'anything-llm-character-performance-runtime,character-performance-runtime' ;;
+    external-mcp-gateway) printf '%s' 'anything-llm-external-mcp-gateway,external-mcp-gateway' ;;
     tool-broker) printf '%s' 'anything-llm-tool-broker,tool-broker' ;;
     crypto-market) printf '%s' 'anything-llm-crypto-market,crypto-market' ;;
     crypto-account) printf '%s' 'anything-llm-crypto-account,crypto-account' ;;

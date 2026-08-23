@@ -61,6 +61,8 @@ const repositoryLoaders = {
   eventLog: () => require("../../repositories/eventLogRepository"),
   externalCommunication: () =>
     require("../../repositories/externalCommunicationRepository"),
+  externalMcpOAuth: () =>
+    require("../../repositories/externalMcpOAuthRepository"),
   chatStreamRun: () => require("../../repositories/chatStreamRunRepository"),
   agentRun: () => require("../../repositories/agentRunRepository"),
   toolInvocation: () => require("../../repositories/toolInvocationRepository"),
@@ -146,6 +148,7 @@ const repositoryExports = {
   embedChat: "EmbedChatRepository",
   eventLog: "EventLogRepository",
   externalCommunication: "ExternalCommunicationRepository",
+  externalMcpOAuth: "ExternalMcpOAuthRepository",
   chatStreamRun: "ChatStreamRunRepository",
   agentRun: "AgentRunRepository",
   toolInvocation: "ToolInvocationRepository",
@@ -1307,6 +1310,33 @@ const toolInvocation = makeRepositoryFacade(
     executionContext: "read",
     consumeCapabilityNonce: "write",
     pruneCapabilityNonces: "maintenance",
+    startExternalExecution: "write",
+    completeExternalExecution: "write",
+    failExternalExecution: "write",
+    recentExternalExecutions: "read",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
+const externalMcpOAuth = makeRepositoryFacade(
+  "externalMcpOAuth",
+  {
+    createClient: "write",
+    listClients: "read",
+    getClient: "read",
+    rotateClientSecret: "write",
+    setClientStatus: "write",
+    createGrant: "write",
+    ensureServiceGrant: "write",
+    createAuthorizationCode: "write",
+    exchangeAuthorizationCode: "write",
+    exchangeClientCredentials: "write",
+    rotateRefreshToken: "write",
+    introspect: "read",
+    listGrants: "read",
+    revokeGrant: "write",
+    emergencyRevokeAll: "write",
+    revokeToken: "write",
   },
   repositoryBoundaryScopeFromArgs
 );
@@ -2321,6 +2351,7 @@ const DataAccessCenter = {
   embedConfig,
   embedChat,
   externalCommunication,
+  externalMcpOAuth,
   knowledgeGraph,
   iosPushToken,
   imageAsset,

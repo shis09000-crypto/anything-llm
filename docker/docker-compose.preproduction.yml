@@ -402,6 +402,7 @@ services:
       ATHENA_CHAT_UPSTREAM: https://anything-llm-chat-runtime:3016
       ATHENA_AGENT_UPSTREAM: https://anything-llm-agent-runtime:3017
       ATHENA_TOOL_UPSTREAM: https://anything-llm-tool-broker:3019
+      ATHENA_EXTERNAL_MCP_UPSTREAM: https://anything-llm-external-mcp-gateway:3043
       ATHENA_CRYPTO_ACCOUNT_UPSTREAM: https://anything-llm-crypto-account:3021
       ATHENA_CRYPTO_FORECAST_UPSTREAM: https://anything-llm-crypto-forecast:3022
       ATHENA_IDENTITY_UPSTREAM: https://anything-llm-identity:3026
@@ -589,7 +590,7 @@ services:
       ATHENA_OPERATIONS_MODULE_TIMEOUT_MS: "3000"
       ATHENA_OPERATIONS_INFRA_POLL_MS: "60000"
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","character-performance-runtime":"https://anything-llm-character-performance-runtime:3042","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019","coordination-plane":"https://anything-llm-coordination-plane:3032"}
+        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","character-performance-runtime":"https://anything-llm-character-performance-runtime:3042","external-mcp-gateway":"https://anything-llm-external-mcp-gateway:3043","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019","coordination-plane":"https://anything-llm-coordination-plane:3032"}
     networks: [anything-llm]
 
   anything-llm-coordination-plane:
@@ -784,6 +785,37 @@ services:
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/character-performance-runtime.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-character-performance-runtime
       CHARACTER_PERFORMANCE_RUNTIME_PORT: "3042"
+    networks: [anything-llm]
+
+  anything-llm-external-mcp-gateway:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: external-mcp-gateway-build
+      args: { ARG_UID: "${UID:-1000}", ARG_GID: "${GID:-1000}" }
+    profiles: ["core-runtimes"]
+    depends_on:
+      nats: { condition: service_healthy }
+      anything-llm-identity: { condition: service_healthy }
+      anything-llm-tool-broker: { condition: service_healthy }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: external-mcp-gateway
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/external-mcp-gateway
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/external-mcp-gateway.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/external-mcp-gateway.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/external-mcp-gateway.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-external-mcp-gateway
+      ATHENA_EXTERNAL_MCP_ENABLED: ${ATHENA_PREPROD_EXTERNAL_MCP_ENABLED:-false}
+      ATHENA_TOOL_BROKER_URL: https://anything-llm-tool-broker:3019
+      EXTERNAL_MCP_GATEWAY_PORT: "3043"
     networks: [anything-llm]
 
   anything-llm-tool-broker:

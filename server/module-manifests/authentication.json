@@ -25,11 +25,7 @@
     "principal-assertion"
   ],
   "routes": {
-    "public": [
-      "/api/auth/",
-      "/api/security/",
-      "/api/vault/"
-    ],
+    "public": ["/api/auth/", "/api/security/", "/api/vault/", "/oauth/mcp/"],
     "internal": [
       "/internal/v1/principal/assert",
       "/internal/v1/session/introspect",
@@ -42,7 +38,8 @@
       "/internal/v1/user-state/read",
       "/internal/v1/user-state/upsert",
       "/internal/v1/user-state/delete",
-      "/internal/v1/user-domain-wraps/queue"
+      "/internal/v1/user-domain-wraps/queue",
+      "/internal/v1/mcp/introspect"
     ]
   },
   "rpc": {
@@ -72,6 +69,8 @@
       "coordination.lifecycle.heartbeat",
       "key-custody.audit-descriptor",
       "key-custody.audit-sign",
+      "key-custody.mcp-token-descriptor",
+      "key-custody.mcp-token-sign",
       "key-custody.unwrap",
       "key-custody.wrap",
       "sync.security.clients.reconcile",
@@ -90,10 +89,7 @@
   },
   "security": {
     "serviceIdentity": "spiffe://athena/{environment}/identity",
-    "keyDomains": [
-      "identity",
-      "audit"
-    ],
+    "keyDomains": ["identity", "audit"],
     "allowedCallers": [
       "edge-web",
       "athena-api",
@@ -106,7 +102,8 @@
       "rag",
       "scheduler",
       "sync-v2",
-      "coordination-plane"
+      "coordination-plane",
+      "external-mcp-gateway"
     ],
     "failureMode": "fail-closed",
     "principalFreshnessMs": 30000
@@ -502,6 +499,38 @@
           "dependency_unavailable"
         ],
         "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.mcp-token-descriptor",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.mcp-token-descriptor/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.mcp-token-descriptor/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "supported",
+        "dataClassification": "confidential"
+      },
+      {
+        "id": "key-custody.mcp-token-sign",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/key-custody.mcp-token-sign/request/1.0",
+        "responseSchema": "athena://contracts/key-custody.mcp-token-sign/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
         "idempotency": "supported",
         "dataClassification": "confidential"
       },

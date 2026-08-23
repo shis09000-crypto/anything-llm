@@ -136,6 +136,15 @@ const {
   workspaceChatAttachmentEndpoints,
 } = require("./endpoints/workspaceChatAttachments");
 const { imageAssetEndpoints } = require("./endpoints/imageAssets");
+const {
+  externalMcpManagementEndpoints,
+} = require("./endpoints/externalMcpManagement");
+const {
+  registerExternalMcpOAuthRoutes,
+} = require("./endpoints/externalMcpOAuth");
+const {
+  registerExternalMcpGatewayRoutes,
+} = require("./utils/externalMcp/gateway");
 const { httpLogger } = require("./middleware/httpLogger");
 const {
   applyTransportSecurity,
@@ -240,6 +249,13 @@ if (!!process.env.ENABLE_HTTPS) {
 }
 
 nativeAppPublicEndpoints(app);
+if (!endpointOwnedExternally("external-mcp-gateway")) {
+  registerExternalMcpGatewayRoutes(app);
+  registerExternalMcpOAuthRoutes(app, {
+    includePublic: true,
+    includeInternal: false,
+  });
+}
 app.use("/api", apiRouter);
 app.get("/ready", (_request, response) => {
   const snapshot = publicReadinessSnapshot();
@@ -263,6 +279,7 @@ devControlEndpoints(apiRouter);
 readerLibraryEndpoints(apiRouter);
 workspaceChatAttachmentEndpoints(apiRouter);
 imageAssetEndpoints(apiRouter);
+externalMcpManagementEndpoints(apiRouter);
 syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);

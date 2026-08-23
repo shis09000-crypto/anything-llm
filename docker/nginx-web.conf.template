@@ -28,6 +28,7 @@ server {
   set $athena_crypto_account_upstream "${ATHENA_CRYPTO_ACCOUNT_UPSTREAM}";
   set $athena_crypto_forecast_upstream "${ATHENA_CRYPTO_FORECAST_UPSTREAM}";
   set $athena_identity_upstream "${ATHENA_IDENTITY_UPSTREAM}";
+  set $athena_external_mcp_upstream "${ATHENA_EXTERNAL_MCP_UPSTREAM}";
   set $athena_knowledge_ingest_upstream "${ATHENA_KNOWLEDGE_INGEST_UPSTREAM}";
   set $athena_browser_stream_upstream "${ATHENA_BROWSER_STREAM_UPSTREAM}";
 
@@ -72,6 +73,47 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_read_timeout 120s;
     proxy_send_timeout 120s;
+  }
+
+  location ^~ /oauth/mcp/ {
+    proxy_ssl_name anything-llm-identity;
+    proxy_pass $athena_identity_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 120s;
+    proxy_send_timeout 120s;
+  }
+
+  location = /.well-known/oauth-authorization-server {
+    proxy_ssl_name anything-llm-external-mcp-gateway;
+    proxy_pass $athena_external_mcp_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location = /.well-known/oauth-protected-resource/mcp {
+    proxy_ssl_name anything-llm-external-mcp-gateway;
+    proxy_pass $athena_external_mcp_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location = /mcp {
+    proxy_ssl_name anything-llm-external-mcp-gateway;
+    proxy_pass $athena_external_mcp_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
   }
 
   location /api/document/ {

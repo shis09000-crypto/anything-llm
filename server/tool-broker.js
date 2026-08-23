@@ -34,6 +34,11 @@ const {
   dispatchBrowser,
   dispatchCryptoAccount,
 } = require("./utils/toolRuntime/broker");
+const {
+  decodeAicpHeader,
+} = require("./utils/modulePlatform/aicp/contractRegistry");
+const { ExternalMcpToolRegistry } = require("./utils/externalMcp/registry");
+const { verifyExternalMcpPrincipal } = require("./utils/externalMcp/principal");
 
 const state = {
   accepting: true,
@@ -69,7 +74,15 @@ const host = new MicroModuleServiceHost({
   role,
   port: Number(process.env.TOOL_BROKER_PORT || 3019),
   parseJson: false,
+  internalRouteCapabilities: {
+    "/internal/v1/tools/catalog": "tool.catalog",
+    "/internal/v1/tools/invoke": "tool.invoke",
+    "/internal/v1/external-mcp/catalog": "tool.catalog",
+    "/internal/v1/external-mcp/invoke": "tool.invoke",
+  },
   readiness: () => ({ ...state }),
+  principalAssertionVerifier: async (assertion) =>
+    verifyExternalMcpPrincipal(assertion),
   onStart: () => secureDatabaseStart(role),
   onDrain: async () => {
     state.accepting = false;
@@ -80,6 +93,16 @@ const host = new MicroModuleServiceHost({
       await new Promise((resolve) => setTimeout(resolve, 25));
   },
   registerRoutes: (app) => {
+    function verifiedExternalPrincipal(request, binding = null) {
+      try {
+        const assertion = decodeAicpHeader(
+          request.get("x-athena-principal-assertion") || ""
+        );
+        return verifyExternalMcpPrincipal(assertion, binding || undefined);
+      } catch {
+        return { valid: false, findings: ["assertion_invalid"] };
+      }
+    }
     registerCompatibleApi(app, agentSkillWhitelistEndpoints);
     app.get("/internal/v1/tools/catalog", async (_request, response) => {
       const functions = await agentSkillsFromSystemSettings(null, {
@@ -94,6 +117,45 @@ const host = new MicroModuleServiceHost({
     app.post("/internal/v1/tools/invoke", async (request, response) => {
       const result = await invoke(request.body || {});
       response.json({ success: true, result });
+    });
+    app.get("/internal/v1/external-mcp/catalog", async (request, response) => {
+      const verified = verifiedExternalPrincipal(request);
+      if (!verified.valid)
+        return response.status(401).json({
+          success: false,
+          error: "external_mcp_principal_invalid",
+        });
+      return response.json({
+        success: true,
+        tools: ExternalMcpToolRegistry.catalog(verified.payload),
+      });
+    });
+    app.post("/internal/v1/external-mcp/invoke", async (request, response) => {
+      const body = request.body || {};
+      const verified = verifiedExternalPrincipal(request, {
+        toolName: body.toolName,
+        args: body.args || {},
+        workspaceSlug: body.workspaceSlug || null,
+      });
+      if (!verified.valid)
+        return response.status(401).json({
+          success: false,
+          error: "external_mcp_principal_invalid",
+        });
+      try {
+        const result = await ExternalMcpToolRegistry.invoke({
+          toolName: body.toolName,
+          args: body.args || {},
+          principal: verified.payload,
+          approvalRequestId: body.approvalRequestId,
+        });
+        return response.json({ success: true, result });
+      } catch (error) {
+        return response.status(error.httpStatus || 500).json({
+          success: false,
+          error: error.code || "external_mcp_tool_failed",
+        });
+      }
     });
   },
 });

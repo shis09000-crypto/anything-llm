@@ -1,6 +1,37 @@
 // English is the only locale shipped in the bootstrap graph. Every other
 // dictionary is loaded on demand before the application becomes interactive.
 import English from "./en/common.js";
+import { externalMcpChinese, externalMcpEnglish } from "./externalMcp.js";
+
+function completeExternalMcpLocale(resource, language) {
+  const localized = language === "zh" ? externalMcpChinese : {};
+  return {
+    ...resource,
+    settings: {
+      ...(resource.settings || {}),
+      "api-keys": localized.title || externalMcpEnglish.title,
+    },
+    externalMcp: {
+      ...externalMcpEnglish,
+      ...localized,
+      tabs: { ...externalMcpEnglish.tabs, ...(localized.tabs || {}) },
+      connection: {
+        ...externalMcpEnglish.connection,
+        ...(localized.connection || {}),
+      },
+      create: { ...externalMcpEnglish.create, ...(localized.create || {}) },
+      secret: { ...externalMcpEnglish.secret, ...(localized.secret || {}) },
+      consent: { ...externalMcpEnglish.consent, ...(localized.consent || {}) },
+      emergency: {
+        ...externalMcpEnglish.emergency,
+        ...(localized.emergency || {}),
+      },
+      legacy: { ...externalMcpEnglish.legacy, ...(localized.legacy || {}) },
+    },
+  };
+}
+
+const completedEnglish = completeExternalMcpLocale(English, "en");
 
 export const defaultNS = "common";
 export const supportedLanguages = [
@@ -31,7 +62,7 @@ export const supportedLanguages = [
   "ca",
 ];
 
-export const resources = { en: { common: English } };
+export const resources = { en: { common: completedEnglish } };
 
 const loaders = {
   zh: () => import("./zh/common.js"),
@@ -69,9 +100,12 @@ export function normalizeSupportedLanguage(value = "en") {
 
 export async function loadLanguageResource(value = "en") {
   const language = normalizeSupportedLanguage(value);
-  if (language === "en") return { language, resource: English };
+  if (language === "en") return { language, resource: completedEnglish };
   const module = await loaders[language]();
-  return { language, resource: module.default };
+  return {
+    language,
+    resource: completeExternalMcpLocale(module.default, language),
+  };
 }
 
 export async function loadAllLanguageResources() {

@@ -10,7 +10,8 @@
   "runtimeRole": "tool-broker",
   "sourcePaths": [
     "server/utils/agents/aibitat/plugins/",
-    "server/utils/plugins/"
+    "server/utils/plugins/",
+    "server/utils/externalMcp/registry.js"
   ],
   "capabilities": [
     "registry",
@@ -21,7 +22,24 @@
   ],
   "routes": {
     "public": ["/api/agent-skills/"],
-    "internal": ["/internal/v1/tools/invoke", "/internal/v1/tools/catalog"]
+    "internal": [
+      "/internal/v1/tools/invoke",
+      "/internal/v1/tools/catalog",
+      "/internal/v1/external-mcp/invoke",
+      "/internal/v1/external-mcp/catalog"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/external-mcp/catalog",
+        "capability": "tool.catalog"
+      },
+      {
+        "method": "POST",
+        "path": "/internal/v1/external-mcp/invoke",
+        "capability": "tool.invoke"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -63,7 +81,8 @@
       "agent-runtime",
       "scheduler",
       "athena-api",
-      "coordination-plane"
+      "coordination-plane",
+      "external-mcp-gateway"
     ],
     "failureMode": "isolated-degraded",
     "principalFreshnessMs": 30000
