@@ -97,7 +97,33 @@ const host = new MicroModuleServiceHost({
   role: "operations-plane",
   port,
   internalRouteCapabilities: {
-    "/internal/v1/operations/ingest-batch": "operations.ingest-batch",
+    "POST /internal/v1/operations/ingest": "operations.ingest-batch",
+    "POST /internal/v1/operations/ingest-batch": "operations.ingest-batch",
+    "GET /internal/v1/operations/health": "operations.catalog",
+    "GET /internal/v1/operations/services": "operations.catalog",
+    "GET /internal/v1/operations/agents": "operations.catalog",
+    "GET /internal/v1/operations/shadow-agents": "operations.catalog",
+    "GET /internal/v1/operations/evaluations/latest": "operations.catalog",
+    "GET /internal/v1/operations/evaluations/corpus": "operations.catalog",
+    "GET /internal/v1/operations/actions/catalog": "operations.catalog",
+    "POST /internal/v1/operations/actions/runs/query": "operations.catalog",
+    "GET /internal/v1/operations/actions/runs/:runId": "operations.catalog",
+    "POST /internal/v1/operations/actions/runs": "operations.guard",
+    "POST /internal/v1/operations/actions/runs/:runId/decide":
+      "operations.guard",
+    "POST /internal/v1/operations/actions/runs/:runId/execute":
+      "operations.guard",
+    "POST /internal/v1/operations/actions/runs/:runId/reconcile":
+      "operations.guard",
+    "POST /internal/v1/operations/timeline": "operations.catalog",
+    "POST /internal/v1/operations/state-graph": "operations.catalog",
+    "GET /internal/v1/operations/aicp/topology": "operations.catalog",
+    "GET /internal/v1/operations/aicp/traces/:traceId": "operations.catalog",
+    "POST /internal/v1/operations/flows": "operations.catalog",
+    "POST /internal/v1/operations/explain": "operations.catalog",
+    "POST /internal/v1/operations/module-health/refresh": "operations.guard",
+    "GET /internal/v1/operations/module-health": "operations.catalog",
+    "GET /internal/v1/operations/infrastructure-health": "operations.catalog",
   },
   readiness: () => {
     const plane = operationsPlane.health();
