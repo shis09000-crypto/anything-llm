@@ -316,6 +316,7 @@ module_image_variables=(
   ATHENA_PROD_AGENT_RUNTIME_IMAGE
   ATHENA_PROD_MODEL_GATEWAY_IMAGE
   ATHENA_PROD_RESPONSES_RUNTIME_IMAGE
+  ATHENA_PROD_EXTERNAL_MCP_GATEWAY_IMAGE
   ATHENA_PROD_TOOL_BROKER_IMAGE
   ATHENA_PROD_CRYPTO_MARKET_IMAGE
   ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE
@@ -333,6 +334,8 @@ for module_image_variable in "${module_image_variables[@]}"; do
   ensure_env "${module_image_variable}" "${module_backend_image}"
 done
 ensure_env ATHENA_PROD_BROWSER_WORKER_IMAGE "${module_browser_worker_image}"
+ensure_env ATHENA_PROD_EXTERNAL_MCP_ENABLED \
+  "${ATHENA_PROD_EXTERNAL_MCP_ENABLED:-false}"
 ensure_env ATHENA_PROD_NETWORK anythingllm-v2_default
 ensure_env ATHENA_PROD_POSTGRES_ADMIN_PASSWORD "$(random_secret 36)"
 ensure_env ATHENA_PROD_POSTGRES_MAIN_PASSWORD "$(random_secret 36)"
