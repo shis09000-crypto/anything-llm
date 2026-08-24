@@ -764,6 +764,12 @@ class MicroModuleServiceHost {
     });
     this.registerRoutes(this.app, this);
     this.contractClosure = this.auditContractClosure();
+    if (!this.contractClosure.valid) {
+      console.error(
+        `[MicroModuleServiceHost] AICP contract closure invalid for ${this.manifest.id}`,
+        this.contractClosure
+      );
+    }
     this.app.use((error, _request, response, _next) => {
       this.lastError = safeError(error);
       response.status(Number(error?.httpStatus) || 500).json({
