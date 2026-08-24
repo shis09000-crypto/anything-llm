@@ -128,6 +128,7 @@ const host = new MicroModuleServiceHost({
   port: Number(process.env.IDENTITY_PORT || 3026),
   parseJson: false,
   internalRouteCapabilities: {
+    "/internal/v1/principal/assert": "identity.assert",
     "/internal/v1/session/introspect": "identity.introspect",
     "/internal/v1/client-identity/attach": "identity.client.attach",
     "/internal/v1/realtime/tickets/consume": "identity.realtime-ticket.consume",
@@ -219,16 +220,6 @@ const host = new MicroModuleServiceHost({
         });
       const result = await introspectSessionToken(token);
       return response.status(result.active ? 200 : 401).json(result);
-    });
-    app.post("/internal/v1/principal/assert", async (request, response) => {
-      if (request.body?.probe === true) {
-        return response.status(200).json({ success: true, available: true });
-      }
-      const result = await assertPrincipalFromSession({
-        token: request.body?.token,
-        client: request.body?.client,
-      });
-      return response.status(200).json(result);
     });
     app.post("/internal/v1/principal/assert", async (request, response) => {
       if (request.body?.probe === true)
