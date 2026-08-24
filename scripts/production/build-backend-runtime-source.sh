@@ -15,8 +15,6 @@ docker image inspect "$base_image" >/dev/null
 inputs=(
   server/package.json
   server/yarn.lock
-  server/prisma/schema.prisma
-  server/prisma/postgresql/schema.prisma
 )
 
 for input in "${inputs[@]}"; do
@@ -52,4 +50,7 @@ if [[ "$source_entrypoint_hash" != "$image_entrypoint_hash" ]]; then
   exit 1
 fi
 
-echo "backend_runtime_source_image=$target_image dependency_inputs=verified entrypoint=verified"
+docker run --rm --entrypoint node "$target_image" -e \
+  "require('/app/server/generated/postgresql-main'); require('/app/server/generated/postgresql-auth')"
+
+echo "backend_runtime_source_image=$target_image dependency_inputs=verified prisma_clients=verified entrypoint=verified"
