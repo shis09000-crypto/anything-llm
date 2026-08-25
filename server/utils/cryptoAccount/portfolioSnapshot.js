@@ -12,6 +12,14 @@ const ASSET_COLORS = Object.freeze({
   OTHER: "#6B7280",
 });
 
+// Gate may expose staked/wrapped balances with a GT-prefixed symbol even
+// though the balance remains denominated in the underlying asset. Keep this
+// list explicit so unrelated assets such as GT or GTC are never rewritten.
+const PORTFOLIO_UNDERLYING_ALIASES = Object.freeze({
+  GTETH: "ETH",
+  GTSOL: "SOL",
+});
+
 const RISK_THRESHOLDS = Object.freeze({
   assetConcentration: { watch: 50, danger: 70 },
   marginPressure: { watch: 50, danger: 80 },
@@ -34,6 +42,15 @@ function normalizedSymbol(value) {
   return String(value || "")
     .trim()
     .toUpperCase();
+}
+
+function portfolioSymbol(value) {
+  const symbol = normalizedSymbol(value);
+  return PORTFOLIO_UNDERLYING_ALIASES[symbol] || symbol;
+}
+
+function mergeHoldingSources(current = [], incoming = []) {
+  return [...new Set([...current, ...incoming].filter(Boolean))];
 }
 
 function riskLevelFromHigh(value, thresholds) {
@@ -129,15 +146,40 @@ function mergePortfolio({
   const rows = new Map();
 
   for (const item of gateItems) {
-    const symbol = normalizedSymbol(item.symbol);
+    const reportedSymbol = normalizedSymbol(item.symbol);
+    const symbol = portfolioSymbol(reportedSymbol);
     if (!symbol) continue;
     const valueUsd = finiteNumber(item.valueUsd);
     const quantity = finiteNumber(item.totalAmount ?? item.amount);
+    const current = rows.get(symbol);
+    const holdingSources = mergeHoldingSources(
+      current?.gateHoldingSources,
+      [
+        ...(item.holdingSources || []),
+        ...(reportedSymbol !== symbol ? [`underlying:${reportedSymbol}`] : []),
+      ]
+    );
+    if (current) {
+      const gateQuantity = current.gateQuantity + quantity;
+      const gateValueUsd = current.gateValueUsd + valueUsd;
+      rows.set(symbol, {
+        ...current,
+        priceUsd:
+          current.priceUsd || priceForSymbol(symbol, item, priceBySymbol),
+        gateQuantity,
+        totalQuantity: gateQuantity + current.supplementalQuantity,
+        gateValueUsd,
+        totalValueUsd: gateValueUsd + current.supplementalValueUsd,
+        source: current.supplementalQuantity > 0 ? "mixed" : "gate",
+        gateHoldingSources: holdingSources,
+      });
+      continue;
+    }
     rows.set(symbol, {
       symbol,
-      name: item.name || symbol,
-      nameCn: item.nameCn || symbol,
-      color: item.color || ASSET_COLORS[symbol] || "#9CA3AF",
+      name: reportedSymbol === symbol ? item.name || symbol : symbol,
+      nameCn: reportedSymbol === symbol ? item.nameCn || symbol : symbol,
+      color: ASSET_COLORS[symbol] || item.color || "#9CA3AF",
       priceUsd: priceForSymbol(symbol, item, priceBySymbol),
       gateQuantity: quantity,
       supplementalQuantity: 0,
@@ -147,14 +189,14 @@ function mergePortfolio({
       totalValueUsd: valueUsd,
       supplementalCostBasisUsd: 0,
       source: "gate",
-      gateHoldingSources: item.holdingSources || [],
+      gateHoldingSources: holdingSources,
     });
   }
 
   const unpricedSupplemental = [];
   let supplementalCostBasisUsd = 0;
   for (const holding of supplementalHoldings) {
-    const symbol = normalizedSymbol(holding.symbol);
+    const symbol = portfolioSymbol(holding.symbol);
     if (!symbol) continue;
     const quantity = finiteNumber(holding.quantity);
     const costBasisUsd = finiteNumber(holding.costBasisUsd);
@@ -338,7 +380,7 @@ function mergePortfolio({
 }
 
 function mergeSpotDetail({ detail = {}, portfolio, symbol }) {
-  const normalized = normalizedSymbol(symbol);
+  const normalized = portfolioSymbol(symbol);
   const item = portfolio?.items?.find(
     (candidate) => candidate.symbol === normalized
   );
@@ -553,7 +595,7 @@ function computePortfolioRisk({
 function simulateRebalance({ portfolio, targets = {} }) {
   const normalizedTargets = Object.fromEntries(
     Object.entries(targets).map(([symbol, pct]) => [
-      normalizedSymbol(symbol),
+      portfolioSymbol(symbol),
       finiteNumber(pct, NaN),
     ])
   );
@@ -609,6 +651,7 @@ function simulateRebalance({ portfolio, targets = {} }) {
 }
 
 module.exports = {
+  PORTFOLIO_UNDERLYING_ALIASES,
   RISK_THRESHOLDS,
   SupplementalPortfolioService,
   computePortfolioRisk,

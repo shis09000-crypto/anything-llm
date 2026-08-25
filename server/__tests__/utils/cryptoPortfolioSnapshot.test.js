@@ -50,6 +50,85 @@ describe("crypto consolidated portfolio", () => {
     );
   });
 
+  test("groups explicit GT underlying balances into ETH and SOL", () => {
+    const result = mergePortfolio({
+      gateTotalUsd: 37_000,
+      gateAllocation: {
+        items: [
+          {
+            symbol: "GTETH",
+            totalAmount: "10",
+            valueUsd: "25000",
+            priceUsd: "2500",
+            holdingSources: ["earn"],
+          },
+          {
+            symbol: "ETH",
+            totalAmount: "1",
+            valueUsd: "2500",
+            priceUsd: "2500",
+            holdingSources: ["spot"],
+          },
+          {
+            symbol: "GTSOL",
+            totalAmount: "50",
+            valueUsd: "7500",
+            priceUsd: "150",
+            holdingSources: ["earn"],
+          },
+          {
+            symbol: "SOL",
+            totalAmount: "10",
+            valueUsd: "1500",
+            priceUsd: "150",
+            holdingSources: ["spot"],
+          },
+          {
+            symbol: "GT",
+            totalAmount: "5",
+            valueUsd: "500",
+            priceUsd: "100",
+          },
+        ],
+      },
+      supplementalHoldings: [
+        { symbol: "ETH", quantity: "2", costBasisUsd: "4000" },
+      ],
+      priceBySymbol: { ETH: 2500, SOL: 150 },
+    });
+
+    expect(result.items.some((item) => item.symbol === "GTETH")).toBe(false);
+    expect(result.items.some((item) => item.symbol === "GTSOL")).toBe(false);
+    expect(result.items.find((item) => item.symbol === "ETH")).toMatchObject({
+      totalAmount: "13.000000000000",
+      valueUsd: "32500.00",
+      source: "mixed",
+      gate: {
+        quantity: "11.000000000000",
+        valueUsd: "27500.00",
+        holdingSources: expect.arrayContaining([
+          "earn",
+          "spot",
+          "underlying:GTETH",
+        ]),
+      },
+    });
+    expect(result.items.find((item) => item.symbol === "SOL")).toMatchObject({
+      totalAmount: "60.000000000000",
+      valueUsd: "9000.00",
+      gate: {
+        quantity: "60.000000000000",
+        holdingSources: expect.arrayContaining(["underlying:GTSOL"]),
+      },
+    });
+    expect(result.items.find((item) => item.symbol === "GT")).toBeDefined();
+    expect(result.invariant).toMatchObject({
+      valid: true,
+      expectedTotalUsd: "42000.00",
+      itemTotalUsd: "42000.00",
+    });
+  });
+
   test("does not use cost basis as live market value when a price is missing", () => {
     const result = mergePortfolio({
       gateTotalUsd: 100,
