@@ -2220,6 +2220,7 @@ const crypto = makeRepositoryFacade(
     updateAccountConnections: "write",
     listAccountEquitySnapshots: "read",
     upsertAccountEquitySnapshot: "write",
+    listSupplementalHoldings: "read",
     findUserDomainWrap: "read",
   },
   cryptoScopeFromArgs

@@ -61,11 +61,14 @@ describe("Crypto module boundary", () => {
 
   test("DataAccess and background worker use CryptoRuntime facade", () => {
     const repository = read("repositories/cryptoRepository.js");
+    const dataAccessCenter = read("utils/dataAccess/dataAccessCenter.js");
     const backgroundWorker = read("utils/BackgroundWorkers/index.js");
 
     expect(repository).toContain('require("../modules/crypto")');
     expect(repository).not.toContain("../utils/cryptoHub");
     expect(repository).not.toContain("../utils/cryptoGate");
+    expect(repository).toContain("listSupplementalHoldings");
+    expect(dataAccessCenter).toContain('listSupplementalHoldings: "read"');
 
     expect(backgroundWorker).toContain('require("../../modules/crypto")');
     expect(backgroundWorker).not.toContain("../cryptoHub/backgroundRuntime");
