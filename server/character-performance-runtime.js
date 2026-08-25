@@ -51,6 +51,8 @@ const internalRouteCapabilities = {
     "character-performance.sessions.create",
   "GET /internal/v1/character-performance/sessions/:sessionId":
     "character-performance.sessions.retrieve",
+  "GET /internal/v1/character-performance/sessions/:sessionId/.websocket":
+    "character-performance.sessions.retrieve",
   "GET /internal/v1/character-performance/sessions/:sessionId/scope":
     "character-performance.sessions.resolve-scope",
   "/internal/v1/character-performance/sessions/:sessionId/link":
