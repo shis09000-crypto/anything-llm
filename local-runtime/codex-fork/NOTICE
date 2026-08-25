@@ -1,0 +1,9 @@
+Athena Local Runtime includes or communicates with modified components derived
+from OpenAI Codex, licensed under the Apache License, Version 2.0.
+
+OpenAI Codex upstream: https://github.com/openai/codex
+Pinned revision: bb8cada846e4cb131c8ed62628930960504dab7b
+
+Athena modifications provide a local host boundary, policy hooks, device
+protocol translation, packaging and lifecycle management. The Codex App Server
+is never exposed directly to the public network.

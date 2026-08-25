@@ -55,7 +55,7 @@ unset ATHENA_PROD_POSTGRES_ADMIN_PASSWORD
 unset ATHENA_PROD_POSTGRES_MAIN_PASSWORD
 unset ATHENA_PROD_POSTGRES_AUTH_PASSWORD
 
-expected_roles='athena_main_observer athena_auth_observer athena_identity athena_key_custody athena_workspace athena_chat athena_agent athena_model_runtime athena_responses_runtime athena_character_performance athena_tools athena_crypto_market athena_crypto_account athena_crypto_forecast athena_browser_plane athena_browser_egress athena_knowledge_query athena_knowledge_ingest athena_knowledge_reader athena_maintenance athena_scheduler athena_coordination athena_sync'
+expected_roles='athena_main_observer athena_auth_observer athena_identity athena_key_custody athena_workspace athena_chat athena_agent athena_model_runtime athena_responses_runtime athena_character_performance athena_local_runtime athena_tools athena_crypto_market athena_crypto_account athena_crypto_forecast athena_browser_plane athena_browser_egress athena_knowledge_query athena_knowledge_ingest athena_knowledge_reader athena_maintenance athena_scheduler athena_coordination athena_sync'
 actual_roles="$("${compose[@]}" exec -T postgresql sh -ceu '
   psql -X -qAt --set ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres \
     --set expected="$1" <<'"'"'SQL'"'"'

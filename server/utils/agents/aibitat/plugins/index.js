@@ -26,6 +26,9 @@ const { goldMarketAgent } = require("./gold-market");
 const { documentFormattingAgent } = require("./document-formatting");
 const { browserAgent } = require("./browser");
 const { imageAssets } = require("./image-assets");
+const { localRuntimeAgent } = require("./local-runtime");
+const { threadGoal } = require("./thread-goal");
+const { threadPlan } = require("./thread-plan");
 
 module.exports = {
   webScraping,
@@ -56,6 +59,9 @@ module.exports = {
   documentFormattingAgent,
   browserAgent,
   imageAssets,
+  localRuntimeAgent,
+  threadGoal,
+  threadPlan,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -86,4 +92,7 @@ module.exports = {
   [documentFormattingAgent.name]: documentFormattingAgent,
   [browserAgent.name]: browserAgent,
   [imageAssets.name]: imageAssets,
+  [localRuntimeAgent.name]: localRuntimeAgent,
+  [threadGoal.name]: threadGoal,
+  [threadPlan.name]: threadPlan,
 };

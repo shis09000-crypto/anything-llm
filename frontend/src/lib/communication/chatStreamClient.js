@@ -25,6 +25,7 @@ function chatStreamBody({
   clientTurnId,
   editContext = null,
   regenerateContext = null,
+  turnContext = null,
 }) {
   let timeZone = null;
   try {
@@ -42,6 +43,7 @@ function chatStreamBody({
     ...(timeZone ? { timeZone } : {}),
     ...(editContext ? { editContext } : {}),
     ...(regenerateContext ? { regenerateContext } : {}),
+    ...(turnContext ? { turnContext } : {}),
   };
 }
 
@@ -446,6 +448,7 @@ export function buildChatStreamBody({
   clientTurnId = null,
   editContext = null,
   regenerateContext = null,
+  turnContext = null,
 }) {
   return chatStreamBody({
     message,
@@ -456,6 +459,7 @@ export function buildChatStreamBody({
     clientTurnId,
     editContext,
     regenerateContext,
+    turnContext,
   });
 }
 

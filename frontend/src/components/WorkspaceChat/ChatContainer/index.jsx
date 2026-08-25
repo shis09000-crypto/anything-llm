@@ -1490,13 +1490,18 @@ export default function ChatContainer({
     });
   }
 
-  async function handleBranchSubmit(event) {
+  async function handleBranchSubmit(event, composerContext = {}) {
     event.preventDefault();
+    const directMessage = String(composerContext.messageOverride || "").trim();
+    const preserveComposer = composerContext.preserveComposer === true;
     const currentMessage =
-      document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value || "";
+      directMessage ||
+      document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value ||
+      "";
     if (!currentMessage || !dualThreadFork.branchThreadSlug) return false;
     if (
-      await submitPendingClarificationFromInput({
+      !preserveComposer &&
+      (await submitPendingClarificationFromInput({
         currentDraft: branchDraft,
         currentChatKey: branchChatKey,
         message: currentMessage,
@@ -1507,29 +1512,34 @@ export default function ChatContainer({
           });
           branchMessageEmit("");
         },
-      })
+      }))
     ) {
       requestBranchSendScrollToBottom();
       return false;
     }
 
-    clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
-      workspaceSlug: workspace.slug,
-      threadSlug: dualThreadFork.branchThreadSlug,
-    });
-    branchMessageEmit("");
-    startStream({
+    if (!preserveComposer) {
+      clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
+        workspaceSlug: workspace.slug,
+        threadSlug: dualThreadFork.branchThreadSlug,
+      });
+      branchMessageEmit("");
+    }
+    const streamPromise = startStream({
       workspaceSlug: workspace.slug,
       threadSlug: dualThreadFork.branchThreadSlug,
       prompt: currentMessage,
       clientGeneratedTurnId: createTurnId(),
-      attachments: parseAttachments(),
+      attachments: preserveComposer ? [] : parseAttachments(),
       fileAccessMode: branchFileAccessMode(),
       history: branchHistory,
       parseAttachments,
       sendToExistingAgent: !!branchDraft?.isAgentRunning,
+      turnContext: composerContext.turnContext || null,
+      onResponseCreated: composerContext.onResponseCreated || null,
     });
     requestBranchSendScrollToBottom();
+    return streamPromise;
   }
 
   const sendBranchCommand = async ({
@@ -1723,6 +1733,7 @@ export default function ChatContainer({
           if (streamEvent?.type === "abort") mutationState.aborted = true;
         },
         mutationBaseItems: session.prefixItems,
+        turnContext: session.turnContext || null,
       });
       mutationCommitRef.current.delete(sourceActionId);
 
@@ -1746,13 +1757,15 @@ export default function ChatContainer({
     ]
   );
 
-  const handleSubmit = async (event) => {
+  const handleSubmit = async (event, composerContext = {}) => {
     event.preventDefault();
+    const directMessage = String(composerContext.messageOverride || "").trim();
+    const preserveComposer = composerContext.preserveComposer === true;
     const currentMessage =
-      document.getElementById(PROMPT_INPUT_ID)?.value || "";
+      directMessage || document.getElementById(PROMPT_INPUT_ID)?.value || "";
     if (!currentMessage) return false;
 
-    if (chatEditSession) {
+    if (chatEditSession && !preserveComposer) {
       void runAtomicChatMutation({
         session: chatEditSession,
         prompt: currentMessage,
@@ -1762,7 +1775,8 @@ export default function ChatContainer({
     }
 
     if (
-      await submitPendingClarificationFromInput({
+      !preserveComposer &&
+      (await submitPendingClarificationFromInput({
         currentDraft: draft,
         currentChatKey: chatKey,
         message: currentMessage,
@@ -1773,19 +1787,19 @@ export default function ChatContainer({
           });
           setMessageEmit("");
         },
-      })
+      }))
     ) {
       if (listening) endSTTSession();
       requestSendScrollToBottom();
       return false;
     }
 
-    if (quizModeActive) {
+    if (quizModeActive && !preserveComposer) {
       await submitQuizMessage(currentMessage);
       return false;
     }
 
-    if (handleMindMapCommand(currentMessage)) {
+    if (!preserveComposer && handleMindMapCommand(currentMessage)) {
       clearPromptInputDraft(threadSlug ?? workspace.slug, {
         workspaceSlug: workspace.slug,
         threadSlug,
@@ -1794,25 +1808,31 @@ export default function ChatContainer({
       return false;
     }
 
-    const attachments = parseAttachments();
-    if (await maybeRouteQuizIntent(currentMessage, attachments)) {
+    const attachments = preserveComposer ? [] : parseAttachments();
+    if (
+      !preserveComposer &&
+      (await maybeRouteQuizIntent(currentMessage, attachments))
+    ) {
       return false;
     }
 
     // Clear the localStorage draft for this thread/workspace so that if the
     // PromptInput remounts (empty→chat transition), it won't restore stale text
-    clearPromptInputDraft(threadSlug ?? workspace.slug, {
-      workspaceSlug: workspace.slug,
-      threadSlug,
-    });
+    if (!preserveComposer)
+      clearPromptInputDraft(threadSlug ?? workspace.slug, {
+        workspaceSlug: workspace.slug,
+        threadSlug,
+      });
 
     if (listening) {
       // Stop the mic if the send button is clicked
       endSTTSession();
     }
-    const readerPayload = readerPromptPayload(currentMessage);
-    setMessageEmit("");
-    startStream({
+    const readerPayload = preserveComposer
+      ? { prompt: currentMessage, readerTextSources: [] }
+      : readerPromptPayload(currentMessage);
+    if (!preserveComposer) setMessageEmit("");
+    const streamPromise = startStream({
       workspaceSlug: workspace.slug,
       threadSlug,
       prompt: readerPayload.prompt,
@@ -1824,8 +1844,11 @@ export default function ChatContainer({
       history: knownHistory,
       parseAttachments,
       sendToExistingAgent: !!draft?.isAgentRunning,
+      turnContext: composerContext.turnContext || null,
+      onResponseCreated: composerContext.onResponseCreated || null,
     });
     requestSendScrollToBottom();
+    return streamPromise;
   };
 
   function endSTTSession() {
@@ -1855,6 +1878,28 @@ export default function ChatContainer({
         attachments: lastUserMessage.attachments || [],
         originalItems: [...chatItems],
         prefixItems: chatItems.slice(0, userIndex),
+        turnContext: {
+          mode: assistantTurn.execution?.turnMode || "normal",
+          ...(assistantTurn.execution?.goalId
+            ? {
+                goal: {
+                  action: "attach",
+                  goalId: assistantTurn.execution.goalId,
+                },
+              }
+            : {}),
+          ...(assistantTurn.execution?.planId
+            ? {
+                plan: {
+                  action:
+                    assistantTurn.execution?.planAction === "execute"
+                      ? "execute"
+                      : "revise",
+                  planId: assistantTurn.execution.planId,
+                },
+              }
+            : {}),
+        },
       },
       prompt: lastUserMessage.content,
       kind: "regenerate",

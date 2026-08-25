@@ -43,11 +43,13 @@ const { chatStreamRunManager } = require("../utils/chats/chatStreamRuns");
 const {
   cancelResponsesTurn,
   executeResponsesTurn,
+  normalizeTurnContext,
   submitResponsesTurnAction,
 } = require("../utils/responsesTurn/runtime");
 const {
   DEEPSEEK_RESPONSE_MODELS,
 } = require("../utils/responsesRuntime/contract");
+const { requestInternalService } = require("../utils/microModules");
 
 const User = DataAccessCenter.user;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
@@ -409,6 +411,7 @@ async function executeDetachedResponsesRun({
   editContext = null,
   regenerateContext = null,
   isMultiUser = false,
+  turnContext = null,
 }) {
   if (isMultiUser && !(await User.canSendChat(user))) {
     const error = new Error("chat_quota_exceeded");
@@ -450,6 +453,7 @@ async function executeDetachedResponsesRun({
     attachments,
     fileAccess,
     clientTurnId,
+    turnContext,
   });
 }
 
@@ -498,6 +502,7 @@ async function handleResponsesTurnPost(
     clientTurnId = null,
     editContext: rawEditContext = null,
     regenerateContext: rawRegenerateContext = null,
+    turnContext: rawTurnContext = null,
   } = reqBody(request);
   const workspace = response.locals.workspace;
   const effectiveWorkspace = thread
@@ -518,9 +523,11 @@ async function handleResponsesTurnPost(
 
   let editContext = null;
   let regenerateContext = null;
+  let turnContext = null;
   try {
     editContext = nativeEditContext(rawEditContext);
     regenerateContext = nativeRegenerateContext(rawRegenerateContext);
+    turnContext = normalizeTurnContext(rawTurnContext);
     if (editContext && regenerateContext) {
       const error = new Error("Chat mutation contexts are mutually exclusive.");
       error.code = "chat_mutation_context_conflict";
@@ -572,6 +579,7 @@ async function handleResponsesTurnPost(
       clientTurnId: resolvedClientTurnId,
       editContext,
       regenerateContext,
+      turnContext,
       isMultiUser: multiUserMode(response),
     });
   });
@@ -604,6 +612,34 @@ function chatEndpoints(app) {
     }
   );
 
+  app.get(
+    "/workspace/:slug/responses-capabilities",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (_request, response) => {
+      try {
+        const baseUrl = String(
+          process.env.ATHENA_RESPONSES_RUNTIME_URL || ""
+        ).replace(/\/+$/, "");
+        if (!baseUrl) throw new Error("responses_runtime_url_missing");
+        const capabilities = await requestInternalService({
+          callerRole: "athena-api",
+          targetModule: "responses-runtime",
+          capability: "responses.capabilities",
+          contractVersion: "1.0",
+          method: "GET",
+          url: `${baseUrl}/internal/v1/responses/capabilities`,
+          timeoutMs: 5_000,
+        });
+        return response.json(capabilities);
+      } catch (error) {
+        return response.status(error.httpStatus || 503).json({
+          success: false,
+          error: "flash_vision_model_unavailable",
+        });
+      }
+    }
+  );
+
   app.post(
     "/workspace/:slug/thread/:threadSlug/responses",
     [
@@ -624,6 +660,133 @@ function chatEndpoints(app) {
             error: error.code || "responses_turn_failed",
           });
         if (!response.writableEnded && !response.destroyed) response.end();
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread/:threadSlug/goal",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const goal = await DataAccessCenter.workspaceThreadGoal.active({
+          workspace: response.locals.workspace,
+          thread: response.locals.thread,
+          user,
+        });
+        return response.json({
+          success: true,
+          goal: DataAccessCenter.workspaceThreadGoal.publicGoal(goal),
+        });
+      } catch (error) {
+        return response.status(error.httpStatus || 500).json({
+          success: false,
+          error: error.code || "goal_read_failed",
+        });
+      }
+    }
+  );
+
+  app.delete(
+    "/workspace/:slug/thread/:threadSlug/goal/:goalId",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const goal = await DataAccessCenter.workspaceThreadGoal.abandon({
+          workspace: response.locals.workspace,
+          thread: response.locals.thread,
+          user,
+          goalId: request.params.goalId,
+        });
+        publishWorkspaceSyncEvent({
+          type: "thread_goal_abandoned",
+          workspaceId: response.locals.workspace.id,
+          workspaceSlug: response.locals.workspace.slug,
+          userId: user?.id ?? null,
+          threadId: response.locals.thread.id,
+          threadSlug: response.locals.thread.slug,
+          goalId: goal.uuid,
+        });
+        return response.json({ success: true, goalId: goal.uuid });
+      } catch (error) {
+        return response.status(error.httpStatus || 500).json({
+          success: false,
+          error: error.code || "goal_abandon_failed",
+        });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread/:threadSlug/plan",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const plan = await DataAccessCenter.workspaceThreadPlan.active({
+          workspace: response.locals.workspace,
+          thread: response.locals.thread,
+          user,
+        });
+        return response.json({
+          success: true,
+          plan: DataAccessCenter.workspaceThreadPlan.publicPlan(plan),
+        });
+      } catch (error) {
+        return response.status(error.httpStatus || 500).json({
+          success: false,
+          error: error.code || "plan_read_failed",
+        });
+      }
+    }
+  );
+
+  app.delete(
+    "/workspace/:slug/thread/:threadSlug/plan/:planId",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const plan = await DataAccessCenter.workspaceThreadPlan.abandon({
+          workspace: response.locals.workspace,
+          thread: response.locals.thread,
+          user,
+          planId: request.params.planId,
+        });
+        publishWorkspaceSyncEvent({
+          type: "thread_plan_abandoned",
+          workspaceId: response.locals.workspace.id,
+          workspaceSlug: response.locals.workspace.slug,
+          userId: user?.id ?? null,
+          threadId: response.locals.thread.id,
+          threadSlug: response.locals.thread.slug,
+          planId: plan.uuid,
+          status: plan.status,
+        });
+        return response.json({ success: true, planId: plan.uuid });
+      } catch (error) {
+        return response.status(error.httpStatus || 500).json({
+          success: false,
+          error: error.code || "plan_abandon_failed",
+        });
       }
     }
   );

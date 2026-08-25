@@ -22,7 +22,20 @@ function remoteAgentInvocationEnabled(env = process.env) {
 }
 
 async function createRemoteAgentInvocation(
-  { prompt, workspace, user = null, thread = null, clientTurnId = null },
+  {
+    prompt,
+    workspace,
+    user = null,
+    thread = null,
+    clientTurnId = null,
+    requestedProvider = null,
+    requestedModel = null,
+    effectiveModel = null,
+    turnMode = "normal",
+    goalId = null,
+    planId = null,
+    planAction = null,
+  },
   env = process.env
 ) {
   if (!remoteAgentInvocationEnabled(env)) {
@@ -36,6 +49,13 @@ async function createRemoteAgentInvocation(
     userId: user?.id ?? null,
     threadId: thread?.id ?? null,
     clientTurnId,
+    requestedProvider,
+    requestedModel,
+    effectiveModel,
+    turnMode,
+    goalId,
+    planId,
+    planAction,
   };
   const response = await requestInternalService({
     callerRole: "chat-runtime",

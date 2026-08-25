@@ -17,6 +17,7 @@ x-authoritative-runtime: &authoritative-runtime
   ATHENA_MODEL_DATABASE_URL: postgresql://athena_model_runtime:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_RESPONSES_DATABASE_URL: postgresql://athena_responses_runtime:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_CHARACTER_PERFORMANCE_DATABASE_URL: postgresql://athena_character_performance:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
+  ATHENA_LOCAL_RUNTIME_DATABASE_URL: postgresql://athena_local_runtime:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_TOOL_DATABASE_URL: postgresql://athena_tools:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_CRYPTO_MARKET_DATABASE_URL: postgresql://athena_crypto_market:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
   ATHENA_CRYPTO_ACCOUNT_DATABASE_URL: postgresql://athena_crypto_account:${ATHENA_PREPROD_POSTGRES_MAIN_PASSWORD:?required}@postgresql:5432/athena_main?schema=public
@@ -369,6 +370,8 @@ services:
       ATHENA_CHAT_UPSTREAM: https://anything-llm-chat-runtime:3016
       ATHENA_AGENT_UPSTREAM: https://anything-llm-agent-runtime:3017
       ATHENA_TOOL_UPSTREAM: https://anything-llm-tool-broker:3019
+      ATHENA_LOCAL_RUNTIME_ENABLED: ${ATHENA_PREPROD_LOCAL_RUNTIME_ENABLED:-false}
+      ATHENA_LOCAL_RUNTIME_CENTER_URL: https://anything-llm-local-runtime-center:3036
       ATHENA_CRYPTO_ACCOUNT_UPSTREAM: https://anything-llm-crypto-account:3021
       ATHENA_CRYPTO_FORECAST_UPSTREAM: https://anything-llm-crypto-forecast:3022
       ATHENA_REALTIME_UPSTREAM: https://anything-llm-realtime-gateway:3013
@@ -403,6 +406,7 @@ services:
       ATHENA_AGENT_UPSTREAM: https://anything-llm-agent-runtime:3017
       ATHENA_TOOL_UPSTREAM: https://anything-llm-tool-broker:3019
       ATHENA_EXTERNAL_MCP_UPSTREAM: https://anything-llm-external-mcp-gateway:3043
+      ATHENA_LOCAL_RUNTIME_UPSTREAM: https://anything-llm-local-runtime-center:3036
       ATHENA_CRYPTO_ACCOUNT_UPSTREAM: https://anything-llm-crypto-account:3021
       ATHENA_CRYPTO_FORECAST_UPSTREAM: https://anything-llm-crypto-forecast:3022
       ATHENA_IDENTITY_UPSTREAM: https://anything-llm-identity:3026
@@ -590,7 +594,7 @@ services:
       ATHENA_OPERATIONS_MODULE_TIMEOUT_MS: "3000"
       ATHENA_OPERATIONS_INFRA_POLL_MS: "60000"
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","character-performance-runtime":"https://anything-llm-character-performance-runtime:3042","external-mcp-gateway":"https://anything-llm-external-mcp-gateway:3043","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019","coordination-plane":"https://anything-llm-coordination-plane:3032"}
+        {"athena-api":"https://anything-llm-api:3024","authentication":"https://anything-llm-identity:3026","background-worker":"https://anything-llm-background-worker:3012","chat-runtime":"https://anything-llm-chat-runtime:3016","collector":"https://anything-llm-collector:8888","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","crypto-market":"https://anything-llm-crypto-market:3020","edge-web":"https://anything-llm-edge-probe:3025","agent-runtime":"https://anything-llm-agent-runtime:3017","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","character-performance-runtime":"https://anything-llm-character-performance-runtime:3042","external-mcp-gateway":"https://anything-llm-external-mcp-gateway:3043","local-runtime-center":"https://anything-llm-local-runtime-center:3036","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","rag":"https://anything-llm-rag:3028","reader-worker":"https://anything-llm-reader-worker:3011","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","sync-v2":"https://anything-llm-realtime-gateway:3013","tool-runtime":"https://anything-llm-tool-broker:3019","coordination-plane":"https://anything-llm-coordination-plane:3032"}
     networks: [anything-llm]
 
   anything-llm-coordination-plane:
@@ -818,6 +822,39 @@ services:
       EXTERNAL_MCP_GATEWAY_PORT: "3043"
     networks: [anything-llm]
 
+  anything-llm-local-runtime-center:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: local-runtime-center-build
+      args: { ARG_UID: "${UID:-1000}", ARG_GID: "${GID:-1000}" }
+    profiles: ["core-runtimes"]
+    depends_on:
+      postgresql: { condition: service_healthy }
+      nats: { condition: service_healthy }
+    volumes:
+      - ./preproduction.empty.env:/app/server/.env:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/runtime-secrets/password-pepper:/run/secrets/athena_password_pepper:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/service-mtls:/run/secrets/athena-mtls:ro
+      - ${ATHENA_PREPROD_SECRETS_DIR:?required}/local-runtime-signing:/run/secrets/athena-local-runtime:ro
+      - *nats-secrets-volume
+      - *nats-subject-volume
+      - *metrics-token-volume
+    environment:
+      <<: *authoritative-runtime
+      ATHENA_RUNTIME_ROLE: local-runtime-center
+      ATHENA_SERVICE_ID: spiffe://athena/preproduction/local-runtime-center
+      ATHENA_MTLS_CERT_FILE: /run/secrets/athena-mtls/local-runtime-center.pem
+      ATHENA_MTLS_KEY_FILE: /run/secrets/athena-mtls/local-runtime-center.key
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/local-runtime-center.nk
+      ATHENA_NATS_CONSUMER_NAME: preproduction-local-runtime-center
+      ATHENA_LOCAL_RUNTIME_ENABLED: ${ATHENA_PREPROD_LOCAL_RUNTIME_ENABLED:-false}
+      ATHENA_LOCAL_RUNTIME_SIGNING_KEY_ID: ${ATHENA_LOCAL_RUNTIME_SIGNING_KEY_ID:-local-runtime-ed25519-primary}
+      ATHENA_LOCAL_RUNTIME_SIGNING_PRIVATE_KEY_FILE: /run/secrets/athena-local-runtime/ed25519-private.pem
+      ATHENA_LOCAL_RUNTIME_SIGNING_PUBLIC_KEY_FILE: /run/secrets/athena-local-runtime/ed25519-public.pem
+      LOCAL_RUNTIME_CENTER_PORT: "3036"
+    networks: [anything-llm]
+
   anything-llm-tool-broker:
     profiles: ["tool-runtimes"]
     depends_on:
@@ -841,6 +878,8 @@ services:
       ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena-nats/tool-broker.nk
       ATHENA_NATS_CONSUMER_NAME: preproduction-tool-broker
       ATHENA_CRYPTO_ACCOUNT_URL: https://anything-llm-crypto-account:3021
+      ATHENA_LOCAL_RUNTIME_ENABLED: ${ATHENA_PREPROD_LOCAL_RUNTIME_ENABLED:-false}
+      ATHENA_LOCAL_RUNTIME_CENTER_URL: https://anything-llm-local-runtime-center:3036
     networks: [anything-llm]
 
   anything-llm-crypto-market:

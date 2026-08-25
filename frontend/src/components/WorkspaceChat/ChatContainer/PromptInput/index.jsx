@@ -10,6 +10,8 @@ import {
   PencilSimple,
   Question,
   Shield,
+  ListChecks,
+  Target,
   X,
 } from "@phosphor-icons/react";
 import StopGenerationButton from "./StopGenerationButton";
@@ -37,6 +39,9 @@ import { useDocumentReader } from "@/modules/reader/DocumentReaderProvider";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import WorkspaceCognition from "@/models/workspaceCognition";
 import { appendPromptUndoSnapshot } from "@/utils/promptInputRuntime";
+import WorkspaceThreadGoal from "@/models/workspaceThreadGoal";
+import WorkspaceThreadPlan from "@/models/workspaceThreadPlan";
+import PlanPanel from "./PlanPanel";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";
 export const PROMPT_INPUT_EVENT = "set_prompt_input";
@@ -98,6 +103,40 @@ export default function PromptInput({
       }).catch?.(() => null);
     };
   }, [workspaceSlug, threadSlug]);
+
+  useEffect(() => {
+    function handleGoalSync(event) {
+      const detail = event?.detail || {};
+      if (
+        detail.workspaceSlug !== workspaceSlug ||
+        detail.threadSlug !== threadSlug
+      )
+        return;
+      if (detail.type === "thread_goal_created") {
+        setActiveGoal({
+          goalId: detail.goalId,
+          objective: detail.objective || "",
+          status: "active",
+        });
+        setPendingGoal(null);
+        return;
+      }
+      if (
+        [
+          "thread_goal_completed",
+          "thread_goal_blocked",
+          "thread_goal_abandoned",
+        ].includes(detail.type)
+      ) {
+        setActiveGoal((current) =>
+          !current?.goalId || current.goalId === detail.goalId ? null : current
+        );
+      }
+    }
+    window.addEventListener("athena-thread-goal-updated", handleGoalSync);
+    return () =>
+      window.removeEventListener("athena-thread-goal-updated", handleGoalSync);
+  }, [workspaceSlug, threadSlug]);
   const { t } = useTranslation();
   const readerContext = useDocumentReader();
   const { isDisabled: attachmentsProcessing } = useIsDisabled();
@@ -111,12 +150,17 @@ export default function PromptInput({
   const agentSessionActive = useIsAgentSessionActive();
   const [hasPromptInput, setHasPromptInput] = useState(false);
   const [showTools, setShowTools] = useState(false);
+  const [activeGoal, setActiveGoal] = useState(null);
+  const [pendingGoal, setPendingGoal] = useState(null);
+  const [planActive, setPlanActive] = useState(false);
+  const [activePlan, setActivePlan] = useState(null);
   const [isComposing, setIsComposing] = useState(false);
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false);
   const autoOpenedToolsRef = useRef(false);
   const toolsHighlightRef = useRef(-1);
   const containerRef = useRef(null);
   const formRef = useRef(null);
+  const submitRef = useRef(submit);
   const textareaRef = useRef(null);
   const promptInputRef = useRef("");
   const hasPromptInputRef = useRef(false);
@@ -130,6 +174,72 @@ export default function PromptInput({
   const redoStack = useRef([]);
   const { textSizeClass, textSizeStyle } = useTextSize();
   const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    submitRef.current = submit;
+  }, [submit]);
+
+  useEffect(() => {
+    let refreshTimer = null;
+    function refreshPlan() {
+      if (!workspaceSlug || !threadSlug) return;
+      WorkspaceThreadPlan.active(workspaceSlug, threadSlug)
+        .then((plan) => setActivePlan(plan))
+        .catch(() => null);
+    }
+    function handlePlanSync(event) {
+      const detail = event?.detail || {};
+      if (
+        detail.workspaceSlug !== workspaceSlug ||
+        detail.threadSlug !== threadSlug
+      )
+        return;
+      if (detail.type === "thread_plan_abandoned") {
+        setActivePlan((current) =>
+          !current?.planId || current.planId === detail.planId ? null : current
+        );
+        return;
+      }
+      refreshPlan();
+    }
+    window.addEventListener("athena-thread-plan-updated", handlePlanSync);
+    if (["drafting", "executing"].includes(activePlan?.status))
+      refreshTimer = window.setInterval(refreshPlan, 1_500);
+    return () => {
+      window.removeEventListener("athena-thread-plan-updated", handlePlanSync);
+      if (refreshTimer) window.clearInterval(refreshTimer);
+    };
+  }, [workspaceSlug, threadSlug, activePlan?.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPendingGoal(null);
+    setPlanActive(false);
+    if (!workspaceSlug || !threadSlug) {
+      setActiveGoal(null);
+      setActivePlan(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    WorkspaceThreadGoal.active(workspaceSlug, threadSlug)
+      .then((goal) => {
+        if (!cancelled) setActiveGoal(goal);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveGoal(null);
+      });
+    WorkspaceThreadPlan.active(workspaceSlug, threadSlug)
+      .then((plan) => {
+        if (!cancelled) setActivePlan(plan);
+      })
+      .catch(() => {
+        if (!cancelled) setActivePlan(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceSlug, threadSlug]);
 
   const scheduleTextAreaResize = useCallback(() => {
     if (textareaResizeFrameRef.current !== null) return;
@@ -364,12 +474,95 @@ export default function PromptInput({
     pushUndoSnapshot(snapshot);
   }
 
+  function composerTurnContext() {
+    const goal = pendingGoal
+      ? {
+          action: pendingGoal.action,
+          ...(pendingGoal.expectedActiveGoalId
+            ? { expectedActiveGoalId: pendingGoal.expectedActiveGoalId }
+            : {}),
+        }
+      : activeGoal?.goalId
+        ? { action: "attach", goalId: activeGoal.goalId }
+        : null;
+    return {
+      mode: planActive ? "plan" : "normal",
+      ...(goal ? { goal } : {}),
+      ...(planActive ? { plan: { action: "create" } } : {}),
+    };
+  }
+
+  function submitWithComposerContext(e) {
+    const objective = promptInputRef.current.trim();
+    return submit(e, {
+      turnContext: composerTurnContext(),
+      onResponseCreated: (metadata = {}) => {
+        if (metadata.goalId) {
+          setActiveGoal((current) => ({
+            goalId: metadata.goalId,
+            objective:
+              pendingGoal?.action === "create" ||
+              pendingGoal?.action === "replace"
+                ? objective
+                : current?.objective || objective,
+            status: "active",
+          }));
+          setPendingGoal(null);
+        }
+        if (metadata.turnMode === "plan") setPlanActive(false);
+        if (metadata.planId) {
+          setActivePlan((current) => ({
+            ...(current || {}),
+            planId: metadata.planId,
+            title:
+              current?.title ||
+              t("chat_window.controls.composerMenu.planCreating", {
+                defaultValue: "Creating plan",
+              }),
+            steps: current?.steps || [],
+            status:
+              metadata.planAction === "execute" ? "executing" : "drafting",
+          }));
+        }
+      },
+    });
+  }
+
+  function submitPlanMessage(message, turnContext) {
+    if (isStreaming || !message?.trim()) return false;
+    if (quizModeActive) onToggleQuizMode?.();
+    const form = formRef.current;
+    const event = {
+      preventDefault() {},
+      target: form,
+      currentTarget: form,
+    };
+    window.setTimeout(() => {
+      submitRef.current?.(event, {
+        messageOverride: message,
+        preserveComposer: true,
+        turnContext,
+        onResponseCreated: (metadata = {}) => {
+          if (!metadata.planId) return;
+          setPlanActive(false);
+          setActivePlan((current) => ({
+            ...(current || {}),
+            planId: metadata.planId,
+            status:
+              metadata.planAction === "execute" ? "executing" : "drafting",
+          }));
+        },
+      });
+    }, 0);
+    return true;
+  }
+
   function handleSubmit(e) {
     // Ignore submits from portaled modals (slash command preset forms)
     if (e.target !== e.currentTarget) return;
     setFocused(false);
     setShowTools(false);
-    submit(e);
+    submitWithComposerContext(e);
   }
 
   function resetTextAreaHeight() {
@@ -451,7 +644,7 @@ export default function PromptInput({
         return;
       } // Prevent submission if streaming or disabled
       setShowTools(false);
-      return submit(event);
+      return submitWithComposerContext(event);
     }
 
     // Is undo with Ctrl+Z or Cmd+Z + Shift key = Redo
@@ -645,6 +838,72 @@ export default function PromptInput({
                 removable
                 className="mt-2 mb-3"
               />
+              {activePlan?.planId && (
+                <PlanPanel
+                  plan={activePlan}
+                  disabled={
+                    isStreaming || isDisabled || agentSessionActive || editMode
+                  }
+                  onExecute={() => {
+                    const goal = activeGoal?.goalId
+                      ? { action: "attach", goalId: activeGoal.goalId }
+                      : null;
+                    submitPlanMessage(
+                      t("chat_window.controls.composerMenu.executePlanPrompt", {
+                        defaultValue: "Execute the current plan.",
+                      }),
+                      {
+                        mode: "normal",
+                        ...(goal ? { goal } : {}),
+                        plan: {
+                          action: "execute",
+                          planId: activePlan.planId,
+                        },
+                      }
+                    );
+                  }}
+                  onRevise={(feedback) => {
+                    const goal = activeGoal?.goalId
+                      ? { action: "attach", goalId: activeGoal.goalId }
+                      : null;
+                    submitPlanMessage(feedback, {
+                      mode: "plan",
+                      ...(goal ? { goal } : {}),
+                      plan: {
+                        action: "revise",
+                        planId: activePlan.planId,
+                      },
+                    });
+                  }}
+                  onClose={async () => {
+                    const confirmed = await showAppConfirm({
+                      tone: "warning",
+                      title: t(
+                        "chat_window.controls.composerMenu.closePlanTitle",
+                        { defaultValue: "Close this plan?" }
+                      ),
+                      description: t(
+                        "chat_window.controls.composerMenu.closePlanDescription",
+                        {
+                          defaultValue:
+                            "The plan bar will be closed. Chat history is kept.",
+                        }
+                      ),
+                      confirmText: t(
+                        "chat_window.controls.composerMenu.closePlan",
+                        { defaultValue: "Close plan" }
+                      ),
+                    });
+                    if (!confirmed) return;
+                    const abandoned = await WorkspaceThreadPlan.abandon(
+                      workspaceSlug,
+                      threadSlug,
+                      activePlan.planId
+                    ).catch(() => false);
+                    if (abandoned) setActivePlan(null);
+                  }}
+                />
+              )}
               <div className="flex items-center">
                 <textarea
                   id={inputId}
@@ -692,19 +951,112 @@ export default function PromptInput({
                     <AttachItem
                       workspaceSlug={workspaceSlug}
                       workspaceThreadSlug={threadSlug}
+                      activeGoal={activeGoal}
+                      planActive={planActive}
+                      quizModeActive={quizModeActive}
+                      onGoal={() => {
+                        if (!activeGoal) setPendingGoal({ action: "create" });
+                        textareaRef.current?.focus();
+                      }}
+                      onReplaceGoal={async () => {
+                        if (!activeGoal?.goalId) return;
+                        const confirmed = await showAppConfirm({
+                          tone: "warning",
+                          title: t(
+                            "chat_window.controls.composerMenu.replaceGoalTitle",
+                            { defaultValue: "Replace the active goal?" }
+                          ),
+                          description: t(
+                            "chat_window.controls.composerMenu.replaceGoalDescription",
+                            {
+                              defaultValue:
+                                "The current goal will be marked abandoned when this message is accepted.",
+                            }
+                          ),
+                          confirmText: t(
+                            "chat_window.controls.composerMenu.replaceGoal",
+                            { defaultValue: "Replace" }
+                          ),
+                        });
+                        if (!confirmed) return;
+                        setPendingGoal({
+                          action: "replace",
+                          expectedActiveGoalId: activeGoal.goalId,
+                        });
+                        textareaRef.current?.focus();
+                      }}
+                      onPlan={() => {
+                        if (!planActive && quizModeActive) onToggleQuizMode?.();
+                        if (!activePlan?.planId)
+                          setPlanActive((active) => !active);
+                        textareaRef.current?.focus();
+                      }}
+                      onTools={() => {
+                        autoOpenedToolsRef.current = false;
+                        setShowTools(true);
+                        textareaRef.current?.focus();
+                      }}
+                      onTest={() => {
+                        if (!quizModeActive) {
+                          setPlanActive(false);
+                          setPendingGoal(null);
+                        }
+                        onToggleQuizMode?.();
+                        textareaRef.current?.focus();
+                      }}
+                    />
+                    <ComposerContextChips
+                      activeGoal={activeGoal}
+                      pendingGoal={pendingGoal}
+                      planActive={planActive}
+                      onClearGoal={async () => {
+                        if (pendingGoal) {
+                          setPendingGoal(null);
+                          return;
+                        }
+                        if (!activeGoal?.goalId) return;
+                        const confirmed = await showAppConfirm({
+                          tone: "warning",
+                          title: t(
+                            "chat_window.controls.composerMenu.abandonGoalTitle",
+                            { defaultValue: "Abandon this goal?" }
+                          ),
+                          description: t(
+                            "chat_window.controls.composerMenu.abandonGoalDescription",
+                            {
+                              defaultValue:
+                                "The goal will stop applying to future turns. Chat history is kept.",
+                            }
+                          ),
+                          confirmText: t(
+                            "chat_window.controls.composerMenu.abandonGoal",
+                            { defaultValue: "Abandon" }
+                          ),
+                        });
+                        if (!confirmed) return;
+                        const abandoned = await WorkspaceThreadGoal.abandon(
+                          workspaceSlug,
+                          threadSlug,
+                          activeGoal.goalId
+                        ).catch(() => false);
+                        if (abandoned) setActiveGoal(null);
+                      }}
+                      onClearPlan={() => setPlanActive(false)}
                     />
                   </div>
-                  <ToolsButton
-                    showTools={showTools}
-                    setShowTools={setShowTools}
-                    textareaRef={textareaRef}
-                    autoOpenedToolsRef={autoOpenedToolsRef}
-                  />
-                  <QuizModeButton
-                    active={quizModeActive}
-                    onToggle={onToggleQuizMode}
-                    textareaRef={textareaRef}
-                  />
+                  <div className="flex items-center md:hidden">
+                    <ToolsButton
+                      showTools={showTools}
+                      setShowTools={setShowTools}
+                      textareaRef={textareaRef}
+                      autoOpenedToolsRef={autoOpenedToolsRef}
+                    />
+                    <QuizModeButton
+                      active={quizModeActive}
+                      onToggle={onToggleQuizMode}
+                      textareaRef={textareaRef}
+                    />
+                  </div>
                   <FileAccessModeButton
                     workspaceSlug={workspaceSlug || workspace?.slug}
                     threadSlug={threadSlug}
@@ -1058,6 +1410,79 @@ function MemoryStat({ label, value }) {
       <div className="mt-0.5 truncate text-xs font-semibold text-white light:text-slate-900">
         {value}
       </div>
+    </div>
+  );
+}
+
+function ComposerContextChips({
+  activeGoal,
+  pendingGoal,
+  planActive,
+  onClearGoal,
+  onClearPlan,
+}) {
+  const { t } = useTranslation();
+  const goalVisible = !!activeGoal || !!pendingGoal;
+  const goalLabel = pendingGoal
+    ? pendingGoal.action === "replace"
+      ? t("chat_window.controls.composerMenu.goalReplaceChip", {
+          defaultValue: "Goal · replace",
+        })
+      : t("chat_window.controls.composerMenu.goalCreateChip", {
+          defaultValue: "Goal · this message",
+        })
+    : activeGoal?.objective ||
+      t("chat_window.controls.composerMenu.goal", { defaultValue: "Goal" });
+
+  if (!goalVisible && !planActive) return null;
+  return (
+    <div className="hidden min-w-0 items-center gap-1 md:flex">
+      {goalVisible && (
+        <ContextChip
+          icon={Target}
+          label={goalLabel}
+          title={activeGoal?.objective || goalLabel}
+          onClose={onClearGoal}
+          tone="goal"
+        />
+      )}
+      {planActive && (
+        <ContextChip
+          icon={ListChecks}
+          label={t("chat_window.controls.composerMenu.plan", {
+            defaultValue: "Plan",
+          })}
+          onClose={onClearPlan}
+          tone="plan"
+        />
+      )}
+    </div>
+  );
+}
+
+function ContextChip({ icon: Icon, label, title = label, onClose, tone }) {
+  const { t } = useTranslation();
+  const toneClass =
+    tone === "plan"
+      ? "border-violet-400/30 bg-violet-500/15 text-violet-200 light:border-violet-200 light:bg-violet-50 light:text-violet-700"
+      : "border-sky-400/30 bg-sky-500/15 text-sky-200 light:border-sky-200 light:bg-sky-50 light:text-sky-700";
+  return (
+    <div
+      className={`flex h-6 max-w-[180px] items-center gap-1 rounded-full border px-2 text-xs ${toneClass}`}
+      title={title}
+    >
+      <Icon size={13} weight="bold" className="shrink-0" />
+      <span className="truncate">{label}</span>
+      <button
+        type="button"
+        onClick={onClose}
+        className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-none bg-transparent text-current hover:bg-white/10 light:hover:bg-slate-200"
+        aria-label={t("chat_window.controls.composerMenu.remove", {
+          defaultValue: "Remove",
+        })}
+      >
+        <X size={11} weight="bold" />
+      </button>
     </div>
   );
 }

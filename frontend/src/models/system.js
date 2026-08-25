@@ -171,6 +171,18 @@ function localizedApiError(error, fallback = "请求失败，请稍后重试。"
   return message;
 }
 
+function localRuntimeTask(kind, { priority = "P1", write = false } = {}) {
+  return {
+    kind: `local-runtime-${kind}`,
+    label: `Local Runtime ${kind}`,
+    priority,
+    protected: write,
+    abortable: !write,
+    resource: "network",
+    scope: { route: "local-runtime" },
+  };
+}
+
 const System = {
   cacheKeys: {
     footerIcons: "anythingllm_footer_links",
@@ -392,6 +404,17 @@ const System = {
     systemKeysCache = null;
     systemKeysCacheAt = 0;
     systemKeysInflight = null;
+  },
+  responsesCapabilities: async function (workspaceSlug, options = {}) {
+    return await getJson(
+      `/workspace/${encodeURIComponent(workspaceSlug)}/responses-capabilities`,
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "llm-model-selector-visible",
+        task: options.task,
+      }
+    ).then(({ data }) => data);
   },
   localFiles: async function () {
     return await getJson("/system/local-files", {
@@ -1234,6 +1257,165 @@ const System = {
     return postJson("/external-mcp/emergency-revoke", {})
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: responseError(e) }));
+  },
+  localRuntimeStatus: async function () {
+    return getJson("/local-runtime/status", {
+      communicationScene: "local-runtime-visible",
+      task: localRuntimeTask("status"),
+    })
+      .then(({ data }) => data?.result || data)
+      .catch((e) => ({
+        runtime: { ready: false },
+        devices: [],
+        error: responseError(e),
+      }));
+  },
+  localRuntimePasskeyOptions: async function () {
+    return postJson(
+      "/auth/zk-login/reauth/passkey/options",
+      { purpose: "local_runtime_control" },
+      {
+        signing: "required",
+        communicationScene: "local-runtime-control",
+        task: localRuntimeTask("passkey-options", {
+          priority: "P0",
+          write: true,
+        }),
+      }
+    ).then(({ data }) => data);
+  },
+  localRuntimePasskeyVerify: async function (response) {
+    return postJson(
+      "/auth/zk-login/reauth/passkey/verify",
+      { response, purpose: "local_runtime_control" },
+      {
+        signing: "required",
+        communicationScene: "local-runtime-control",
+        task: localRuntimeTask("passkey-verify", {
+          priority: "P0",
+          write: true,
+        }),
+      }
+    ).then(({ data }) => data);
+  },
+  createLocalRuntimeSensitiveSession: async function (userId, reauthToken) {
+    return postJson(
+      "/local-runtime/session",
+      { reauthToken },
+      {
+        signing: "required",
+        communicationScene: "local-runtime-control",
+        task: localRuntimeTask("sensitive-session", {
+          priority: "P0",
+          write: true,
+        }),
+      }
+    ).then(({ data }) => {
+      const result = data?.result || data;
+      if (result?.sensitiveSession) {
+        sensitiveSessionCenter.store(result.sensitiveSession, {
+          resourceType: "local-runtime-control",
+          resourceId: String(userId),
+          ownerScope: `user:${userId}:local-runtime`,
+        });
+      }
+      return result;
+    });
+  },
+  createLocalRuntimePairingTicket: async function (userId) {
+    const target = {
+      resourceType: "local-runtime-control",
+      resourceId: String(userId),
+    };
+    return postJson(
+      "/local-runtime/pairing-tickets",
+      {},
+      {
+        signing: "required",
+        headers: sensitiveSessionCenter.headers(target),
+        communicationScene: "local-runtime-control",
+        task: localRuntimeTask("pairing-ticket", {
+          priority: "P0",
+          write: true,
+        }),
+      }
+    ).then(({ data }) => data?.result || data);
+  },
+  createLocalRuntimeLease: async function (userId, input = {}) {
+    const target = {
+      resourceType: "local-runtime-control",
+      resourceId: String(userId),
+    };
+    return postJson("/local-runtime/leases", input, {
+      signing: "required",
+      headers: sensitiveSessionCenter.headers(target),
+      communicationScene: "local-runtime-control",
+      task: localRuntimeTask("lease-create", {
+        priority: "P0",
+        write: true,
+      }),
+    }).then(({ data }) => data?.result || data);
+  },
+  listLocalRuntimeLeases: async function (deviceId = "") {
+    const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : "";
+    return getJson(`/local-runtime/leases${query}`, {
+      communicationScene: "local-runtime-visible",
+      task: localRuntimeTask("leases"),
+    }).then(({ data }) => data?.result || data || []);
+  },
+  listLocalRuntimeJobs: async function (deviceId = "") {
+    const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : "";
+    return getJson(`/local-runtime/jobs${query}`, {
+      communicationScene: "local-runtime-visible",
+      task: localRuntimeTask("jobs"),
+    }).then(({ data }) => data?.result || data || []);
+  },
+  revokeLocalRuntimeDevice: async function (userId, deviceId) {
+    const target = {
+      resourceType: "local-runtime-control",
+      resourceId: String(userId),
+    };
+    return deleteJson(
+      `/local-runtime/devices/${encodeURIComponent(deviceId)}`,
+      {
+        signing: "required",
+        headers: sensitiveSessionCenter.headers(target),
+        communicationScene: "local-runtime-control",
+        task: localRuntimeTask("device-revoke", {
+          priority: "P0",
+          write: true,
+        }),
+      }
+    ).then(({ data }) => data?.result || data);
+  },
+  revokeLocalRuntimeLease: async function (userId, leaseId) {
+    const target = {
+      resourceType: "local-runtime-control",
+      resourceId: String(userId),
+    };
+    return deleteJson(`/local-runtime/leases/${encodeURIComponent(leaseId)}`, {
+      signing: "required",
+      headers: sensitiveSessionCenter.headers(target),
+      communicationScene: "local-runtime-control",
+      task: localRuntimeTask("lease-revoke", {
+        priority: "P0",
+        write: true,
+      }),
+    }).then(({ data }) => data?.result || data);
+  },
+  cancelLocalRuntimeJob: async function (jobId) {
+    return postJson(
+      `/local-runtime/jobs/${encodeURIComponent(jobId)}/cancel`,
+      {},
+      {
+        signing: "required",
+        communicationScene: "local-runtime-control",
+        task: localRuntimeTask("job-cancel", {
+          priority: "P0",
+          write: true,
+        }),
+      }
+    ).then(({ data }) => data?.result || data);
   },
   customModels: async function (
     provider,

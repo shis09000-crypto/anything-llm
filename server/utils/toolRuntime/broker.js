@@ -8,6 +8,9 @@ const {
 } = require("../modulePlatform/toolInvocationContract");
 const { dispatchBrowserPlane } = require("../browserPlane/planeClient");
 const { browserPermissionDecision } = require("../browserPlane/policy");
+const {
+  dispatchLocalRuntime: dispatchLocalRuntimeCenter,
+} = require("../localRuntime/client");
 
 const CRYPTO_ACCOUNT_TOOLS = new Set([
   "crypto_account_overview",
@@ -29,6 +32,15 @@ const BROWSER_TOOLS = new Set([
   "browser_task",
 ]);
 const BROWSER_APPROVAL_CLASS = "browser-interaction";
+const LOCAL_RUNTIME_TOOLS = new Set([
+  "local_device_status",
+  "local_desktop_observe",
+  "local_desktop_act",
+  "local_file_read",
+  "local_file_write",
+  "local_command_run",
+  "local_job_cancel",
+]);
 
 function normalizedBaseUrl(value, fallback) {
   return String(value || fallback).replace(/\/+$/, "");
@@ -269,11 +281,55 @@ async function dispatchBrowser({
   });
 }
 
+async function dispatchLocalRuntime({
+  approvalRequestId,
+  toolName,
+  args = {},
+  env = process.env,
+} = {}) {
+  const tool = String(toolName || "").trim();
+  if (!LOCAL_RUNTIME_TOOLS.has(tool))
+    throw Object.assign(new Error("tool_broker_local_runtime_tool_denied"), {
+      code: "tool_broker_local_runtime_tool_denied",
+      httpStatus: 400,
+    });
+  const context = await DataAccessCenter.toolInvocation.executionContext({
+    approvalRequestId,
+    toolName: tool,
+    args,
+  });
+  if (tool === "local_job_cancel")
+    return dispatchLocalRuntimeCenter(
+      "cancel",
+      { ownerUserId: context.ownerUserId, jobId: args.jobId },
+      { env, idempotencyKey: context.id }
+    );
+  return dispatchLocalRuntimeCenter(
+    "dispatch",
+    {
+      ownerUserId: context.ownerUserId,
+      ownerAuthUserId: context.ownerAuthUserId,
+      deviceId: args.deviceId,
+      toolName: tool,
+      args,
+      responseId: context.responseId || context.scope?.responseId || null,
+      toolInvocationId: context.id,
+      priority: context.scope?.priority || "P2",
+      idempotencyKey: context.id,
+      executionMode: args.background === true ? "background" : "interactive",
+      stepUpApproved: context.approvalClass === "local-runtime-step-up",
+    },
+    { env, idempotencyKey: context.id, timeoutMs: 610_000 }
+  );
+}
+
 module.exports = {
   CRYPTO_ACCOUNT_TOOLS,
   BROWSER_APPROVAL_CLASS,
   BROWSER_TOOLS,
+  LOCAL_RUNTIME_TOOLS,
   cryptoAccountServiceUrl,
   dispatchBrowser,
+  dispatchLocalRuntime,
   dispatchCryptoAccount,
 };

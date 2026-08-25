@@ -31,8 +31,8 @@ const AUTH_SCHEMA_ROLES = Object.freeze({
 });
 
 // Cross-domain writes stay deny-by-default. The entries below are narrow
-// append capabilities required before a producer can hand audit persistence
-// to its final physical schema owner. They grant no UPDATE or DELETE access.
+// capabilities required before a producer can hand persistence to its final
+// physical schema owner. Each grant is intentionally table- and verb-scoped.
 const MAIN_CROSS_SCHEMA_CAPABILITIES = Object.freeze([
   ...["event_logs", "security_audit_ledger", "security_audit_checkpoints"].map(
     (table) => ({
@@ -42,6 +42,18 @@ const MAIN_CROSS_SCHEMA_CAPABILITIES = Object.freeze([
       capability: "security-audit-append",
     })
   ),
+  {
+    schema: "agent",
+    table: "workspace_thread_goals",
+    privileges: Object.freeze(["SELECT", "UPDATE"]),
+    capability: "thread-goal-status",
+  },
+  {
+    schema: "agent",
+    table: "workspace_thread_plans",
+    privileges: Object.freeze(["SELECT", "UPDATE"]),
+    capability: "thread-plan-progress",
+  },
 ]);
 
 // Ownership is intentionally conservative. Tables not yet extracted from the

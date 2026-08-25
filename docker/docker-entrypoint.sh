@@ -157,6 +157,14 @@ run_external_mcp_gateway() {
     exec node /app/server/external-mcp-gateway.js
 }
 
+run_local_runtime_center() {
+  cd /app/server/ &&
+    verify_crypto_runtime &&
+    export CHECKPOINT_DISABLE=1 &&
+    prepare_prisma_client &&
+    exec node /app/server/local-runtime-center.js
+}
+
 run_tool_broker() {
   cd /app/server/ &&
     verify_crypto_runtime &&
@@ -307,6 +315,9 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     ;;
   external-mcp-gateway)
     run_external_mcp_gateway
+    ;;
+  local-runtime-center)
+    run_local_runtime_center
     ;;
   tool-broker)
     run_tool_broker

@@ -12,6 +12,8 @@ const {
   sanitizeReasoningText,
 } = require("../responsesRuntime/reasoningStream");
 const { newPublicChatId } = require("../chats/chatIdentifiers");
+const { resolveResponsesModel } = require("../responsesRuntime/modelRouting");
+const { publishWorkspaceSyncEvent } = require("../chats/workspaceSyncEvents");
 
 const activeResponsesTurns = new Map();
 
@@ -20,6 +22,114 @@ function normalizedPrompt(message = "") {
     .replace(/^\s*@agent\s*/i, "")
     .trim();
   return stripped || "Hello!";
+}
+
+function normalizeTurnContext(value = null) {
+  if (value === null || value === undefined)
+    return { mode: "normal", goal: null, plan: null };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const error = new Error("turn_context_invalid");
+    error.code = "turn_context_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  const mode = String(value.mode || "normal")
+    .trim()
+    .toLowerCase();
+  if (!["normal", "plan"].includes(mode)) {
+    const error = new Error("turn_mode_invalid");
+    error.code = "turn_mode_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  const goal = value.goal
+    ? {
+        action: String(value.goal.action || "attach")
+          .trim()
+          .toLowerCase(),
+        goalId: String(value.goal.goalId || "").trim() || null,
+        expectedActiveGoalId:
+          String(value.goal.expectedActiveGoalId || "").trim() || null,
+      }
+    : null;
+  const plan = value.plan
+    ? {
+        action: String(value.plan.action || "create")
+          .trim()
+          .toLowerCase(),
+        planId: String(value.plan.planId || "").trim() || null,
+      }
+    : mode === "plan"
+      ? { action: "create", planId: null }
+      : null;
+  if (
+    plan &&
+    !["create", "revise", "execute", "attach"].includes(plan.action)
+  ) {
+    const error = new Error("plan_action_invalid");
+    error.code = "plan_action_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  if (["create", "revise"].includes(plan?.action) && mode !== "plan") {
+    const error = new Error("plan_mode_required");
+    error.code = "plan_mode_required";
+    error.httpStatus = 400;
+    throw error;
+  }
+  if (plan?.action === "execute" && mode !== "normal") {
+    const error = new Error("plan_execute_mode_invalid");
+    error.code = "plan_execute_mode_invalid";
+    error.httpStatus = 400;
+    throw error;
+  }
+  return { mode, goal, plan };
+}
+
+function controlledTurnPrompt(
+  message,
+  { mode = "normal", goal = null, plan = null, planAction = null } = {}
+) {
+  const blocks = [];
+  if (goal?.objective) {
+    const serializedGoal = JSON.stringify({
+      goalId: goal.uuid,
+      objective: goal.objective,
+    }).replace(
+      /[<>&]/g,
+      (character) =>
+        ({ "<": "\\u003c", ">": "\\u003e", "&": "\\u0026" })[character]
+    );
+    blocks.push(`<athena_active_goal>${serializedGoal}</athena_active_goal>`);
+  }
+  if (mode === "plan") {
+    blocks.push(
+      "<athena_turn_mode>PLAN ONLY. Investigate the current state and produce an implementable plan. Do not modify files, run mutating commands, send external messages, trade, or change system state. Use only read-only tools. Return a concise Markdown title followed by actionable checklist items using '- [ ]'. These checklist items become the executable plan bar.</athena_turn_mode>"
+    );
+  }
+  if (plan?.uuid) {
+    const serializedPlan = JSON.stringify({
+      planId: plan.uuid,
+      title: plan.title,
+      objective: plan.objective,
+      steps: DataAccessCenter.workspaceThreadPlan.publicPlan(plan)?.steps || [],
+      markdown: plan.markdown || "",
+    }).replace(
+      /[<>&]/g,
+      (character) =>
+        ({ "<": "\\u003c", ">": "\\u003e", "&": "\\u0026" })[character]
+    );
+    blocks.push(`<athena_thread_plan>${serializedPlan}</athena_thread_plan>`);
+    if (planAction === "revise")
+      blocks.push(
+        "<athena_plan_action>Revise the attached plan using the user's feedback. Return the complete revised Markdown checklist, not only the changed portion.</athena_plan_action>"
+      );
+    if (planAction === "execute")
+      blocks.push(
+        "<athena_plan_action>Execute the attached plan now. You may use the normally authorized tools. Call get_plan first, then update_plan so the plan bar reflects progress. Do not claim a step is completed until its work is actually verified.</athena_plan_action>"
+      );
+  }
+  return [...blocks, normalizedPrompt(message)].filter(Boolean).join("\n\n");
 }
 
 function localAgentRuntime() {
@@ -46,6 +156,7 @@ class ResponsesTurnProjector {
     chatId = null,
     publicChatId = null,
     clientTurnId = null,
+    metadata = {},
   }) {
     this.responseId = responseId;
     this.emitRaw = emit;
@@ -56,6 +167,7 @@ class ResponsesTurnProjector {
     this.chatId = chatId;
     this.publicChatId = publicChatId;
     this.clientTurnId = clientTurnId;
+    this.metadata = metadata || {};
     this.metrics = {};
     this.reasoningStarted = false;
     this.reasoningDone = false;
@@ -66,6 +178,7 @@ class ResponsesTurnProjector {
           chatId: this.chatId,
           publicChatId: this.publicChatId,
           clientTurnId: this.clientTurnId,
+          ...this.metadata,
         },
       }),
     });
@@ -75,6 +188,7 @@ class ResponsesTurnProjector {
           chatId: this.chatId,
           publicChatId: this.publicChatId,
           clientTurnId: this.clientTurnId,
+          ...this.metadata,
         },
       }),
     });
@@ -305,10 +419,12 @@ class ResponsesTurnProjector {
             innerResponse?.metadata?.publicChatId || this.publicChatId || null,
           clientTurnId:
             this.clientTurnId || innerResponse?.metadata?.clientTurnId || null,
+          ...this.metadata,
         },
       }),
     });
     this.terminal = true;
+    this.terminalStatus = "completed";
   }
 
   fail(code, message) {
@@ -320,6 +436,7 @@ class ResponsesTurnProjector {
       }),
     });
     this.terminal = true;
+    this.terminalStatus = "failed";
   }
 
   incomplete(reason = "generation_incomplete") {
@@ -331,6 +448,7 @@ class ResponsesTurnProjector {
       }),
     });
     this.terminal = true;
+    this.terminalStatus = "incomplete";
   }
 
   cancel() {
@@ -340,6 +458,7 @@ class ResponsesTurnProjector {
       response: responseEnvelope(this.responseId, "cancelled"),
     });
     this.terminal = true;
+    this.terminalStatus = "cancelled";
   }
 }
 
@@ -354,18 +473,12 @@ async function executeResponsesTurn({
   attachments = [],
   fileAccess = {},
   clientTurnId = null,
+  turnContext = null,
 } = {}) {
   // Allocate the durable public identity as soon as the Responses connection
   // is established, but do not create a WorkspaceChats row yet. The final chat
   // is committed only after the Agent Runtime emits a valid completed terminal.
-  const reservedPublicChatId = newPublicChatId();
-  const projector = new ResponsesTurnProjector({
-    responseId,
-    emit,
-    chatId: null,
-    publicChatId: reservedPublicChatId,
-    clientTurnId,
-  });
+  const normalizedContext = normalizeTurnContext(turnContext);
   const executionTarget = {
     provider: String(workspace?.chatProvider || workspace?.agentProvider || ""),
     model: String(workspace?.chatModel || workspace?.agentModel || ""),
@@ -378,15 +491,119 @@ async function executeResponsesTurn({
       code: "responses_model_not_supported",
       httpStatus: 400,
     });
-    projector.fail(error.code, error.message);
     throw error;
   }
+  const modelRoute = resolveResponsesModel({
+    provider: executionTarget.provider,
+    requestedModel: executionTarget.model,
+  });
+  let activeGoal = null;
+  let activePlan = null;
+  let planAction = normalizedContext.plan?.action || null;
+  if (thread) {
+    if (normalizedContext.goal) {
+      const result = await DataAccessCenter.workspaceThreadGoal.resolveForTurn({
+        workspace,
+        thread,
+        user,
+        clientTurnId,
+        objective: normalizedPrompt(message),
+        goal: normalizedContext.goal,
+      });
+      activeGoal = result?.goal || null;
+      if (result?.created && activeGoal) {
+        publishWorkspaceSyncEvent({
+          type: "thread_goal_created",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          goalId: activeGoal.uuid,
+          objective: activeGoal.objective,
+        });
+      }
+    } else {
+      activeGoal = await DataAccessCenter.workspaceThreadGoal.active({
+        workspace,
+        thread,
+        user,
+      });
+    }
+  } else if (normalizedContext.goal) {
+    const error = new Error("goal_thread_required");
+    error.code = "goal_thread_required";
+    error.httpStatus = 400;
+    throw error;
+  }
+  if (thread && normalizedContext.plan) {
+    const result = await DataAccessCenter.workspaceThreadPlan.resolveForTurn({
+      workspace,
+      thread,
+      user,
+      clientTurnId,
+      objective: normalizedPrompt(message),
+      goalId: activeGoal?.uuid || null,
+      plan: normalizedContext.plan,
+    });
+    activePlan = result?.plan || null;
+    planAction = result?.action || planAction;
+    if (activePlan) {
+      publishWorkspaceSyncEvent({
+        type:
+          planAction === "execute"
+            ? "thread_plan_executing"
+            : "thread_plan_drafting",
+        workspaceId: workspace.id,
+        workspaceSlug: workspace.slug,
+        userId: user?.id ?? null,
+        threadId: thread.id,
+        threadSlug: thread.slug,
+        planId: activePlan.uuid,
+        status: activePlan.status,
+      });
+    }
+  } else if (normalizedContext.plan) {
+    const error = new Error("plan_thread_required");
+    error.code = "plan_thread_required";
+    error.httpStatus = 400;
+    throw error;
+  }
+  const reservedPublicChatId = newPublicChatId();
+  const projector = new ResponsesTurnProjector({
+    responseId,
+    emit,
+    chatId: null,
+    publicChatId: reservedPublicChatId,
+    clientTurnId,
+    metadata: {
+      requestedModel: modelRoute.requestedModel,
+      effectiveModel: modelRoute.effectiveModel,
+      multimodal: attachments.length > 0,
+      turnMode: normalizedContext.mode,
+      goalId: activeGoal?.uuid || null,
+      planId: activePlan?.uuid || null,
+      planAction,
+    },
+  });
   const submission = {
-    prompt: normalizedPrompt(message),
+    prompt: controlledTurnPrompt(message, {
+      mode: normalizedContext.mode,
+      goal: activeGoal,
+      plan: activePlan,
+      planAction,
+    }),
     workspace,
     user,
     thread,
     clientTurnId,
+    requestedProvider: modelRoute.provider,
+    requestedModel: modelRoute.requestedModel,
+    effectiveModel: modelRoute.effectiveModel,
+    turnMode: normalizedContext.mode,
+    goalId: activeGoal?.uuid || null,
+    planId: activePlan?.uuid || null,
+    planAction,
   };
   try {
     const result = remoteAgentInvocationEnabled()
@@ -419,11 +636,112 @@ async function executeResponsesTurn({
         "responses_terminal_missing",
         "Responses turn ended without a terminal event."
       );
+    if (
+      projector.terminalStatus === "completed" &&
+      activeGoal?.uuid &&
+      clientTurnId
+    ) {
+      const terminalGoal =
+        await DataAccessCenter.workspaceThreadGoal.commitStatus({
+          goalId: activeGoal.uuid,
+          clientTurnId,
+        });
+      if (terminalGoal) {
+        publishWorkspaceSyncEvent({
+          type: `thread_goal_${terminalGoal.status}`,
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          goalId: activeGoal.uuid,
+        });
+      }
+    }
+    if (activePlan?.uuid && clientTurnId) {
+      if (
+        projector.terminalStatus === "completed" &&
+        ["create", "revise"].includes(planAction)
+      ) {
+        activePlan = await DataAccessCenter.workspaceThreadPlan.finalizeDraft({
+          planId: activePlan.uuid,
+          clientTurnId,
+          markdown: projector.text,
+        });
+        publishWorkspaceSyncEvent({
+          type: "thread_plan_ready",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          planId: activePlan.uuid,
+          status: activePlan.status,
+        });
+      } else if (["create", "revise"].includes(planAction)) {
+        activePlan = await DataAccessCenter.workspaceThreadPlan.markDraftFailed(
+          {
+            planId: activePlan.uuid,
+            clientTurnId,
+          }
+        );
+        publishWorkspaceSyncEvent({
+          type: "thread_plan_ready",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          planId: activePlan.uuid,
+          status: activePlan.status,
+        });
+      } else if (planAction === "execute") {
+        activePlan = await DataAccessCenter.workspaceThreadPlan.finishExecution(
+          {
+            planId: activePlan.uuid,
+            clientTurnId,
+            succeeded: projector.terminalStatus === "completed",
+          }
+        );
+        publishWorkspaceSyncEvent({
+          type:
+            activePlan?.status === "completed"
+              ? "thread_plan_completed"
+              : "thread_plan_ready",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          planId: activePlan?.uuid,
+          status: activePlan?.status,
+        });
+      }
+    }
   } catch (error) {
     projector.fail(
       error?.code || "responses_turn_failed",
       error?.message || "Responses turn failed."
     );
+    if (
+      activePlan?.uuid &&
+      clientTurnId &&
+      ["create", "revise"].includes(planAction)
+    ) {
+      await DataAccessCenter.workspaceThreadPlan
+        .markDraftFailed({ planId: activePlan.uuid, clientTurnId })
+        .catch(() => null);
+      publishWorkspaceSyncEvent({
+        type: "thread_plan_ready",
+        workspaceId: workspace.id,
+        workspaceSlug: workspace.slug,
+        userId: user?.id ?? null,
+        threadId: thread?.id,
+        threadSlug: thread?.slug,
+        planId: activePlan.uuid,
+        status: "failed",
+      });
+    }
     throw error;
   } finally {
     activeResponsesTurns.delete(responseId);
@@ -456,6 +774,7 @@ module.exports = {
   ResponsesTurnProjector,
   cancelResponsesTurn,
   executeResponsesTurn,
+  normalizeTurnContext,
   normalizedPrompt,
   submitResponsesTurnAction,
 };

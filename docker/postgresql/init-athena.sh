@@ -109,6 +109,8 @@ SELECT format('CREATE ROLE athena_responses_runtime LOGIN PASSWORD %L', :'main_p
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_responses_runtime')\gexec
 SELECT format('CREATE ROLE athena_character_performance LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_character_performance')\gexec
+SELECT format('CREATE ROLE athena_local_runtime LOGIN PASSWORD %L', :'main_password')
+WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_local_runtime')\gexec
 SELECT format('CREATE ROLE athena_tools LOGIN PASSWORD %L', :'main_password')
 WHERE NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'athena_tools')\gexec
 SELECT format('CREATE ROLE athena_crypto_market LOGIN PASSWORD %L', :'main_password')
@@ -144,6 +146,7 @@ ALTER ROLE athena_agent PASSWORD :'main_password';
 ALTER ROLE athena_model_runtime PASSWORD :'main_password';
 ALTER ROLE athena_responses_runtime PASSWORD :'main_password';
 ALTER ROLE athena_character_performance PASSWORD :'main_password';
+ALTER ROLE athena_local_runtime PASSWORD :'main_password';
 ALTER ROLE athena_tools PASSWORD :'main_password';
 ALTER ROLE athena_crypto_market PASSWORD :'main_password';
 ALTER ROLE athena_crypto_account PASSWORD :'main_password';
@@ -167,6 +170,7 @@ GRANT CONNECT ON DATABASE athena_main TO
   athena_model_runtime,
   athena_responses_runtime,
   athena_character_performance,
+  athena_local_runtime,
   athena_tools,
   athena_crypto_market,
   athena_crypto_account,
@@ -227,6 +231,29 @@ BEGIN
       EXECUTE format(
         'GRANT USAGE, SELECT ON SEQUENCE public.%I TO athena_key_custody',
         object_name || '_id_seq'
+      );
+    END IF;
+  END LOOP;
+END $$;
+
+-- Local Runtime Center owns only its device relay tables while the Prisma
+-- compatibility schema remains public during the expand/contract migration.
+GRANT USAGE ON SCHEMA public TO athena_local_runtime;
+DO $$
+DECLARE
+  object_name text;
+BEGIN
+  FOREACH object_name IN ARRAY ARRAY[
+    'local_runtime_pairing_tickets',
+    'local_runtime_devices',
+    'local_runtime_leases',
+    'local_runtime_jobs',
+    'local_runtime_job_events'
+  ] LOOP
+    IF to_regclass(format('public.%I', object_name)) IS NOT NULL THEN
+      EXECUTE format(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO athena_local_runtime',
+        object_name
       );
     END IF;
   END LOOP;

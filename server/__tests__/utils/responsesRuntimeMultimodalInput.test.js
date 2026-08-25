@@ -1,5 +1,4 @@
 const {
-  VISION_MODEL,
   capEphemeralToolFrames,
   clearProviderFileCache,
   prepareResponsesInput,
@@ -38,17 +37,16 @@ describe("Responses Runtime native multimodal input", () => {
       })
     ).resolves.toEqual({
       input: [{ type: "message", role: "user", content: "hello" }],
-      model: "deepseek-v4-pro",
       sawImage: false,
     });
   });
 
-  test("upgrades the Flash main route to the native vision model", async () => {
+  test("does not own model routing", async () => {
     const prepared = await prepareResponsesInput(
       [{ role: "user", content: "hello" }],
       { model: "deepseek-v4-flash" }
     );
-    expect(prepared.model).toBe(VISION_MODEL);
+    expect(prepared).not.toHaveProperty("model");
     expect(prepared.sawImage).toBe(false);
   });
 
@@ -58,7 +56,7 @@ describe("Responses Runtime native multimodal input", () => {
       [{ role: "user", content: "what is this", attachments: [image("one")] }],
       { model: "deepseek-v4-pro", workspaceId: 1, resolveImage }
     );
-    expect(prepared.model).toBe(VISION_MODEL);
+    expect(prepared).not.toHaveProperty("model");
     expect(prepared.input).toEqual([
       {
         type: "message",
@@ -123,7 +121,7 @@ describe("Responses Runtime native multimodal input", () => {
         resolveImage: persistentResolver,
       }
     );
-    expect(prepared.model).toBe(VISION_MODEL);
+    expect(prepared).not.toHaveProperty("model");
     expect(prepared.input[0].content[1]).toEqual({
       type: "input_image",
       file_id: "file-api-history",

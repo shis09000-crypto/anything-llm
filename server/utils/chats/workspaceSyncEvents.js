@@ -24,6 +24,26 @@ function workspaceTypeToSyncType(type = "") {
       return { namespace: "thread", type: "updated", kind: "thread" };
     case "thread_deleted":
       return { namespace: "thread", type: "deleted", kind: "thread" };
+    case "thread_goal_created":
+      return { namespace: "thread", type: "goal_created", kind: "thread" };
+    case "thread_goal_completed":
+      return { namespace: "thread", type: "goal_completed", kind: "thread" };
+    case "thread_goal_blocked":
+      return { namespace: "thread", type: "goal_blocked", kind: "thread" };
+    case "thread_goal_abandoned":
+      return { namespace: "thread", type: "goal_abandoned", kind: "thread" };
+    case "thread_plan_drafting":
+      return { namespace: "thread", type: "plan_drafting", kind: "thread" };
+    case "thread_plan_ready":
+      return { namespace: "thread", type: "plan_ready", kind: "thread" };
+    case "thread_plan_executing":
+      return { namespace: "thread", type: "plan_executing", kind: "thread" };
+    case "thread_plan_updated":
+      return { namespace: "thread", type: "plan_updated", kind: "thread" };
+    case "thread_plan_completed":
+      return { namespace: "thread", type: "plan_completed", kind: "thread" };
+    case "thread_plan_abandoned":
+      return { namespace: "thread", type: "plan_abandoned", kind: "thread" };
     case "workspace_created":
       return { namespace: "workspace", type: "created", kind: "workspace" };
     case "workspace_updated":
@@ -78,6 +98,26 @@ function syncTypeToWorkspaceType(event = {}) {
       return "thread_updated";
     case "thread.deleted":
       return "thread_deleted";
+    case "thread.goal_created":
+      return "thread_goal_created";
+    case "thread.goal_completed":
+      return "thread_goal_completed";
+    case "thread.goal_blocked":
+      return "thread_goal_blocked";
+    case "thread.goal_abandoned":
+      return "thread_goal_abandoned";
+    case "thread.plan_drafting":
+      return "thread_plan_drafting";
+    case "thread.plan_ready":
+      return "thread_plan_ready";
+    case "thread.plan_executing":
+      return "thread_plan_executing";
+    case "thread.plan_updated":
+      return "thread_plan_updated";
+    case "thread.plan_completed":
+      return "thread_plan_completed";
+    case "thread.plan_abandoned":
+      return "thread_plan_abandoned";
     case "workspace.created":
       return "workspace_created";
     case "workspace.updated":
@@ -132,6 +172,10 @@ function workspaceEventFromSyncEvent(event = {}) {
     historyFingerprint: payload.historyFingerprint || null,
     message: payload.message || null,
     error: payload.error || null,
+    goalId: payload.goalId || null,
+    objective: payload.objective || null,
+    planId: payload.planId || null,
+    status: payload.status || null,
     createdAt: event.createdAt,
   };
 }
@@ -203,6 +247,10 @@ function publishWorkspaceSyncEvent(event = {}, options = {}) {
         historyFingerprint: event.historyFingerprint || null,
         hasMessage: !!event.message,
         error: event.error || null,
+        goalId: event.goalId || null,
+        objective: event.objective || null,
+        planId: event.planId || null,
+        status: event.status || null,
       },
       createdAt: event.createdAt,
     },

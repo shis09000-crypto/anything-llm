@@ -3117,6 +3117,112 @@ model browser_history {
   @@index([ownerUserId, visitedAt])
 }
 
+model local_runtime_pairing_tickets {
+  id              String    @id @default(uuid())
+  ownerUserId     Int
+  ownerAuthUserId String
+  clientId        String?
+  tokenHash       String    @unique
+  status          String    @default("pending")
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([ownerUserId, status, expiresAt])
+  @@index([ownerAuthUserId, status])
+}
+
+model local_runtime_devices {
+  id               String    @id @default(uuid())
+  ownerUserId      Int
+  ownerAuthUserId  String
+  clientId         String?
+  name             String
+  platform         String    @default("macos")
+  version          String?
+  publicKeyPem     String
+  keyAlgorithm     String    @default("p256")
+  status           String    @default("offline")
+  capabilitiesJson String    @default("{}")
+  permissionsJson  String    @default("{}")
+  connectionId     String?
+  lastSeenAt       DateTime?
+  pairedAt         DateTime  @default(now())
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([ownerAuthUserId, clientId])
+  @@index([ownerUserId, status, lastSeenAt])
+  @@index([ownerAuthUserId, status])
+}
+
+model local_runtime_leases {
+  id               String    @id @default(uuid())
+  deviceId         String
+  ownerUserId      Int
+  ownerAuthUserId  String
+  status           String    @default("active")
+  capabilitiesJson String    @default("[]")
+  allowedRootsJson String    @default("[]")
+  allowedAppsJson  String    @default("[]")
+  riskCeiling      String    @default("L2")
+  issuedAt         DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([deviceId, status, expiresAt])
+  @@index([ownerUserId, status, expiresAt])
+}
+
+model local_runtime_jobs {
+  id               String    @id @default(uuid())
+  ownerUserId      Int
+  ownerAuthUserId  String
+  deviceId         String
+  leaseId          String
+  responseId       String?
+  toolInvocationId String?
+  toolName         String
+  riskLevel        String    @default("L0")
+  stepUpApproved   Boolean   @default(false)
+  priority         String    @default("P2")
+  executionMode    String    @default("interactive")
+  status           String    @default("queued")
+  idempotencyKey   String
+  argumentHash     String
+  payloadJson      String
+  resultJson       String?
+  resultHash       String?
+  reasonCode       String?
+  attempt          Int       @default(1)
+  lastSequence     Int       @default(0)
+  deadlineAt       DateTime
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([ownerUserId, idempotencyKey])
+  @@index([deviceId, status, priority, createdAt])
+  @@index([responseId, status])
+  @@index([toolInvocationId, status])
+}
+
+model local_runtime_job_events {
+  id          String   @id @default(uuid())
+  jobId       String
+  sequence    Int
+  type        String
+  payloadJson String   @default("{}")
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, sequence])
+  @@index([jobId, createdAt])
+}
+
 model plugin_capability_nonces {
   id               String   @id @default(uuid())
   nonceHash        String   @unique
@@ -3941,6 +4047,11 @@ model workspace_agent_invocations {
   clientTurnId      String?    @unique
   requestedProvider String?
   requestedModel    String?
+  effectiveModel    String?
+  turnMode          String     @default("normal")
+  goalId            String?
+  planId            String?
+  planAction        String?
   prompt            String // Contains agent invocation to parse + option additional text for seed.
   closed            Boolean    @default(false)
   user_id           Int?
@@ -3952,6 +4063,57 @@ model workspace_agent_invocations {
   workspace         workspaces @relation(fields: [workspace_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([uuid])
+}
+
+model workspace_thread_goals {
+  id                        Int       @id @default(autoincrement())
+  uuid                      String    @unique
+  workspace_id              Int
+  thread_id                 Int
+  user_id                   Int?
+  objective                 String
+  status                    String    @default("active")
+  activeScopeKey            String?   @unique
+  sourceClientTurnId        String    @unique
+  pendingStatus             String?
+  pendingStatusClientTurnId String?
+  statusClientTurnId        String?
+  createdAt                 DateTime  @default(now())
+  lastUpdatedAt             DateTime  @default(now())
+  completedAt               DateTime?
+  blockedAt                 DateTime?
+  abandonedAt               DateTime?
+
+  @@index([workspace_id, thread_id, user_id, status])
+  @@index([thread_id, createdAt])
+}
+
+model workspace_thread_plans {
+  id                    Int       @id @default(autoincrement())
+  uuid                  String    @unique
+  workspace_id          Int
+  thread_id             Int
+  user_id               Int?
+  goalId                String?
+  objective             String
+  title                 String?
+  markdown              String?
+  stepsJson             String    @default("[]")
+  status                String    @default("drafting")
+  activeScopeKey        String?   @unique
+  createClientTurnId    String    @unique
+  lastClientTurnId      String?
+  executionClientTurnId String?
+  revision              Int       @default(0)
+  createdAt             DateTime  @default(now())
+  lastUpdatedAt         DateTime  @default(now())
+  readyAt               DateTime?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  abandonedAt           DateTime?
+
+  @@index([workspace_id, thread_id, user_id, status])
+  @@index([thread_id, createdAt])
 }
 
 model workspace_users {

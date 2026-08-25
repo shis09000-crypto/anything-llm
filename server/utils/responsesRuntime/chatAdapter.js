@@ -4,6 +4,7 @@ const {
   requestInternalStream,
 } = require("../microModules");
 const { FLASH_MODEL } = require("./contract");
+const { resolveResponsesModel } = require("./modelRouting");
 
 function enabled({ provider, model, env = process.env } = {}) {
   const role = String(env.ATHENA_RUNTIME_ROLE || "");
@@ -50,9 +51,14 @@ function requestBody(
   { provider = "deepseek", model = FLASH_MODEL } = {}
 ) {
   const thinkingEnabled = options.thinking === "enabled";
+  const modelRoute = resolveResponsesModel({
+    provider,
+    requestedModel: model,
+    env: options.env || process.env,
+  });
   return {
     provider,
-    model,
+    model: modelRoute.effectiveModel,
     input: messages,
     store: options.store !== false,
     background: false,
@@ -70,7 +76,11 @@ function requestBody(
     ...(options.responseFormat
       ? { response_format: options.responseFormat }
       : {}),
-    athena: metadata,
+    athena: {
+      ...metadata,
+      requestedModel: modelRoute.requestedModel,
+      effectiveModel: modelRoute.effectiveModel,
+    },
   };
 }
 

@@ -39,6 +39,8 @@ const { startFastLaneServer } = require("./utils/athena3dCenter/fastLane");
 const {
   ThreeDContextCache,
 } = require("./utils/modelGateway/threeDContextCache");
+const { probeFlashVision } = require("./utils/modelGateway/flashVisionProbe");
+const { flashVisionModel } = require("./utils/responsesRuntime/modelRouting");
 
 const role = "model-gateway";
 const port = Number(process.env.MODEL_GATEWAY_PORT || 3018);
@@ -103,6 +105,16 @@ function agentCompletionRequest(body = {}) {
 
 function responsesCompletionRequest(body = {}, stream = false) {
   const input = validateProviderRequest({ ...body, stream });
+  if (
+    input.provider === "deepseek" &&
+    input.model === flashVisionModel(process.env) &&
+    state.flashVision.ready !== true
+  ) {
+    const error = new Error("flash_vision_model_unavailable");
+    error.code = "flash_vision_model_unavailable";
+    error.httpStatus = 503;
+    throw error;
+  }
   const serialized = JSON.stringify(input.input);
   if (
     Buffer.byteLength(serialized) >
@@ -120,6 +132,16 @@ const state = {
   activeCompletions: 0,
   completedCompletions: 0,
   failedCompletions: 0,
+  flashVision: {
+    ready: false,
+    requestedModel: "deepseek-v4-flash",
+    effectiveModel: flashVisionModel(process.env),
+    responses: false,
+    nativeImage: false,
+    filesApi: false,
+    checkedAt: null,
+    error: "flash_vision_probe_pending",
+  },
 };
 let threeDContextFastLane = null;
 const threeDContextCache = new ThreeDContextCache();
@@ -248,6 +270,37 @@ const host = new MicroModuleServiceHost({
   }),
   onStart: async () => {
     await secureDatabaseStart(role);
+    if (process.env.NODE_ENV === "test") {
+      const provider = getLLMProvider({
+        provider: "deepseek",
+        model: state.flashVision.effectiveModel,
+      });
+      const ready = typeof provider?.openai?.responses?.create === "function";
+      state.flashVision = {
+        ...state.flashVision,
+        ready,
+        responses: ready,
+        nativeImage: ready,
+        filesApi: ready,
+        checkedAt: new Date().toISOString(),
+        error: ready ? null : "provider_responses_unavailable",
+      };
+    } else if (process.env.ATHENA_FLASH_VISION_PROBE_ENABLED === "false") {
+      state.flashVision = {
+        ...state.flashVision,
+        ready: false,
+        responses: false,
+        nativeImage: false,
+        filesApi: false,
+        checkedAt: new Date().toISOString(),
+        error: "flash_vision_probe_disabled",
+      };
+    } else {
+      state.flashVision = await probeFlashVision({
+        providerFactory: (input) => getLLMProvider(input),
+        env: process.env,
+      });
+    }
     if (process.env.ATHENA_3D_CONTEXT_FAST_LANE_ENABLED !== "false")
       threeDContextFastLane = await startFastLaneServer({
         role,
@@ -276,15 +329,29 @@ const host = new MicroModuleServiceHost({
       "/internal/v1/models/responses/capabilities",
       (_request, response) => {
         const models = ["deepseek-v4-flash", "deepseek-v4-pro"];
-        const ready = models.every((model) => {
-          const provider = getLLMProvider({ provider: "deepseek", model });
-          return typeof provider?.openai?.responses?.create === "function";
+        const proProvider = getLLMProvider({
+          provider: "deepseek",
+          model: "deepseek-v4-pro",
         });
+        const proReady =
+          typeof proProvider?.openai?.responses?.create === "function";
+        // The gateway remains usable when at least one Responses route is
+        // healthy. Flash itself is gated independently by its probed route so
+        // a Vision outage cannot disable Pro.
+        const ready = proReady || state.flashVision.ready === true;
         response.json({
           success: true,
           ready,
           provider: "deepseek",
           models,
+          routes: {
+            "deepseek-v4-flash": state.flashVision,
+            "deepseek-v4-pro": {
+              ready: proReady,
+              requestedModel: "deepseek-v4-pro",
+              effectiveModel: "deepseek-v4-pro",
+            },
+          },
           protocols: ["responses"],
         });
       }

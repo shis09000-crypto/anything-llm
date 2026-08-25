@@ -49,6 +49,7 @@ const quizRuntime = new ResponsesQuizRuntime();
 const characterRuntime = new FlashCharacterAdapter();
 const characterV2Runtime = new CharacterV2Runtime();
 const characterConversationRuntime = new CharacterConversationRuntime();
+let modelResponsesCapabilities = null;
 
 async function dependencySelfTest() {
   if (process.env.ATHENA_KEY_CUSTODY_CUTOVER !== "true") {
@@ -76,6 +77,7 @@ async function dependencySelfTest() {
   });
   if (capability?.ready !== true)
     throw new Error("model_responses_capability_unavailable");
+  modelResponsesCapabilities = capability;
 }
 
 function asyncRoute(handler) {
@@ -620,6 +622,7 @@ const host = new MicroModuleServiceHost({
         success: true,
         schemaVersion: "athena.responses.capabilities.v1",
         models: DEEPSEEK_RESPONSE_MODELS,
+        modelRoutes: modelResponsesCapabilities?.routes || {},
         protocols: ["responses"],
         state: {
           response: true,

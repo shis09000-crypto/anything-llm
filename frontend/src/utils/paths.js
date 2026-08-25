@@ -195,6 +195,9 @@ export default {
     imageAssets: () => {
       return "/settings/image-assets";
     },
+    localRuntime: () => {
+      return "/settings/local-runtime";
+    },
     batchJobs: () => {
       return "/settings/batch-jobs";
     },

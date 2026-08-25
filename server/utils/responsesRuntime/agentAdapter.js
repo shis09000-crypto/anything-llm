@@ -11,6 +11,7 @@ const { enabled, responseEvents, responsesTools } = require("./chatAdapter");
 const { prepareResponsesInput } = require("./multimodalInput");
 const { invalidateBindings } = require("../imageAssets/adapter");
 const { functionsVisibleToResponsesModel } = require("./toolExposure");
+const { resolveResponsesModel } = require("./modelRouting");
 const {
   ReasoningStreamProjector,
   completedReasoningFromEvent,
@@ -134,6 +135,11 @@ function createResponsesAgentProvider({
       options = null
     ) {
       const athena = metadata(this.handlerProps);
+      const modelRoute = resolveResponsesModel({
+        provider,
+        requestedModel: model,
+        env,
+      });
       const modelVisibleFunctions = functionsVisibleToResponsesModel(functions);
       const requiresWorkspaceSearch =
         this.handlerProps?.invocation?.workspace?.chatMode === "query" &&
@@ -146,7 +152,7 @@ function createResponsesAgentProvider({
       });
       let body = {
         provider,
-        model: prepared.model,
+        model: modelRoute.effectiveModel,
         input: prepared.input,
         store: true,
         background: false,
@@ -168,7 +174,8 @@ function createResponsesAgentProvider({
           : {}),
         athena: {
           ...athena,
-          requestedModel: model,
+          requestedModel: modelRoute.requestedModel,
+          effectiveModel: modelRoute.effectiveModel,
           multimodal: prepared.sawImage,
         },
       };
@@ -262,7 +269,7 @@ function createResponsesAgentProvider({
               );
               usage = {
                 ...(event.response?.usage || {}),
-                model: event.response?.model || prepared.model,
+                model: event.response?.model || modelRoute.effectiveModel,
                 provider,
                 requested_protocol:
                   event.response?.athena?.requestedProtocol || "responses",
@@ -314,7 +321,7 @@ function createResponsesAgentProvider({
         });
         body = {
           ...body,
-          model: prepared.model,
+          model: modelRoute.effectiveModel,
           input: prepared.input,
           athena: { ...body.athena, multimodal: prepared.sawImage },
         };

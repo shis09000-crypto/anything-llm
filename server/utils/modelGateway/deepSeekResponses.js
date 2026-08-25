@@ -1,4 +1,5 @@
 const { normalizeUsage } = require("../responsesRuntime/contract");
+const { resolveResponsesModel } = require("../responsesRuntime/modelRouting");
 
 const SUPPORTED_RESPONSE_KEYS = new Set([
   "provider",
@@ -53,7 +54,11 @@ function validateProviderRequest(body = {}) {
   if (!Array.isArray(body.input) || body.input.length === 0)
     throw responseError("provider_responses_input_required");
   validateResponseFormat(body.response_format);
-  return body;
+  const modelRoute = resolveResponsesModel({
+    provider: body.provider,
+    requestedModel: body.athena?.requestedModel || body.model,
+  });
+  return { ...body, model: modelRoute.effectiveModel };
 }
 
 function outputText(response = {}) {
@@ -114,19 +119,19 @@ function providerRequest(input, { stream = false } = {}) {
 }
 
 async function deepSeekResponsesComplete(input, { providerFactory }) {
-  validateProviderRequest(input);
-  const provider = providerFactory(input);
+  const normalizedInput = validateProviderRequest(input);
+  const provider = providerFactory(normalizedInput);
   const response = await providerResponsesClient(provider)(
-    providerRequest(input)
+    providerRequest(normalizedInput)
   );
   return normalizeResponse(response);
 }
 
 async function* deepSeekResponsesStream(input, { providerFactory }) {
-  validateProviderRequest(input);
-  const provider = providerFactory(input);
+  const normalizedInput = validateProviderRequest(input);
+  const provider = providerFactory(normalizedInput);
   const stream = await providerResponsesClient(provider)(
-    providerRequest(input, { stream: true })
+    providerRequest(normalizedInput, { stream: true })
   );
   for await (const event of stream) yield event;
 }

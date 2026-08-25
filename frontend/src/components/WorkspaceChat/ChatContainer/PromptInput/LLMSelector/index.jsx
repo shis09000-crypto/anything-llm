@@ -39,6 +39,7 @@ export default function LLMSelectorModal({
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [missingCredentials, setMissingCredentials] = useState(false);
+  const [modelCapabilities, setModelCapabilities] = useState(null);
 
   useEffect(() => {
     if (!slug) return;
@@ -78,8 +79,23 @@ export default function LLMSelectorModal({
       }).then(
         async (response) => response?.settings || (await System.keys()) || {}
       ),
+      System.responsesCapabilities(slug, {
+        signal: controller.signal,
+        communicationScene: "llm-model-selector-visible",
+        task: {
+          label: "llm-selector:responses-capabilities",
+          kind: "settings",
+          priority: "P0",
+          policy: "foreground",
+          intentRank: 1,
+          scope: taskScope,
+        },
+      }).catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return null;
+      }),
     ])
-      .then(([workspace, systemSettings]) => {
+      .then(([workspace, systemSettings, capabilities]) => {
         if (stale || controller.signal.aborted) return;
         const savedProvider =
           workspace.chatProvider ?? systemSettings.LLMProvider;
@@ -88,6 +104,7 @@ export default function LLMSelectorModal({
         const providerToSelect = initialProvider ?? savedProvider;
 
         setSettings(systemSettings);
+        setModelCapabilities(capabilities);
         setSelectedLLMProvider(providerToSelect);
         autoScrollToSelectedLLMProvider(providerToSelect);
         setSelectedLLMModel(savedModel);
@@ -134,6 +151,14 @@ export default function LLMSelectorModal({
       setHasChanges(false);
       const validatedModel = validatedModelSelection(selectedLLMModel);
       if (!validatedModel) throw new Error("Invalid model selection");
+      if (
+        validatedModel === "deepseek-v4-flash" &&
+        modelCapabilities?.modelRoutes?.["deepseek-v4-flash"]?.ready !== true
+      ) {
+        throw new Error(
+          t("chat_window.controls.composerMenu.flashVisionUnavailable")
+        );
+      }
 
       const supportedThreadModel = [
         "deepseek-v4-flash",
@@ -242,6 +267,7 @@ export default function LLMSelectorModal({
               setHasChanges={setHasChanges}
               selectedLLMModel={selectedLLMModel}
               setSelectedLLMModel={setSelectedLLMModel}
+              modelCapabilities={modelCapabilities}
             />
           )}
         </div>

@@ -123,6 +123,11 @@ const WorkspaceAgentInvocation = {
     clientTurnId = null,
     requestedProvider = null,
     requestedModel = null,
+    effectiveModel = null,
+    turnMode = "normal",
+    goalId = null,
+    planId = null,
+    planAction = null,
   }) {
     try {
       const normalizedClientTurnId = String(clientTurnId || "").trim() || null;
@@ -148,6 +153,11 @@ const WorkspaceAgentInvocation = {
         thread_id: thread?.id,
         requestedProvider: String(requestedProvider || "").trim() || null,
         requestedModel: String(requestedModel || "").trim() || null,
+        effectiveModel: String(effectiveModel || "").trim() || null,
+        turnMode: String(turnMode || "normal").trim() || "normal",
+        goalId: String(goalId || "").trim() || null,
+        planId: String(planId || "").trim() || null,
+        planAction: String(planAction || "").trim() || null,
       };
       const invocation = (await agentSyncReady())
         ? await prisma.$transaction(async (tx) => {
@@ -190,7 +200,13 @@ const WorkspaceAgentInvocation = {
         .replace(/[^A-Za-z0-9_.:-]/g, "_");
       console.error("[AgentInvocation] persistence failed", {
         errorCode,
-        fields: ["requestedProvider", "requestedModel"],
+        fields: [
+          "requestedProvider",
+          "requestedModel",
+          "effectiveModel",
+          "turnMode",
+          "goalId",
+        ],
         clientTurnId: String(clientTurnId || "").slice(0, 160) || null,
       });
       return {

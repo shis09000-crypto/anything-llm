@@ -37,6 +37,7 @@ runtime_secret_dir="${secrets_dir}/runtime-secrets"
 mtls_dir="${secrets_dir}/service-mtls"
 nats_dir="${secrets_dir}/nats"
 capability_dir="${secrets_dir}/plugin-capability"
+local_runtime_signing_dir="${secrets_dir}/local-runtime-signing"
 private_dir="${secrets_dir}/bootstrap-private"
 runtime_env="${secrets_dir}/runtime.env"
 agent_runtime_env="${secrets_dir}/runtime-agent.env"
@@ -45,7 +46,7 @@ browser_egress_state_dir="${state_dir}/browser-egress"
 browser_egress_secret_dir="${secrets_dir}/browser-egress"
 
 install -d -m 0700 "${state_dir}" "${secrets_dir}" "${runtime_secret_dir}" \
-  "${mtls_dir}" "${nats_dir}" "${capability_dir}" "${private_dir}" \
+  "${mtls_dir}" "${nats_dir}" "${capability_dir}" "${local_runtime_signing_dir}" "${private_dir}" \
   "${state_dir}/postgresql" "${state_dir}/minio" "${state_dir}/web" \
   "${browser_egress_state_dir}" "${browser_egress_secret_dir}"
 
@@ -141,10 +142,24 @@ if [[ ! -s "${runtime_secret_dir}/nats-subject-key" ]]; then
   openssl rand -hex 32 >"${runtime_secret_dir}/nats-subject-key"
 fi
 
+local_runtime_private="${local_runtime_signing_dir}/ed25519-private.pem"
+local_runtime_public="${local_runtime_signing_dir}/ed25519-public.pem"
+if [[ ! -s "${local_runtime_private}" || ! -s "${local_runtime_public}" ]]; then
+  if [[ -e "${local_runtime_private}" || -e "${local_runtime_public}" ]]; then
+    echo "Incomplete Local Runtime signing key pair." >&2
+    exit 1
+  fi
+  umask 077
+  openssl genpkey -algorithm ED25519 -out "${local_runtime_private}"
+  openssl pkey -in "${local_runtime_private}" -pubout -out "${local_runtime_public}"
+  chmod 0600 "${local_runtime_private}"
+  chmod 0644 "${local_runtime_public}"
+fi
+
 roles=(
   api background-worker realtime-gateway reader-worker scheduler
   operations-plane chat-runtime agent-runtime model-gateway tool-broker
-  responses-runtime character-performance-runtime external-mcp-gateway
+  responses-runtime character-performance-runtime external-mcp-gateway local-runtime-center
   crypto-market crypto-account crypto-forecast key-custody collector edge-web
   identity knowledge-ingest rag operations-shadow-agents prometheus minio
   browser-plane browser-worker
@@ -165,6 +180,7 @@ dns_for_role() {
     responses-runtime) printf '%s' 'anything-llm-responses-runtime,responses-runtime' ;;
     character-performance-runtime) printf '%s' 'anything-llm-character-performance-runtime,character-performance-runtime' ;;
     external-mcp-gateway) printf '%s' 'anything-llm-external-mcp-gateway,external-mcp-gateway' ;;
+    local-runtime-center) printf '%s' 'anything-llm-local-runtime-center,local-runtime-center' ;;
     tool-broker) printf '%s' 'anything-llm-tool-broker,tool-broker' ;;
     crypto-market) printf '%s' 'anything-llm-crypto-market,crypto-market' ;;
     crypto-account) printf '%s' 'anything-llm-crypto-account,crypto-account' ;;
@@ -317,6 +333,7 @@ module_image_variables=(
   ATHENA_PROD_MODEL_GATEWAY_IMAGE
   ATHENA_PROD_RESPONSES_RUNTIME_IMAGE
   ATHENA_PROD_EXTERNAL_MCP_GATEWAY_IMAGE
+  ATHENA_PROD_LOCAL_RUNTIME_CENTER_IMAGE
   ATHENA_PROD_TOOL_BROKER_IMAGE
   ATHENA_PROD_CRYPTO_MARKET_IMAGE
   ATHENA_PROD_CRYPTO_ACCOUNT_IMAGE
@@ -336,6 +353,8 @@ done
 ensure_env ATHENA_PROD_BROWSER_WORKER_IMAGE "${module_browser_worker_image}"
 ensure_env ATHENA_PROD_EXTERNAL_MCP_ENABLED \
   "${ATHENA_PROD_EXTERNAL_MCP_ENABLED:-false}"
+ensure_env ATHENA_PROD_LOCAL_RUNTIME_ENABLED \
+  "${ATHENA_PROD_LOCAL_RUNTIME_ENABLED:-false}"
 ensure_env ATHENA_PROD_NETWORK anythingllm-v2_default
 ensure_env ATHENA_PROD_POSTGRES_ADMIN_PASSWORD "$(random_secret 36)"
 ensure_env ATHENA_PROD_POSTGRES_MAIN_PASSWORD "$(random_secret 36)"

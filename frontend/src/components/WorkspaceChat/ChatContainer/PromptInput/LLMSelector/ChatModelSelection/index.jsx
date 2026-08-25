@@ -2,6 +2,7 @@ import useGetProviderModels, {
   DISABLED_PROVIDERS,
 } from "@/hooks/useGetProvidersModels";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 export default function ChatModelSelection({
   provider,
@@ -9,8 +10,10 @@ export default function ChatModelSelection({
   setHasChanges,
   selectedLLMModel,
   setSelectedLLMModel,
+  modelCapabilities = null,
   priority = "P1",
 }) {
+  const { t } = useTranslation();
   const modelTaskOptions = useMemo(
     () => ({
       communicationScene: "llm-model-selector-visible",
@@ -38,6 +41,8 @@ export default function ChatModelSelection({
     modelTaskOptions
   );
   const responsesModels = ["deepseek-v4-flash", "deepseek-v4-pro"];
+  const flashVisionReady =
+    modelCapabilities?.modelRoutes?.["deepseek-v4-flash"]?.ready === true;
   const visibleDefaultModels = defaultModels.filter((model) =>
     responsesModels.includes(model)
   );
@@ -79,8 +84,12 @@ export default function ChatModelSelection({
                 key={model}
                 value={model}
                 selected={selectedLLMModel === model}
+                disabled={model === "deepseek-v4-flash" && !flashVisionReady}
               >
                 {model}
+                {model === "deepseek-v4-flash" && !flashVisionReady
+                  ? ` (${t("chat_window.controls.composerMenu.visionUnavailableShort")})`
+                  : ""}
               </option>
             );
           })}
@@ -94,8 +103,12 @@ export default function ChatModelSelection({
                 key={model.id}
                 value={model.id}
                 selected={selectedLLMModel === model.id}
+                disabled={model.id === "deepseek-v4-flash" && !flashVisionReady}
               >
                 {model.name || model.id}
+                {model.id === "deepseek-v4-flash" && !flashVisionReady
+                  ? ` (${t("chat_window.controls.composerMenu.visionUnavailableShort")})`
+                  : ""}
               </option>
             );
           })}
@@ -113,8 +126,14 @@ export default function ChatModelSelection({
                       key={model.id}
                       value={model.id}
                       selected={selectedLLMModel === model.id}
+                      disabled={
+                        model.id === "deepseek-v4-flash" && !flashVisionReady
+                      }
                     >
                       {model.name}
+                      {model.id === "deepseek-v4-flash" && !flashVisionReady
+                        ? ` (${t("chat_window.controls.composerMenu.visionUnavailableShort")})`
+                        : ""}
                     </option>
                   ))}
                 </optgroup>

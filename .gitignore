@@ -48,6 +48,15 @@ output/security/key-closure/
 /output/*.png
 /athena-login-*.png
 
+# Local release candidates, rendered reports, and native build products are
+# reproducible deployment/QA artifacts. Keep their checked-in historical
+# files, but do not add new generated trees from an active working checkout.
+/.athena-release-staging/
+/output/
+/reports/
+/scripts/reports/
+/local-runtime/macos/.build/
+
 # Local container runtime snapshots may contain databases and provider state.
 server/storage/docker-config/
 

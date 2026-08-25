@@ -375,6 +375,20 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
   CMD curl --silent --fail --insecure "https://localhost:${EXTERNAL_MCP_GATEWAY_PORT}/ready" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
+FROM backend-build AS local-runtime-center-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=local-runtime-center
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV LOCAL_RUNTIME_CENTER_PORT=3036
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
+  CMD curl --silent --fail --insecure "https://localhost:${LOCAL_RUNTIME_CENTER_PORT}/ready" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
 FROM backend-build AS character-performance-runtime-build
 WORKDIR /app
 ENV NODE_ENV=production
@@ -600,6 +614,7 @@ ENV ATHENA_CRYPTO_ACCOUNT_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_CRYPTO_FORECAST_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_IDENTITY_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_EXTERNAL_MCP_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_LOCAL_RUNTIME_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_KNOWLEDGE_INGEST_UPSTREAM=http://anything-llm-api:3001
 ENV ATHENA_BROWSER_STREAM_UPSTREAM=http://anything-llm-browser-worker:3031
 COPY ./docker/nginx-web.conf.template /etc/nginx/templates/default.conf.template

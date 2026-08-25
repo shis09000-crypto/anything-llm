@@ -13,6 +13,12 @@ function executionMetadata({
   effectiveProtocol = null,
   responseId = null,
   source = null,
+  requestedModel = null,
+  effectiveModel = null,
+  turnMode = null,
+  goalId = null,
+  planId = null,
+  planAction = null,
 } = {}) {
   const resolvedModel = nonEmpty(model || metrics.model);
   const resolvedProvider = nonEmpty(provider || metrics.provider);
@@ -36,6 +42,16 @@ function executionMetadata({
     effectiveProtocol: resolvedEffectiveProtocol,
     responseId: resolvedResponseId,
     source: resolvedSource || UNKNOWN_EXECUTION_SOURCE,
+    ...(nonEmpty(requestedModel)
+      ? { requestedModel: nonEmpty(requestedModel) }
+      : {}),
+    ...(nonEmpty(effectiveModel)
+      ? { effectiveModel: nonEmpty(effectiveModel) }
+      : {}),
+    ...(nonEmpty(turnMode) ? { turnMode: nonEmpty(turnMode) } : {}),
+    ...(nonEmpty(goalId) ? { goalId: nonEmpty(goalId) } : {}),
+    ...(nonEmpty(planId) ? { planId: nonEmpty(planId) } : {}),
+    ...(nonEmpty(planAction) ? { planAction: nonEmpty(planAction) } : {}),
   };
 }
 

@@ -22,6 +22,14 @@ const CORE_REQUESTS = Object.freeze({
       clientTurnId: { type: ["string", "null"], maxLength: 160 },
       requestedProvider: { type: ["string", "null"], maxLength: 80 },
       requestedModel: { type: ["string", "null"], maxLength: 160 },
+      effectiveModel: { type: ["string", "null"], maxLength: 160 },
+      turnMode: { type: ["string", "null"], enum: ["normal", "plan", null] },
+      goalId: { type: ["string", "null"], maxLength: 160 },
+      planId: { type: ["string", "null"], maxLength: 160 },
+      planAction: {
+        type: ["string", "null"],
+        enum: ["create", "revise", "execute", "attach", null],
+      },
     },
   },
   "rag.retrieve": {

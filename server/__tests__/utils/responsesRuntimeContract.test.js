@@ -194,7 +194,6 @@ describe("managed Responses protocol contracts", () => {
         { model: "deepseek-v4-pro" }
       )
     ).resolves.toMatchObject({
-      model: "deepseek-v4-pro",
       input: [
         {
           type: "function_call",

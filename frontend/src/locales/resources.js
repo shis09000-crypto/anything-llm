@@ -2,14 +2,20 @@
 // dictionary is loaded on demand before the application becomes interactive.
 import English from "./en/common.js";
 import { externalMcpChinese, externalMcpEnglish } from "./externalMcp.js";
+import { localRuntimeChinese, localRuntimeEnglish } from "./localRuntime.js";
+import { composerMenuChinese, composerMenuEnglish } from "./composerMenu.js";
 
 function completeExternalMcpLocale(resource, language) {
   const localized = language === "zh" ? externalMcpChinese : {};
+  const localRuntimeLocalized = language === "zh" ? localRuntimeChinese : {};
+  const composerMenuLocalized =
+    language === "zh" ? composerMenuChinese : composerMenuEnglish;
   return {
     ...resource,
     settings: {
       ...(resource.settings || {}),
       "api-keys": localized.title || externalMcpEnglish.title,
+      "local-runtime": localRuntimeLocalized.title || localRuntimeEnglish.title,
     },
     externalMcp: {
       ...externalMcpEnglish,
@@ -27,6 +33,20 @@ function completeExternalMcpLocale(resource, language) {
         ...(localized.emergency || {}),
       },
       legacy: { ...externalMcpEnglish.legacy, ...(localized.legacy || {}) },
+    },
+    localRuntime: {
+      ...localRuntimeEnglish,
+      ...localRuntimeLocalized,
+    },
+    chat_window: {
+      ...(resource.chat_window || {}),
+      controls: {
+        ...(resource.chat_window?.controls || {}),
+        composerMenu: {
+          ...composerMenuEnglish,
+          ...composerMenuLocalized,
+        },
+      },
     },
   };
 }

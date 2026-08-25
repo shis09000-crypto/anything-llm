@@ -58,6 +58,8 @@ services:
       ATHENA_BROWSER_PLANE_URL: https://anything-llm-browser-plane:3030
       ATHENA_BROWSER_EGRESS_URL: https://anything-llm-browser-egress:3033
       ATHENA_BROWSER_AGENT_ENABLED: "false"
+      ATHENA_LOCAL_RUNTIME_ENABLED: ${ATHENA_LOCAL_RUNTIME_ENABLED:-false}
+      ATHENA_LOCAL_RUNTIME_CENTER_URL: https://anything-llm-local-runtime-center:3036
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
     networks:
       - anything-llm
@@ -85,6 +87,7 @@ services:
       ATHENA_CRYPTO_FORECAST_UPSTREAM: ${ATHENA_CRYPTO_FORECAST_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_IDENTITY_UPSTREAM: ${ATHENA_IDENTITY_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_EXTERNAL_MCP_UPSTREAM: ${ATHENA_EXTERNAL_MCP_UPSTREAM:-http://anything-llm-api:3001}
+      ATHENA_LOCAL_RUNTIME_UPSTREAM: ${ATHENA_LOCAL_RUNTIME_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_KNOWLEDGE_INGEST_UPSTREAM: ${ATHENA_KNOWLEDGE_INGEST_UPSTREAM:-http://anything-llm-api:3001}
       ATHENA_BROWSER_STREAM_UPSTREAM: ${ATHENA_BROWSER_STREAM_UPSTREAM:-http://anything-llm-browser-worker:3031}
     networks:
@@ -229,7 +232,7 @@ services:
       ATHENA_OPERATIONS_SHADOW_AGENTS_INLINE: "false"
       ATHENA_OPERATIONS_SHADOW_AGENTS_URL: https://anything-llm-operations-shadow-agents:3029
       ATHENA_MODULE_RUNTIME_ENDPOINTS: >-
-        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","coordination-plane":"https://anything-llm-coordination-plane:3032"}
+        {"authentication":"https://anything-llm-identity:3026","chat-runtime":"https://anything-llm-chat-runtime:3016","agent-runtime":"https://anything-llm-agent-runtime:3017","model-gateway":"https://anything-llm-model-gateway:3018","responses-runtime":"https://anything-llm-responses-runtime:3034","local-runtime-center":"https://anything-llm-local-runtime-center:3036","tool-runtime":"https://anything-llm-tool-broker:3019","crypto-market":"https://anything-llm-crypto-market:3020","crypto-account-access":"https://anything-llm-crypto-account:3021","crypto-forecast":"https://anything-llm-crypto-forecast:3022","key-custody":"https://anything-llm-key-custody:3023","knowledge-ingest":"https://anything-llm-knowledge-ingest:3027","rag":"https://anything-llm-rag:3028","operations-shadow-agents":"https://anything-llm-operations-shadow-agents:3029","browser-plane":"https://anything-llm-browser-plane:3030","browser-worker":"https://anything-llm-browser-worker:3031","browser-egress":"https://anything-llm-browser-egress:3033","scheduler":"https://anything-llm-scheduler:3014","coordination-plane":"https://anything-llm-coordination-plane:3032"}
     networks:
       - anything-llm
 
@@ -463,6 +466,36 @@ services:
     networks:
       - anything-llm
 
+  anything-llm-local-runtime-center:
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: local-runtime-center-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - core-runtimes
+    volumes:
+      - *runtime-env-volume-ro
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
+      - "${ATHENA_MTLS_HOST_DIR:?required}:/run/secrets/athena-mtls:ro"
+      - "${ATHENA_LOCAL_RUNTIME_SIGNING_HOST_DIR:?required}:/run/secrets/athena-local-runtime:ro"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - *runtime-env-file
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_RUNTIME_ROLE: local-runtime-center
+      ATHENA_LOCAL_RUNTIME_ENABLED: ${ATHENA_LOCAL_RUNTIME_ENABLED:-false}
+      ATHENA_LOCAL_RUNTIME_SIGNING_KEY_ID: ${ATHENA_LOCAL_RUNTIME_SIGNING_KEY_ID:-local-runtime-ed25519-primary}
+      ATHENA_LOCAL_RUNTIME_SIGNING_PRIVATE_KEY_FILE: /run/secrets/athena-local-runtime/ed25519-private.pem
+      ATHENA_LOCAL_RUNTIME_SIGNING_PUBLIC_KEY_FILE: /run/secrets/athena-local-runtime/ed25519-public.pem
+      ATHENA_OPERATIONS_INTERNAL_URL: *operations-url
+      LOCAL_RUNTIME_CENTER_PORT: 3036
+    networks:
+      - anything-llm
+
   anything-llm-tool-broker:
     build:
       context: ../.
@@ -494,6 +527,8 @@ services:
       ATHENA_CRYPTO_ACCOUNT_URL: https://anything-llm-crypto-account:3021
       ATHENA_BROWSER_PLANE_URL: https://anything-llm-browser-plane:3030
       ATHENA_KNOWLEDGE_INGEST_URL: https://anything-llm-knowledge-ingest:3027
+      ATHENA_LOCAL_RUNTIME_ENABLED: ${ATHENA_LOCAL_RUNTIME_ENABLED:-false}
+      ATHENA_LOCAL_RUNTIME_CENTER_URL: https://anything-llm-local-runtime-center:3036
     networks:
       - anything-llm
 

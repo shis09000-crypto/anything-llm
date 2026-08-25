@@ -2491,6 +2491,8 @@ export function ChatThreadDraftProvider({ children }) {
       regenerateContext = null,
       onMutationEvent = null,
       mutationBaseItems = null,
+      turnContext = null,
+      onResponseCreated = null,
     }) => {
       const chatKey = ensureDraft({
         workspaceSlug,
@@ -2669,6 +2671,7 @@ export function ChatThreadDraftProvider({ children }) {
                 clientTurnId: turnId,
                 editContext,
                 regenerateContext,
+                turnContext,
               }),
               onOpen: () => {
                 streamTask?.completeExclusive?.("chat-stream-open");
@@ -2682,6 +2685,9 @@ export function ChatThreadDraftProvider({ children }) {
                 });
               },
               onEvent: (event, protocolEvent, rawEvent) => {
+                if (rawEvent?.type === "response.created") {
+                  onResponseCreated?.(rawEvent.response?.metadata || {});
+                }
                 if (
                   [
                     "editSessionReady",

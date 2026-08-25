@@ -31,8 +31,10 @@ const {
 } = require("./utils/microModules");
 const {
   BROWSER_TOOLS,
+  LOCAL_RUNTIME_TOOLS,
   dispatchBrowser,
   dispatchCryptoAccount,
+  dispatchLocalRuntime,
 } = require("./utils/toolRuntime/broker");
 const {
   decodeAicpHeader,
@@ -55,9 +57,12 @@ async function invoke(request = {}) {
   }
   state.active += 1;
   try {
-    const result = BROWSER_TOOLS.has(String(request.toolName || ""))
+    const toolName = String(request.toolName || "");
+    const result = BROWSER_TOOLS.has(toolName)
       ? await dispatchBrowser(request)
-      : await dispatchCryptoAccount(request);
+      : LOCAL_RUNTIME_TOOLS.has(toolName)
+        ? await dispatchLocalRuntime(request)
+        : await dispatchCryptoAccount(request);
     state.completed += 1;
     return result;
   } catch (error) {
@@ -111,7 +116,11 @@ const host = new MicroModuleServiceHost({
       response.json({
         success: true,
         functions,
-        conditional: ["crypto-account-agent", "browser-agent"],
+        conditional: [
+          "crypto-account-agent",
+          "browser-agent",
+          "local-runtime-agent",
+        ],
       });
     });
     app.post("/internal/v1/tools/invoke", async (request, response) => {

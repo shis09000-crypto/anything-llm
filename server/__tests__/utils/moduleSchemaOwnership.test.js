@@ -118,6 +118,32 @@ describe("module schema ownership", () => {
     ).toBeNull();
   });
 
+  test("Agent receives only read and status-update access to thread goals", () => {
+    expect(
+      crossSchemaCapabilityFor({
+        database: "main",
+        role: "agent-runtime",
+        table: "workspace_thread_goals",
+      })
+    ).toMatchObject({
+      capability: "thread-goal-status",
+      privileges: ["SELECT", "UPDATE"],
+    });
+  });
+
+  test("Agent receives only read and progress-update access to thread plans", () => {
+    expect(
+      crossSchemaCapabilityFor({
+        database: "main",
+        role: "agent-runtime",
+        table: "workspace_thread_plans",
+      })
+    ).toMatchObject({
+      capability: "thread-plan-progress",
+      privileges: ["SELECT", "UPDATE"],
+    });
+  });
+
   test("accepts the exact Identity audit append capability", async () => {
     const client = {
       $queryRawUnsafe: jest.fn().mockResolvedValue([

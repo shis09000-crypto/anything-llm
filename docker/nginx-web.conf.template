@@ -29,6 +29,7 @@ server {
   set $athena_crypto_forecast_upstream "${ATHENA_CRYPTO_FORECAST_UPSTREAM}";
   set $athena_identity_upstream "${ATHENA_IDENTITY_UPSTREAM}";
   set $athena_external_mcp_upstream "${ATHENA_EXTERNAL_MCP_UPSTREAM}";
+  set $athena_local_runtime_upstream "${ATHENA_LOCAL_RUNTIME_UPSTREAM}";
   set $athena_knowledge_ingest_upstream "${ATHENA_KNOWLEDGE_INGEST_UPSTREAM}";
   set $athena_browser_stream_upstream "${ATHENA_BROWSER_STREAM_UPSTREAM}";
 
@@ -112,6 +113,20 @@ server {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+  }
+
+  location = /api/local-runtime/device/connect {
+    proxy_ssl_name anything-llm-local-runtime-center;
+    proxy_pass $athena_local_runtime_upstream$request_uri;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
   }

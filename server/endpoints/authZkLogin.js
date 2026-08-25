@@ -43,6 +43,7 @@ const PASSKEY_REAUTH_PURPOSES = new Set([
   "zk_enroll",
   "vault_access",
   "password_change",
+  "local_runtime_control",
 ]);
 
 let opaqueModule = null;

@@ -111,6 +111,9 @@ const PrivacyAndData = React.lazy(
 const ImageAssets = React.lazy(
   () => import("@/pages/GeneralSettings/ImageAssets")
 );
+const LocalRuntime = React.lazy(
+  () => import("@/pages/GeneralSettings/LocalRuntime")
+);
 const BrandingSettings = React.lazy(
   () => import("@/pages/GeneralSettings/Settings/Branding")
 );
@@ -384,6 +387,10 @@ const router = createBrowserRouter([
           {
             path: "image-assets",
             element: routeElement(PrivateRoute, ImageAssets),
+          },
+          {
+            path: "local-runtime",
+            element: routeElement(PrivateRoute, LocalRuntime),
           },
           {
             path: "branding",

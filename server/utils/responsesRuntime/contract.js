@@ -4,9 +4,9 @@ const {
 } = require("../chats/currentDateTimeContext");
 const { normalizeHostedTools, withNativeWebSearch } = require("./hostedTools");
 
-const FLASH_MODEL = "deepseek-v4-flash";
+const { DEFAULT_FLASH_VISION_MODEL, FLASH_MODEL } = require("./modelRouting");
 const PRO_MODEL = "deepseek-v4-pro";
-const VISION_MODEL = "deepseek-v4-flash-vision-exp";
+const VISION_MODEL = DEFAULT_FLASH_VISION_MODEL;
 const DEEPSEEK_RESPONSE_MODELS = Object.freeze([FLASH_MODEL, PRO_MODEL]);
 const RESPONSE_OBJECT = "response";
 const RESPONSE_STATUSES = Object.freeze([

@@ -69,6 +69,7 @@ const repositoryLoaders = {
   knowledgeGraph: () => require("../../repositories/knowledgeGraphRepository"),
   iosPushToken: () => require("../../repositories/iosPushTokenRepository"),
   imageAsset: () => require("../../repositories/imageAssetRepository"),
+  localRuntime: () => require("../../repositories/localRuntimeRepository"),
   mobile: () => require("../../repositories/mobileRepository"),
   nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
   operationsAction: () =>
@@ -100,6 +101,10 @@ const repositoryLoaders = {
   workspace: () => require("../../repositories/workspaceRepository"),
   workspaceAgentInvocation: () =>
     require("../../repositories/workspaceAgentInvocationRepository"),
+  workspaceThreadGoal: () =>
+    require("../../repositories/workspaceThreadGoalRepository"),
+  workspaceThreadPlan: () =>
+    require("../../repositories/workspaceThreadPlanRepository"),
   workspaceChat: () => require("../../repositories/workspaceChatRepository"),
   workspaceChatCompaction: () =>
     require("../../repositories/workspaceChatCompactionRepository"),
@@ -155,6 +160,7 @@ const repositoryExports = {
   knowledgeGraph: "KnowledgeGraphRepository",
   iosPushToken: "IOSPushTokenRepository",
   imageAsset: "ImageAssetRepository",
+  localRuntime: "LocalRuntimeRepository",
   mobile: "MobileRepository",
   nodeSupplement: "NodeSupplementRepository",
   operationsAction: "OperationsActionRepository",
@@ -179,6 +185,8 @@ const repositoryExports = {
   wechatGatewayThread: "WeChatGatewayThreadRepository",
   workspace: "WorkspaceRepository",
   workspaceAgentInvocation: "WorkspaceAgentInvocationRepository",
+  workspaceThreadGoal: "WorkspaceThreadGoalRepository",
+  workspaceThreadPlan: "WorkspaceThreadPlanRepository",
   workspaceChat: "WorkspaceChatRepository",
   workspaceChatCompaction: "WorkspaceChatCompactionRepository",
   workspaceCognition: "WorkspaceCognitionRepository",
@@ -607,6 +615,30 @@ function workspaceAgentInvocationScopeFromArgs(method, args = []) {
   }
   if (method === "close") return { invocationUuid: args[0] };
   return clauseScope(args[0]);
+}
+
+function workspaceThreadGoalScopeFromArgs(_method, args = []) {
+  const options = args[0] || {};
+  return {
+    workspaceId: options.workspace?.id,
+    workspaceSlug: options.workspace?.slug,
+    threadId: options.thread?.id,
+    userId: options.user?.id,
+    goalId: options.goalId || options.goal?.goalId,
+    clientTurnId: options.clientTurnId,
+  };
+}
+
+function workspaceThreadPlanScopeFromArgs(_method, args = []) {
+  const options = args[0] || {};
+  return {
+    workspaceId: options.workspace?.id,
+    workspaceSlug: options.workspace?.slug,
+    threadId: options.thread?.id,
+    userId: options.user?.id,
+    planId: options.planId || options.plan?.planId,
+    clientTurnId: options.clientTurnId,
+  };
 }
 
 function chatStreamRunScopeFromArgs(_method, args = []) {
@@ -1318,6 +1350,31 @@ const toolInvocation = makeRepositoryFacade(
   repositoryBoundaryScopeFromArgs
 );
 
+const localRuntime = makeRepositoryFacade(
+  "localRuntime",
+  {
+    issuePairingTicket: "write",
+    pairDevice: "write",
+    device: "read",
+    listDevices: "read",
+    heartbeatDevice: "write",
+    revokeDevice: "write",
+    createLease: "write",
+    activeLease: "read",
+    listLeases: "read",
+    revokeLease: "write",
+    createJob: "write",
+    job: "read",
+    pendingJobs: "read",
+    markDeviceJobsWaiting: "write",
+    listJobs: "read",
+    transitionJob: "write",
+    appendEvent: "write",
+    jobEvents: "read",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
 const externalMcpOAuth = makeRepositoryFacade(
   "externalMcpOAuth",
   {
@@ -1644,6 +1701,44 @@ const workspaceAgentInvocation = {
     return repositoryObject("workspaceAgentInvocation").parseAgents(
       promptString
     );
+  },
+};
+
+const workspaceThreadGoal = {
+  ...makeRepositoryFacade(
+    "workspaceThreadGoal",
+    {
+      active: "read",
+      getScoped: "read",
+      resolveForTurn: "write",
+      abandon: "write",
+      stageStatus: "write",
+      commitStatus: "write",
+    },
+    workspaceThreadGoalScopeFromArgs
+  ),
+  publicGoal(goal = null) {
+    return repositoryObject("workspaceThreadGoal").publicGoal(goal);
+  },
+};
+
+const workspaceThreadPlan = {
+  ...makeRepositoryFacade(
+    "workspaceThreadPlan",
+    {
+      active: "read",
+      getScoped: "read",
+      resolveForTurn: "write",
+      finalizeDraft: "write",
+      markDraftFailed: "write",
+      updateSteps: "write",
+      finishExecution: "write",
+      abandon: "write",
+    },
+    workspaceThreadPlanScopeFromArgs
+  ),
+  publicPlan(plan = null) {
+    return repositoryObject("workspaceThreadPlan").publicPlan(plan);
   },
 };
 
@@ -2356,6 +2451,7 @@ const DataAccessCenter = {
   knowledgeGraph,
   iosPushToken,
   imageAsset,
+  localRuntime,
   mobile,
   nodeSupplement,
   operationsAction,
@@ -2385,6 +2481,8 @@ const DataAccessCenter = {
   wechatGatewayThread,
   workspace,
   workspaceAgentInvocation,
+  workspaceThreadGoal,
+  workspaceThreadPlan,
   workspaceChat,
   workspaceChatCompaction,
   workspaceCognition,

@@ -215,6 +215,8 @@ export function useWorkspaceSyncEvents({
       clientTurnId: payload.clientTurnId || null,
       message: payload.message || null,
       error: payload.error || null,
+      goalId: payload.goalId || null,
+      objective: payload.objective || null,
       createdAt: event.createdAt,
     };
   }, []);
@@ -376,6 +378,28 @@ export function useWorkspaceSyncEvents({
           if (sameThread(event.threadSlug, activeThreadSlug)) {
             onThreadDeleted?.(event);
           }
+          return;
+        case "thread_goal_created":
+        case "thread_goal_completed":
+        case "thread_goal_blocked":
+        case "thread_goal_abandoned":
+          window.dispatchEvent(
+            new CustomEvent("athena-thread-goal-updated", {
+              detail: event,
+            })
+          );
+          return;
+        case "thread_plan_drafting":
+        case "thread_plan_ready":
+        case "thread_plan_executing":
+        case "thread_plan_updated":
+        case "thread_plan_completed":
+        case "thread_plan_abandoned":
+          window.dispatchEvent(
+            new CustomEvent("athena-thread-plan-updated", {
+              detail: event,
+            })
+          );
           return;
         case "chat_prompt_submitted":
           handlePromptSubmitted(event);

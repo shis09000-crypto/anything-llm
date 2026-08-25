@@ -87,6 +87,7 @@
       "responses.create",
       "responses.stream",
       "responses.execution-metadata.resolve",
+      "responses.capabilities",
       "responses.quiz.execute",
       "sync.events.append",
       "character.v2.conversations.create",
@@ -363,6 +364,22 @@
         "callType": "Query",
         "requestSchema": "athena://contracts/responses.execution-metadata.resolve/request/1.0",
         "responseSchema": "athena://contracts/responses.execution-metadata.resolve/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 10000,
+        "idempotency": "none",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "responses.capabilities",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/responses.capabilities/request/1.0",
+        "responseSchema": "athena://contracts/responses.capabilities/response/1.0",
         "errorCodes": [
           "contract_invalid",
           "deadline_exceeded",

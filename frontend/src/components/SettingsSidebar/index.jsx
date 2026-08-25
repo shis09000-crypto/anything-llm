@@ -11,6 +11,7 @@ import {
   Nut,
   Toolbox,
   Plugs,
+  DesktopTower,
 } from "@phosphor-icons/react";
 import AgentIcon from "@/media/animations/agent-static.png";
 import useUser from "@/hooks/useUser";
@@ -425,6 +426,13 @@ const SidebarOptions = ({ user = null, t }) => {
                 href: paths.settings.imageAssets(),
                 flex: true,
                 roles: ["user", "developer", "admin"],
+              },
+              {
+                btnText: t("settings.local-runtime"),
+                href: paths.settings.localRuntime(),
+                flex: true,
+                roles: ["user", "developer", "admin"],
+                icon: <DesktopTower className="h-4 w-4" />,
               },
               {
                 btnText: t("settings.scheduled-jobs"),

@@ -46,6 +46,7 @@ const {
   agentEnabled: responsesAgentEnabled,
 } = require("../responsesRuntime/agentAdapter");
 const { agentGatewayEnabled } = require("../modelGateway/agentRemoteProvider");
+const { planReadOnlyFunctions } = require("../responsesTurn/planToolPolicy");
 
 function deepSeekAgentExecutionAvailable({
   provider,
@@ -789,6 +790,31 @@ If the user asks about book structure, reading order, timeline, person relations
       workspaceAgentDef.functions || [],
       this.aibitat?.fileAccessPolicy
     );
+    if (this.invocation.goalId) {
+      for (const goalTool of [
+        "thread-goal#get_goal",
+        "thread-goal#update_goal",
+      ]) {
+        if (!workspaceAgentDef.functions.includes(goalTool))
+          workspaceAgentDef.functions.push(goalTool);
+      }
+    }
+    if (this.invocation.planId) {
+      for (const planTool of [
+        "thread-plan#get_plan",
+        "thread-plan#update_plan",
+      ]) {
+        if (!workspaceAgentDef.functions.includes(planTool))
+          workspaceAgentDef.functions.push(planTool);
+      }
+      workspaceAgentDef.role = `${workspaceAgentDef.role}\n\nAn executable thread plan is attached. Read it with get_plan when needed. During execution, call update_plan before starting work and after each meaningful step. Keep at most one step in_progress.`;
+    }
+    if (this.invocation.turnMode === "plan") {
+      workspaceAgentDef.functions = planReadOnlyFunctions(
+        workspaceAgentDef.functions
+      );
+      workspaceAgentDef.role = `${workspaceAgentDef.role}\n\nPlan mode is active for this turn. Use only the exposed read-only tools. Investigate and propose a plan; do not perform any mutation.`;
+    }
 
     this.aibitat.agent(USER_AGENT.name, userAgentDef);
     this.aibitat.agent(WORKSPACE_AGENT.name, workspaceAgentDef);

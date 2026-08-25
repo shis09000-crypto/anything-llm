@@ -47,6 +47,10 @@ const RUNTIME_BINDINGS = Object.freeze({
     "anything-llm-external-mcp-gateway",
     "external-mcp-gateway-build",
   ],
+  "local-runtime-center": [
+    "anything-llm-local-runtime-center",
+    "local-runtime-center-build",
+  ],
   "tool-runtime": ["anything-llm-tool-broker", "tool-broker-build"],
   "crypto-market": ["anything-llm-crypto-market", "crypto-market-build"],
   "crypto-account-access": [
@@ -86,6 +90,7 @@ const RUNTIME_SOURCES = Object.freeze({
   "responses-runtime": "server/responses-runtime.js",
   "character-performance-runtime": "server/character-performance-runtime.js",
   "external-mcp-gateway": "server/external-mcp-gateway.js",
+  "local-runtime-center": "server/local-runtime-center.js",
   "tool-runtime": "server/tool-broker.js",
   "crypto-market": "server/crypto-market.js",
   "crypto-account-access": "server/crypto-account.js",

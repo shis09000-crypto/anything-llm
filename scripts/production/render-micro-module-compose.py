@@ -32,6 +32,7 @@ BACKEND_IMAGE_SERVICES = {
     "anything-llm-responses-runtime",
     "anything-llm-character-performance-runtime",
     "anything-llm-external-mcp-gateway",
+    "anything-llm-local-runtime-center",
     "anything-llm-tool-broker",
     "anything-llm-crypto-market",
     "anything-llm-crypto-account",
@@ -120,6 +121,7 @@ DEFAULT_SERVICE_PORTS = {
     "anything-llm-responses-runtime": 3034,
     "anything-llm-character-performance-runtime": 3042,
     "anything-llm-external-mcp-gateway": 3043,
+    "anything-llm-local-runtime-center": 3036,
 }
 
 

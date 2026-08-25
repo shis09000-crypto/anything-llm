@@ -226,11 +226,22 @@ const chatHistory = {
             metrics,
             execution: executionMetadata({
               metrics,
-              model: metrics?.model || aibitat.provider?.model || null,
+              model:
+                invocation.requestedModel ||
+                metrics?.model ||
+                aibitat.provider?.model ||
+                null,
               provider:
                 metrics?.provider ||
                 aibitat.handlerProps?.invocation?.provider ||
                 "deepseek",
+              requestedModel: invocation.requestedModel,
+              effectiveModel:
+                invocation.effectiveModel || metrics?.model || null,
+              turnMode: invocation.turnMode,
+              goalId: invocation.goalId,
+              planId: invocation.planId,
+              planAction: invocation.planAction,
             }),
             ...(imageAnalysis ? { imageAnalysis } : {}),
             ...(outputs.length > 0 ? { outputs } : {}),

@@ -10,7 +10,6 @@ const {
   resolveImageInput,
   uploadDeepSeekFile,
 } = require("../imageAssets/adapter");
-const { FLASH_MODEL, VISION_MODEL } = require("./contract");
 
 function imageError(code, cause = null) {
   const error = new Error(code);
@@ -177,11 +176,6 @@ function capEphemeralToolFrames(messages = [], maxFrames = 2) {
   return output;
 }
 
-function effectiveResponsesModel(requestedModel, sawImage) {
-  if (requestedModel === FLASH_MODEL || sawImage) return VISION_MODEL;
-  return requestedModel;
-}
-
 async function prepareResponsesInput(messages = [], options = {}) {
   const formatted = capEphemeralToolFrames(
     formatMessagesForTools(messages, {
@@ -248,7 +242,6 @@ async function prepareResponsesInput(messages = [], options = {}) {
     sawImage,
     ...(uniqueBindingIds.length ? { bindingIds: uniqueBindingIds } : {}),
     ...(uniqueAssetIds.length ? { assetIds: uniqueAssetIds } : {}),
-    model: effectiveResponsesModel(options.model, sawImage),
   };
 }
 
@@ -270,13 +263,10 @@ function clearProviderFileCache() {
 }
 
 module.exports = {
-  FLASH_MODEL,
-  VISION_MODEL,
   clearProviderFileCache,
   compatibleImage,
   decodeDataUrl,
   deepSeekFilesUrl,
-  effectiveResponsesModel,
   capEphemeralToolFrames,
   prepareResponsesInput,
   uploadDeepSeekImage,

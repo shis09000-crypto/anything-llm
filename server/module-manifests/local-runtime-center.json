@@ -1,0 +1,138 @@
+{
+  "schema": "athena.module.manifest",
+  "schemaVersion": "1.1",
+  "id": "local-runtime-center",
+  "name": "Local Runtime Center",
+  "version": "2.6.17",
+  "kind": "control-plane",
+  "owner": "runtime-platform",
+  "criticality": "high",
+  "runtimeRole": "local-runtime-center",
+  "sourcePaths": ["server/local-runtime-center.js", "server/utils/localRuntime/", "server/modules/localRuntime/", "local-runtime/macos/"],
+  "capabilities": ["local-runtime.device", "local-runtime.lease", "local-runtime.task"],
+  "routes": {
+    "public": ["/api/local-runtime/"],
+    "internal": ["/internal/v1/", "/internal/v1/local-runtime/dispatch"],
+    "bindings": [
+      { "method": "GET", "path": "/internal/v1/describe", "capability": "module.describe" },
+      { "method": "GET", "path": "/internal/v1/self-test", "capability": "module.self-test" },
+      { "method": "POST", "path": "/internal/v1/local-runtime/dispatch", "capability": "local-runtime.task" }
+    ]
+  },
+  "rpc": {
+    "provides": ["local-runtime.device", "local-runtime.lease", "local-runtime.task", "module.describe", "module.self-test", "module.lifecycle.query", "module.drain", "module.quiesce", "module.resume"],
+    "consumes": ["coordination.lifecycle.event", "coordination.lifecycle.heartbeat", "identity.assert", "operations.ingest-batch"]
+  },
+  "events": {
+    "publishes": ["local_runtime.device.*", "local_runtime.job.*"],
+    "subscribes": ["identity.client.revoked"]
+  },
+  "data": { "schemas": ["local_runtime"], "objectPrefixes": [] },
+  "security": {
+    "serviceIdentity": "spiffe://athena/{environment}/local-runtime-center",
+    "keyDomains": ["local-runtime-device"],
+    "allowedCallers": ["athena-api", "tool-runtime", "agent-runtime", "scheduler", "operations-plane"],
+    "failureMode": "fail-closed",
+    "principalFreshnessMs": 30000
+  },
+  "deployment": {
+    "image": "athena/local-runtime-center",
+    "healthPath": "/live",
+    "readinessPath": "/ready",
+    "drainPath": "/internal/drain",
+    "availabilityTarget": 0.995,
+    "reconnectP95Ms": 3000
+  },
+  "dependsOn": ["authentication", "tool-runtime", "coordination-plane", "operations-plane", "infra:postgresql"],
+  "domain": "local-runtime",
+  "responsibilities": ["device-channel", "device-leases", "local-task-lifecycle"],
+  "nonResponsibilities": ["remote-desktop-streaming", "third-party-mcp-access", "credential-export"],
+  "contracts": {
+    "provides": [
+      {
+        "id": "local-runtime.device", "version": "1.0", "callType": "Call",
+        "requestSchema": "athena://contracts/local-runtime.device/request/1.0", "responseSchema": "athena://contracts/local-runtime.device/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "supported", "dataClassification": "confidential"
+      },
+      {
+        "id": "local-runtime.lease", "version": "1.0", "callType": "Command",
+        "requestSchema": "athena://contracts/local-runtime.lease/request/1.0", "responseSchema": "athena://contracts/local-runtime.lease/response/1.0",
+        "errorCodes": ["contract_invalid", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "required", "dataClassification": "restricted"
+      },
+      {
+        "id": "local-runtime.task", "version": "1.0", "callType": "Task",
+        "requestSchema": "athena://contracts/local-runtime.task/request/1.0", "responseSchema": "athena://contracts/local-runtime.task/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "device_offline"], "timeoutMs": 600000, "idempotency": "required", "dataClassification": "restricted"
+      },
+      {
+        "id": "module.describe", "version": "1.0", "callType": "Query",
+        "requestSchema": "athena://contracts/module.describe/request/1.0", "responseSchema": "athena://contracts/module.describe/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "none", "dataClassification": "internal"
+      },
+      {
+        "id": "module.self-test", "version": "1.0", "callType": "Query",
+        "requestSchema": "athena://contracts/module.self-test/request/1.0", "responseSchema": "athena://contracts/module.self-test/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "none", "dataClassification": "internal"
+      },
+      {
+        "id": "module.lifecycle.query", "version": "1.0", "callType": "Query",
+        "requestSchema": "athena://contracts/module.lifecycle.query/request/1.0", "responseSchema": "athena://contracts/module.lifecycle.query/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "none", "dataClassification": "internal"
+      },
+      {
+        "id": "module.drain", "version": "1.0", "callType": "Command",
+        "requestSchema": "athena://contracts/module.drain/request/1.0", "responseSchema": "athena://contracts/module.drain/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "required", "dataClassification": "confidential"
+      },
+      {
+        "id": "module.quiesce", "version": "1.0", "callType": "Command",
+        "requestSchema": "athena://contracts/module.quiesce/request/1.0", "responseSchema": "athena://contracts/module.quiesce/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "required", "dataClassification": "confidential"
+      },
+      {
+        "id": "module.resume", "version": "1.0", "callType": "Command",
+        "requestSchema": "athena://contracts/module.resume/request/1.0", "responseSchema": "athena://contracts/module.resume/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "required", "dataClassification": "confidential"
+      }
+    ],
+    "consumes": [
+      {
+        "id": "coordination.lifecycle.event", "version": "1.0", "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.lifecycle.event/request/1.0", "responseSchema": "athena://contracts/coordination.lifecycle.event/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "required", "dataClassification": "internal"
+      },
+      {
+        "id": "coordination.lifecycle.heartbeat", "version": "1.0", "callType": "Command",
+        "requestSchema": "athena://contracts/coordination.lifecycle.heartbeat/request/1.0", "responseSchema": "athena://contracts/coordination.lifecycle.heartbeat/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "required", "dataClassification": "internal"
+      },
+      {
+        "id": "identity.assert", "version": "1.0", "callType": "Call",
+        "requestSchema": "athena://contracts/identity.assert/request/1.0", "responseSchema": "athena://contracts/identity.assert/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 30000, "idempotency": "supported", "dataClassification": "confidential"
+      },
+      {
+        "id": "operations.ingest-batch", "version": "1.0", "callType": "Call",
+        "requestSchema": "athena://contracts/operations.ingest-batch/request/1.0", "responseSchema": "athena://contracts/operations.ingest-batch/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 5000, "idempotency": "supported", "dataClassification": "internal"
+      }
+    ]
+  },
+  "ownership": {
+    "dataSchemas": ["local_runtime"], "objectPrefixes": [], "keyDomains": ["local-runtime-device"],
+    "configuration": ["runtime:local-runtime-center"], "runtimeState": ["module-instance:local-runtime-center"]
+  },
+  "lifecycle": {
+    "states": ["registered", "initializing", "ready", "degraded", "draining", "quiesced", "stopped", "failed"],
+    "hooks": ["initialize", "self-test", "ready", "checkpoint", "drain", "quiesce", "resume", "stop", "reconcile"],
+    "commands": ["module.drain", "module.quiesce", "module.resume"], "heartbeatIntervalMs": 30000, "leaseTtlMs": 90000
+  },
+  "coordination": {
+    "centers": ["task", "recovery", "data"], "acceptedCommands": ["module.drain", "module.quiesce", "module.resume"],
+    "aicpPolicy": { "defaultMode": "observe", "links": [] }
+  },
+  "reliability": {
+    "rtoMs": 60000, "rpoMs": 0,
+    "forbiddenDegradations": ["security-downgrade", "cross-account-data", "unsigned-control"]
+  }
+}

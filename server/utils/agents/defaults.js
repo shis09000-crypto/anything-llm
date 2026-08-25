@@ -26,6 +26,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.createFilesAgent.name,
   AgentPlugins.documentFormattingAgent.name,
   AgentPlugins.browserAgent.name,
+  AgentPlugins.localRuntimeAgent.name,
 ];
 
 /**
@@ -69,6 +70,11 @@ const SKILL_FILTER_CONFIG = {
   "browser-agent": {
     getAvailability: (_user, { registryMode = false } = {}) =>
       registryMode || process.env.ATHENA_BROWSER_AGENT_ENABLED === "true",
+    disabledSettingKey: null,
+  },
+  "local-runtime-agent": {
+    getAvailability: (_user, { registryMode = false } = {}) =>
+      registryMode || process.env.ATHENA_LOCAL_RUNTIME_ENABLED === "true",
     disabledSettingKey: null,
   },
 };

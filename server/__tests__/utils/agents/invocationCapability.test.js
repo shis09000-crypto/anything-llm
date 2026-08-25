@@ -12,6 +12,13 @@ describe("Agent invocation capability", () => {
         userId: 7,
         threadId: 11,
         clientTurnId: "turn-1",
+        requestedProvider: "deepseek",
+        requestedModel: "deepseek-v4-flash",
+        effectiveModel: "deepseek-v4-flash-vision-exp",
+        turnMode: "normal",
+        goalId: "goal-1",
+        planId: "plan-1",
+        planAction: "execute",
       })
     ).toEqual({
       prompt: "hello",
@@ -19,6 +26,13 @@ describe("Agent invocation capability", () => {
       userId: 7,
       threadId: 11,
       clientTurnId: "turn-1",
+      requestedProvider: "deepseek",
+      requestedModel: "deepseek-v4-flash",
+      effectiveModel: "deepseek-v4-flash-vision-exp",
+      turnMode: "normal",
+      goalId: "goal-1",
+      planId: "plan-1",
+      planAction: "execute",
     });
   });
 
@@ -26,6 +40,16 @@ describe("Agent invocation capability", () => {
     expect(() =>
       normalizedSubmission({ prompt: "hello", workspaceId: null })
     ).toThrow("agent_submit_workspace_id_required");
+  });
+
+  test("rejects an unknown plan action", () => {
+    expect(() =>
+      normalizedSubmission({
+        prompt: "hello",
+        workspaceId: 4,
+        planAction: "mutate_everything",
+      })
+    ).toThrow("agent_submit_plan_action_invalid");
   });
 
   test("persists through the Agent-owned repository and returns a minimal result", async () => {
@@ -43,6 +67,13 @@ describe("Agent invocation capability", () => {
           userId: 7,
           threadId: 11,
           clientTurnId: "turn-1",
+          requestedProvider: "deepseek",
+          requestedModel: "deepseek-v4-flash",
+          effectiveModel: "deepseek-v4-flash-vision-exp",
+          turnMode: "normal",
+          goalId: "goal-1",
+          planId: "plan-1",
+          planAction: "execute",
         },
         { workspaceAgentInvocation }
       )
@@ -56,6 +87,13 @@ describe("Agent invocation capability", () => {
       user: { id: 7 },
       thread: { id: 11 },
       clientTurnId: "turn-1",
+      requestedProvider: "deepseek",
+      requestedModel: "deepseek-v4-flash",
+      effectiveModel: "deepseek-v4-flash-vision-exp",
+      turnMode: "normal",
+      goalId: "goal-1",
+      planId: "plan-1",
+      planAction: "execute",
     });
   });
 });

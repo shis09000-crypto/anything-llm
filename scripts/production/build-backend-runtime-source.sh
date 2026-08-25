@@ -15,6 +15,8 @@ docker image inspect "$base_image" >/dev/null
 inputs=(
   server/package.json
   server/yarn.lock
+  server/prisma/schema.prisma
+  server/prisma/postgresql/schema.prisma
 )
 
 for input in "${inputs[@]}"; do
