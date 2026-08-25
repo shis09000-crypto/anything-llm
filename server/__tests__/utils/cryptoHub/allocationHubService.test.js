@@ -91,4 +91,45 @@ describe("AllocationHubService holding source semantics", () => {
       holdingSources: ["spot", "earn"],
     });
   });
+
+  test("values GTETH and GTSOL with their underlying market prices", async () => {
+    const client = {
+      getSpotAccountsRaw: jest.fn().mockResolvedValue({
+        success: true,
+        data: [
+          { currency: "ETH", available: "1", locked: "0" },
+          { currency: "SOL", available: "2", locked: "0" },
+        ],
+      }),
+      getEarnUniLendsRaw: jest.fn().mockResolvedValue({
+        success: true,
+        data: [
+          { currency: "GTETH", amount: "3" },
+          { currency: "GTSOL", amount: "8" },
+        ],
+      }),
+      getSpotTickersRaw: jest.fn().mockResolvedValue({
+        success: true,
+        data: [
+          { currency_pair: "ETH_USDT", last: "2500" },
+          { currency_pair: "SOL_USDT", last: "150" },
+        ],
+      }),
+    };
+    const snapshot = await new AllocationHubService({
+      restClientFactory: () => client,
+    }).snapshot({ quote: "USDT" });
+
+    expect(snapshot.items.map((item) => item.symbol)).toEqual(["ETH", "SOL"]);
+    expect(snapshot.items.find((item) => item.symbol === "ETH")).toMatchObject({
+      totalAmount: "4.000000000000",
+      valueUsd: "10000.00",
+      holdingSources: expect.arrayContaining(["underlying:GTETH"]),
+    });
+    expect(snapshot.items.find((item) => item.symbol === "SOL")).toMatchObject({
+      totalAmount: "10.000000000000",
+      valueUsd: "1500.00",
+      holdingSources: expect.arrayContaining(["underlying:GTSOL"]),
+    });
+  });
 });

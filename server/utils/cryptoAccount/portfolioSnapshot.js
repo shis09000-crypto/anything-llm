@@ -1,4 +1,8 @@
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const {
+  GATE_UNDERLYING_ASSET_ALIASES,
+  underlyingAssetSymbol,
+} = require("../cryptoAssetIdentity");
 
 const CryptoData = lazyDataAccessFacade("crypto");
 
@@ -10,14 +14,6 @@ const ASSET_COLORS = Object.freeze({
   USDC: "#2775CA",
   GUSD: "#14C8B8",
   OTHER: "#6B7280",
-});
-
-// Gate may expose staked/wrapped balances with a GT-prefixed symbol even
-// though the balance remains denominated in the underlying asset. Keep this
-// list explicit so unrelated assets such as GT or GTC are never rewritten.
-const PORTFOLIO_UNDERLYING_ALIASES = Object.freeze({
-  GTETH: "ETH",
-  GTSOL: "SOL",
 });
 
 const RISK_THRESHOLDS = Object.freeze({
@@ -45,8 +41,7 @@ function normalizedSymbol(value) {
 }
 
 function portfolioSymbol(value) {
-  const symbol = normalizedSymbol(value);
-  return PORTFOLIO_UNDERLYING_ALIASES[symbol] || symbol;
+  return underlyingAssetSymbol(value);
 }
 
 function mergeHoldingSources(current = [], incoming = []) {
@@ -651,7 +646,7 @@ function simulateRebalance({ portfolio, targets = {} }) {
 }
 
 module.exports = {
-  PORTFOLIO_UNDERLYING_ALIASES,
+  PORTFOLIO_UNDERLYING_ALIASES: GATE_UNDERLYING_ASSET_ALIASES,
   RISK_THRESHOLDS,
   SupplementalPortfolioService,
   computePortfolioRisk,

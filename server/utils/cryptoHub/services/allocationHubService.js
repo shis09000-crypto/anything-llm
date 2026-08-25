@@ -1,4 +1,5 @@
 const { GateRestClient, safeErrorMessage } = require("../../cryptoGate");
+const { underlyingAssetSymbol } = require("../../cryptoAssetIdentity");
 
 const STABLE_ALLOCATION_ASSETS = new Set(["USDT", "GUSD", "USDC"]);
 const ASSET_COLORS = {
@@ -74,6 +75,28 @@ function collectAllocationBalances(accounts = [], earns = []) {
   return balances;
 }
 
+function consolidateUnderlyingBalances(balances) {
+  const consolidated = new Map();
+  for (const balance of balances.values()) {
+    const reportedSymbol = normalizeAsset(balance.symbol);
+    const symbol = underlyingAssetSymbol(reportedSymbol);
+    if (!symbol) continue;
+    const current = consolidated.get(symbol) || {
+      symbol,
+      spotAmount: 0,
+      earnAmount: 0,
+      reportedSymbols: [],
+    };
+    current.spotAmount += numberValue(balance.spotAmount);
+    current.earnAmount += numberValue(balance.earnAmount);
+    if (reportedSymbol && !current.reportedSymbols.includes(reportedSymbol)) {
+      current.reportedSymbols.push(reportedSymbol);
+    }
+    consolidated.set(symbol, current);
+  }
+  return consolidated;
+}
+
 function tickerMapByPair(tickers = []) {
   const map = new Map();
   if (!Array.isArray(tickers)) return map;
@@ -95,7 +118,7 @@ function tickerMapByPair(tickers = []) {
 }
 
 function allocationItemFor({ balance, quoteAsset, ticker }) {
-  const { symbol, spotAmount, earnAmount } = balance;
+  const { symbol, spotAmount, earnAmount, reportedSymbols = [] } = balance;
   const amount = spotAmount + earnAmount;
   const stable = STABLE_ALLOCATION_ASSETS.has(symbol);
   const priceUsd = stable ? 1 : ticker?.price;
@@ -121,6 +144,9 @@ function allocationItemFor({ balance, quoteAsset, ticker }) {
     holdingSources: [
       ...(spotAmount > 0 ? ["spot"] : []),
       ...(earnAmount > 0 ? ["earn"] : []),
+      ...reportedSymbols
+        .filter((reportedSymbol) => reportedSymbol !== symbol)
+        .map((reportedSymbol) => `underlying:${reportedSymbol}`),
     ],
     priceUsd: decimalString(priceUsd, stable ? 2 : 8),
     change24hPct:
@@ -171,11 +197,13 @@ class AllocationHubService {
       });
     }
 
-    const balances = collectAllocationBalances(
-      spotResult.value.data,
-      earnResult.status === "fulfilled" && earnResult.value.success
-        ? earnResult.value.data
-        : []
+    const balances = consolidateUnderlyingBalances(
+      collectAllocationBalances(
+        spotResult.value.data,
+        earnResult.status === "fulfilled" && earnResult.value.success
+          ? earnResult.value.data
+          : []
+      )
     );
     const tickers = tickerMapByPair(tickersResult.value.data);
     const rawItems = [];
@@ -253,4 +281,5 @@ class AllocationHubService {
 module.exports = {
   AllocationHubService,
   collectAllocationBalances,
+  consolidateUnderlyingBalances,
 };

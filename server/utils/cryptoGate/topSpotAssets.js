@@ -6,6 +6,7 @@ const {
 } = require("./decimal");
 const { GateRestClient } = require("./restClient");
 const { safeErrorMessage } = require("./sanitizer");
+const { underlyingAssetSymbol } = require("../cryptoAssetIdentity");
 
 const DEFAULT_TOP_ASSET_LIMIT = 6;
 const MAX_TOP_ASSET_LIMIT = 20;
@@ -90,6 +91,27 @@ function mergeEarnBalances(balances, lends = []) {
   return balances;
 }
 
+function consolidateUnderlyingBalances(balances) {
+  const consolidated = new Map();
+  for (const [reportedAsset, amount] of balances.entries()) {
+    const baseAsset = underlyingAssetSymbol(reportedAsset);
+    if (!baseAsset) continue;
+    const current = consolidated.get(baseAsset) || {
+      amount: "0",
+      sourceAssets: [],
+    };
+    current.amount = addDecimalStrings([current.amount, amount], {
+      scale: AMOUNT_SCALE,
+      decimals: 8,
+    });
+    if (!current.sourceAssets.includes(reportedAsset)) {
+      current.sourceAssets.push(reportedAsset);
+    }
+    consolidated.set(baseAsset, current);
+  }
+  return consolidated;
+}
+
 function normalizeTickerPrice(ticker) {
   const last = ticker?.last || ticker?.close;
   return toScaledInt(last || "0", PRICE_SCALE) > 0n ? String(last) : null;
@@ -170,21 +192,25 @@ class GateTopSpotAssetsService {
       );
     }
 
-    const balances = mergeEarnBalances(
-      collectSpotBalances(spotResult.value.data),
-      earnResult.status === "fulfilled" && earnResult.value.success
-        ? earnResult.value.data
-        : []
+    const balances = consolidateUnderlyingBalances(
+      mergeEarnBalances(
+        collectSpotBalances(spotResult.value.data),
+        earnResult.status === "fulfilled" && earnResult.value.success
+          ? earnResult.value.data
+          : []
+      )
     );
     const tickers = tickerMapByPair(tickersResult.value.data);
     const candidates = [];
 
-    for (const [baseAsset, holdingAmountBase] of balances.entries()) {
+    for (const [baseAsset, holding] of balances.entries()) {
       if (excludedAssets.has(baseAsset)) continue;
 
       const pair = `${baseAsset}_${quoteAsset}`;
       const ticker = tickers.get(pair);
       if (!ticker) continue;
+
+      const holdingAmountBase = holding.amount;
 
       const holdingValueQuote = multiplyDecimalStrings(
         holdingAmountBase,
@@ -210,6 +236,7 @@ class GateTopSpotAssetsService {
           quoteAsset === "USDT" || quoteAsset === "USD"
             ? holdingValueQuote
             : null,
+        sourceAssets: holding.sourceAssets,
       });
     }
 
@@ -239,5 +266,6 @@ const cryptoGateTopSpotAssetsService = new GateTopSpotAssetsService();
 
 module.exports = {
   GateTopSpotAssetsService,
+  consolidateUnderlyingBalances,
   cryptoGateTopSpotAssetsService,
 };
