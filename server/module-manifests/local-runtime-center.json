@@ -21,7 +21,7 @@
   },
   "rpc": {
     "provides": ["local-runtime.device", "local-runtime.lease", "local-runtime.task", "module.describe", "module.self-test", "module.lifecycle.query", "module.drain", "module.quiesce", "module.resume"],
-    "consumes": ["coordination.lifecycle.event", "coordination.lifecycle.heartbeat", "identity.assert", "operations.ingest-batch"]
+    "consumes": ["coordination.lifecycle.event", "coordination.lifecycle.heartbeat", "identity.assert", "operations.ingest-batch", "key-custody.audit-descriptor"]
   },
   "events": {
     "publishes": ["local_runtime.device.*", "local_runtime.job.*"],
@@ -43,7 +43,7 @@
     "availabilityTarget": 0.995,
     "reconnectP95Ms": 3000
   },
-  "dependsOn": ["authentication", "tool-runtime", "coordination-plane", "operations-plane", "infra:postgresql"],
+  "dependsOn": ["authentication", "tool-runtime", "coordination-plane", "operations-plane", "key-custody", "infra:postgresql"],
   "domain": "local-runtime",
   "responsibilities": ["device-channel", "device-leases", "local-task-lifecycle"],
   "nonResponsibilities": ["remote-desktop-streaming", "third-party-mcp-access", "credential-export"],
@@ -115,6 +115,11 @@
         "id": "operations.ingest-batch", "version": "1.0", "callType": "Call",
         "requestSchema": "athena://contracts/operations.ingest-batch/request/1.0", "responseSchema": "athena://contracts/operations.ingest-batch/response/1.0",
         "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 5000, "idempotency": "supported", "dataClassification": "internal"
+      },
+      {
+        "id": "key-custody.audit-descriptor", "version": "1.0", "callType": "Query",
+        "requestSchema": "athena://contracts/key-custody.audit-descriptor/request/1.0", "responseSchema": "athena://contracts/key-custody.audit-descriptor/response/1.0",
+        "errorCodes": ["contract_invalid", "deadline_exceeded", "caller_denied", "dependency_unavailable"], "timeoutMs": 10000, "idempotency": "none", "dataClassification": "internal"
       }
     ]
   },
