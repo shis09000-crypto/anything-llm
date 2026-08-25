@@ -44,6 +44,9 @@ describe("module schema ownership", () => {
     expect(ownerForTable("coordination_runs", "main")).toBe("coordination");
     expect(ownerForTable("responses", "main")).toBe("responses_runtime");
     expect(ownerForTable("scheduled_jobs", "main")).toBe("scheduler");
+    expect(ownerForTable("local_runtime_devices", "main")).toBe(
+      "local_runtime"
+    );
     expect(ownerForTable("sync_outbox", "main")).toBe("sync");
     expect(ownerForTable("embedding_batch_jobs", "main")).toBe(
       "knowledge_ingest"
@@ -95,6 +98,9 @@ describe("module schema ownership", () => {
     );
     expect(runtimeSchemaForRole("responses-runtime", "main")).toBe(
       "responses_runtime"
+    );
+    expect(runtimeSchemaForRole("local-runtime-center", "main")).toBe(
+      "local_runtime"
     );
   });
 

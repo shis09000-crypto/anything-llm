@@ -10,6 +10,7 @@ const MAIN_SCHEMA_ROLES = Object.freeze({
   model_runtime: "athena_model_runtime",
   responses_runtime: "athena_responses_runtime",
   character_performance: "athena_character_performance",
+  local_runtime: "athena_local_runtime",
   tools: "athena_tools",
   crypto_market: "athena_crypto_market",
   crypto_account: "athena_crypto_account",
@@ -99,6 +100,7 @@ const MAIN_OWNERSHIP_RULES = Object.freeze([
     /^(responses_conversations|responses|response_items|response_events|response_checkpoints|response_compactions|character_conversation_turns|character_conversation_events)$/i,
   ],
   ["character_performance", /^character_performance_/i],
+  ["local_runtime", /^local_runtime_/i],
   [
     "maintenance",
     /^(account_deletion_|system_patrol_|operations_action_|security_audit_)/i,
@@ -123,6 +125,7 @@ const MAIN_RUNTIME_SCHEMAS = Object.freeze({
   "model-gateway": "model_runtime",
   "responses-runtime": "responses_runtime",
   "character-performance-runtime": "character_performance",
+  "local-runtime-center": "local_runtime",
   "tool-broker": "tools",
   "crypto-market": "crypto_market",
   "crypto-account": "crypto_account",
