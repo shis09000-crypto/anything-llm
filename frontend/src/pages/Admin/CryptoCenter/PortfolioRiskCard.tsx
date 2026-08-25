@@ -29,10 +29,16 @@ function Metric({
   note?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4">
-      <p className="text-[11px] font-semibold text-white/45">{label}</p>
-      <p className="mt-2 text-xl font-black text-white">{value}</p>
-      {note ? <p className="mt-1 text-[10px] text-white/35">{note}</p> : null}
+    <div className="min-h-[132px] rounded-2xl border border-white/10 bg-white/[0.045] p-5">
+      <p className="text-sm font-bold leading-5 text-white/65">{label}</p>
+      <p className="mt-3 text-2xl font-black leading-none text-white">
+        {value}
+      </p>
+      {note ? (
+        <p className="mt-3 text-xs font-medium leading-5 text-white/50">
+          {note}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -44,8 +50,14 @@ export default function PortfolioRiskCard({
 }) {
   const risk = snapshot?.risk;
   const style = LEVEL_STYLE[risk?.level || "watch"];
-  const formatPct = (value: number | null | undefined) =>
-    value === null || value === undefined ? "--" : `${value.toFixed(2)}%`;
+  const formatPct = (value: number | null | undefined) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `${numeric.toFixed(2)}%` : "--";
+  };
+  const formatMoney = (value: number | null | undefined) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `$${numeric.toFixed(2)}` : "$--";
+  };
 
   return (
     <section className="overflow-hidden rounded-[28px] border border-[#D6A84F]/16 bg-black/45 p-5 shadow-[0_24px_90px_rgba(0,0,0,.30)] backdrop-blur-xl md:p-6">
@@ -57,7 +69,7 @@ export default function PortfolioRiskCard({
           <h2 className="mt-1 text-2xl font-black text-[#D6A84F]">
             组合风险中心
           </h2>
-          <p className="mt-2 text-xs text-white/42">
+          <p className="mt-2 text-sm font-medium leading-6 text-white/58">
             确定性规则计算 · 只读 · 不生成交易指令
           </p>
         </div>
@@ -68,7 +80,7 @@ export default function PortfolioRiskCard({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Metric
           label="最大单资产占比"
           value={formatPct(risk?.metrics.largestAssetPct)}
@@ -81,12 +93,12 @@ export default function PortfolioRiskCard({
         <Metric
           label="合约名义价值 / 组合"
           value={formatPct(risk?.metrics.futuresToPortfolioPct)}
-          note={`$${risk?.metrics.futuresNotionalUsd?.toFixed(2) || "--"}`}
+          note={formatMoney(risk?.metrics.futuresNotionalUsd)}
         />
         <Metric
           label="保证金压力"
           value={formatPct(risk?.metrics.marginPressurePct)}
-          note={`初始 $${risk?.metrics.accountInitialMarginUsd?.toFixed(2) || "--"} · 维持 $${risk?.metrics.accountMaintenanceMarginUsd?.toFixed(2) || "--"}`}
+          note={`初始 ${formatMoney(risk?.metrics.accountInitialMarginUsd)} · 维持 ${formatMoney(risk?.metrics.accountMaintenanceMarginUsd)}`}
         />
         <Metric
           label="最近强平参考距离"
@@ -110,18 +122,18 @@ export default function PortfolioRiskCard({
                 <p className="text-sm font-black text-white/88">
                   {alert.title}
                 </p>
-                <p className="mt-1 text-xs leading-5 text-white/48">
+                <p className="mt-2 text-sm leading-6 text-white/62">
                   {alert.message}
                 </p>
               </div>
             ))
           ) : (
-            <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.05] px-4 py-3 text-sm font-bold text-emerald-200/80">
+            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-5 py-4 text-base font-bold leading-6 text-emerald-100/85">
               当前没有触发集中度、保证金、强平距离、回撤或新鲜度告警。
             </div>
           )}
         </div>
-        <div className="min-w-[220px] rounded-xl border border-[#D6A84F]/12 bg-[#D6A84F]/[0.045] px-4 py-3 text-xs leading-5 text-white/42">
+        <div className="min-w-[240px] rounded-xl border border-[#D6A84F]/16 bg-[#D6A84F]/[0.055] px-5 py-4 text-sm font-medium leading-6 text-white/58">
           <p>Gate 实盘：${snapshot?.portfolio.gate.totalValueUsd || "--"}</p>
           <p>
             补充持仓：${snapshot?.portfolio.supplemental.totalValueUsd || "--"}

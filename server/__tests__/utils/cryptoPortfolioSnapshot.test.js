@@ -162,9 +162,14 @@ describe("crypto consolidated portfolio", () => {
       },
       targets: { BTC: 50, USDT: 50 },
     });
+    expect(result.success).toBe(true);
     expect(result.executable).toBe(false);
-    expect(result.items.find((item) => item.symbol === "BTC").deltaUsd).toBe(
-      -10000
-    );
+    expect(result.items.find((item) => item.symbol === "BTC")).toMatchObject({
+      currentPct: 60,
+      targetPct: 50,
+      deltaUsd: -10000,
+      action: "decrease",
+      direction: "decrease",
+    });
   });
 });

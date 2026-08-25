@@ -38,10 +38,13 @@ type RebalanceResponse = {
   totalValueUsd: number;
   items: Array<{
     symbol: string;
-    currentPct: number;
+    currentPct?: number;
     targetPct: number;
+    currentValueUsd?: number;
+    targetValueUsd?: number;
     deltaUsd: number;
-    direction: "increase" | "decrease" | "hold";
+    action?: "increase" | "decrease" | "hold";
+    direction?: "increase" | "decrease" | "hold";
   }>;
 };
 
@@ -49,6 +52,24 @@ function money(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "待分类";
   return `${value >= 0 ? "+" : "-"}$${Math.abs(value).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+function percentage(value: number | null | undefined, fallback = 0): string {
+  const numeric = Number(value);
+  const safeValue = Number.isFinite(numeric) ? numeric : fallback;
+  return `${safeValue.toFixed(2)}%`;
+}
+
+function currentPercentage(
+  item: RebalanceResponse["items"][number],
+  totalValueUsd: number
+) {
+  const currentPct = Number(item.currentPct);
+  if (Number.isFinite(currentPct)) return currentPct;
+  const currentValueUsd = Number(item.currentValueUsd);
+  return totalValueUsd > 0 && Number.isFinite(currentValueUsd)
+    ? (currentValueUsd / totalValueUsd) * 100
+    : 0;
 }
 
 export default function PortfolioAnalyticsCard({
@@ -261,23 +282,30 @@ export default function PortfolioAnalyticsCard({
         </div>
         {rebalance ? (
           <div className="mt-4 grid gap-2">
-            {rebalance.items
-              .filter((item) => Math.abs(item.deltaUsd) >= 0.01)
+            {(Array.isArray(rebalance.items) ? rebalance.items : [])
+              .filter(
+                (item) =>
+                  Number.isFinite(Number(item.deltaUsd)) &&
+                  Math.abs(Number(item.deltaUsd)) >= 0.01
+              )
               .map((item) => (
                 <div
                   key={item.symbol}
                   className="flex items-center justify-between rounded-lg bg-white/[0.035] px-3 py-2 text-xs"
                 >
                   <span className="font-black text-white/75">
-                    {item.symbol} · {item.currentPct.toFixed(2)}% →{" "}
-                    {item.targetPct.toFixed(2)}%
+                    {item.symbol} ·{" "}
+                    {percentage(
+                      currentPercentage(item, Number(rebalance.totalValueUsd))
+                    )}{" "}
+                    → {percentage(item.targetPct)}
                   </span>
                   <span
                     className={
                       item.deltaUsd >= 0 ? "text-emerald-300" : "text-amber-300"
                     }
                   >
-                    {money(item.deltaUsd)}
+                    {money(Number(item.deltaUsd))}
                   </span>
                 </div>
               ))}

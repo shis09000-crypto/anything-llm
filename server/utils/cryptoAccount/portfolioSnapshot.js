@@ -579,21 +579,27 @@ function simulateRebalance({ portfolio, targets = {} }) {
   const items = Object.entries(normalizedTargets).map(([symbol, targetPct]) => {
     const currentValueUsd = currentBySymbol.get(symbol) || 0;
     const targetValueUsd = (totalValueUsd * targetPct) / 100;
+    const currentPct =
+      totalValueUsd > 0 ? (currentValueUsd / totalValueUsd) * 100 : 0;
+    const action =
+      targetValueUsd > currentValueUsd
+        ? "increase"
+        : targetValueUsd < currentValueUsd
+          ? "decrease"
+          : "hold";
     return {
       symbol,
+      currentPct: Number(currentPct.toFixed(4)),
       targetPct: Number(targetPct.toFixed(4)),
       currentValueUsd: Number(currentValueUsd.toFixed(2)),
       targetValueUsd: Number(targetValueUsd.toFixed(2)),
       deltaUsd: Number((targetValueUsd - currentValueUsd).toFixed(2)),
-      action:
-        targetValueUsd > currentValueUsd
-          ? "increase"
-          : targetValueUsd < currentValueUsd
-            ? "decrease"
-            : "hold",
+      action,
+      direction: action,
     };
   });
   return {
+    success: true,
     asOf: Date.now(),
     readOnly: true,
     executable: false,
