@@ -65,6 +65,11 @@ const host = new MicroModuleServiceHost({
   role,
   port: Number(process.env.KNOWLEDGE_INGEST_PORT || 3027),
   parseJson: false,
+  internalRouteCapabilities: {
+    "POST /internal/v1/knowledge/browser-ingest": "knowledge.ingest",
+    "POST /internal/v1/knowledge/metrics/recompute":
+      "knowledge.metrics.recompute",
+  },
   readiness: () => ({ ...state }),
   onStart: async () => {
     assertDocumentPipelineStorage({ includeUploadHotdir: true });
