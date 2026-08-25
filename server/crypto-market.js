@@ -31,6 +31,9 @@ const host = new MicroModuleServiceHost({
   manifestId: "crypto-market",
   role: "crypto-market",
   port: Number(process.env.CRYPTO_MARKET_PORT || 3020),
+  internalRouteCapabilities: {
+    "POST /internal/v1/crypto/market": "crypto.market",
+  },
   readiness: () => ({ ...state }),
   onDrain: async () => {
     state.accepting = false;
