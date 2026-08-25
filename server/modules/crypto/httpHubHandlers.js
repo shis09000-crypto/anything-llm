@@ -100,20 +100,136 @@ function cryptoHubEndpoints(app) {
   );
 
   app.get(
+    "/crypto-hub/dashboard-snapshot",
+    cryptoHubAccessMiddleware(),
+    async (request, response) => {
+      try {
+        if (
+          typeof response.locals.cryptoDataHub.dashboardSnapshot !== "function"
+        ) {
+          const error = new Error("crypto_dashboard_account_scope_required");
+          error.code = "crypto_dashboard_account_scope_required";
+          throw error;
+        }
+        response.status(200).json(
+          await response.locals.cryptoDataHub.dashboardSnapshot({
+            force: request.query?.force === "true",
+          })
+        );
+      } catch (error) {
+        errorResponse(response, error, "Crypto dashboard snapshot failed", {
+          portfolio: null,
+          risk: null,
+        });
+      }
+    }
+  );
+
+  app.get(
+    "/crypto-hub/dashboard-stream",
+    cryptoHubAccessMiddleware(),
+    async (_request, response) => {
+      try {
+        if (
+          typeof response.locals.cryptoDataHub.subscribeDashboard !== "function"
+        ) {
+          throw new Error("crypto_dashboard_account_scope_required");
+        }
+        await response.locals.cryptoDataHub.subscribeDashboard(response);
+      } catch (error) {
+        if (response.headersSent) {
+          response.write("event: error\n");
+          response.write(
+            `data: ${JSON.stringify({
+              success: false,
+              safeErrorMessage: safeErrorMessage(error),
+            })}\n\n`
+          );
+          response.end();
+          return;
+        }
+        errorResponse(response, error, "Crypto dashboard stream failed");
+      }
+    }
+  );
+
+  app.post(
+    "/crypto-hub/rebalance-simulation",
+    cryptoHubAccessMiddleware(),
+    async (request, response) => {
+      try {
+        if (
+          typeof response.locals.cryptoDataHub.rebalanceSimulation !==
+          "function"
+        ) {
+          throw new Error("crypto_dashboard_account_scope_required");
+        }
+        response
+          .status(200)
+          .json(
+            await response.locals.cryptoDataHub.rebalanceSimulation(
+              request.body?.targets || {}
+            )
+          );
+      } catch (error) {
+        const status =
+          error?.code === "crypto_rebalance_targets_invalid" ? 400 : 500;
+        response.status(status).json({
+          success: false,
+          readOnly: true,
+          safeErrorMessage: safeErrorMessage(error),
+        });
+      }
+    }
+  );
+
+  app.get(
+    "/crypto-hub/portfolio-performance",
+    cryptoHubAccessMiddleware(),
+    async (request, response) => {
+      try {
+        if (
+          !response.locals.cryptoDataHub?.accountScoped ||
+          typeof response.locals.cryptoDataHub.portfolioPerformance !==
+            "function"
+        ) {
+          return response.status(503).json({
+            success: false,
+            safeErrorMessage: "crypto_account_dashboard_unavailable",
+          });
+        }
+        return response.status(200).json(
+          await response.locals.cryptoDataHub.portfolioPerformance({
+            window: request.query.window || "30d",
+          })
+        );
+      } catch (error) {
+        return response.status(error?.code ? 400 : 503).json({
+          success: false,
+          safeErrorMessage: String(
+            error?.code || "crypto_portfolio_performance_failed"
+          ),
+        });
+      }
+    }
+  );
+
+  app.get(
     "/crypto-hub/equity-history",
     cryptoHubAccessMiddleware(),
     async (request, response) => {
       try {
         const window = request.query?.window || "today";
-        if (window !== "today") {
+        if (!["today", "7d", "30d", "90d", "365d"].includes(window)) {
           response.status(400).json({
             success: false,
-            error: "Only the today equity history window is supported.",
+            error: "Unsupported equity history window.",
           });
           return;
         }
         response.status(200).json(
           await response.locals.cryptoDataHub.getEquityHistory({
+            window,
             equityMode: request.query?.equityMode,
             sinceTs: request.query?.sinceTs,
           })

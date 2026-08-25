@@ -114,6 +114,7 @@ function createApiProbeHost({
         "workspace.thread-title.claim",
       "/internal/v1/workspace/thread-title/commit":
         "workspace.thread-title.commit",
+      "GET /internal/v1/module-readiness/:moduleId": "control.dispatch",
     },
   });
 }

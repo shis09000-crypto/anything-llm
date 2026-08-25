@@ -37,6 +37,13 @@
       "/metrics",
       "/internal/v1/workspace/thread-title/claim",
       "/internal/v1/workspace/thread-title/commit"
+    ],
+    "bindings": [
+      {
+        "method": "GET",
+        "path": "/internal/v1/module-readiness/:moduleId",
+        "capability": "control.dispatch"
+      }
     ]
   },
   "rpc": {

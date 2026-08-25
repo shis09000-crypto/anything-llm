@@ -14,6 +14,8 @@ const CRYPTO_ACCOUNT_TOOLS = new Set([
   "crypto_account_holdings",
   "crypto_account_positions",
   "crypto_account_activity",
+  "crypto_portfolio_overview",
+  "crypto_portfolio_risk",
 ]);
 const BROWSER_TOOLS = new Set([
   "browser_open",

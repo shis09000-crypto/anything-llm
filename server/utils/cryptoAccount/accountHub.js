@@ -11,10 +11,18 @@ const {
   AllocationHubService,
 } = require("../cryptoHub/services/allocationHubService");
 const { CryptoHubCache } = require("../cryptoHub/cache/CryptoHubCache");
+const { metrics } = require("../observability/metrics");
 const {
   CryptoHubRateLimitState,
 } = require("../cryptoHub/cache/CryptoHubRateLimitState");
 const { AccountEquityProtectionService } = require("./equityProtection");
+const {
+  SupplementalPortfolioService,
+  computePortfolioRisk,
+  mergePortfolio,
+  mergeSpotDetail,
+  simulateRebalance,
+} = require("./portfolioSnapshot");
 
 const PRIVATE_CACHE_TTL_MS = 15_000;
 
@@ -160,6 +168,11 @@ class AccountCryptoHub {
         connection,
         restClientFactory: this.clientFactory,
       });
+    this.supplementalPortfolio = new SupplementalPortfolioService({
+      connection,
+    });
+    this.dashboardCache = null;
+    this.dashboardInFlight = null;
   }
 
   async cached(key, loader) {
@@ -324,7 +337,7 @@ class AccountCryptoHub {
   }
 
   async getEquityHistory(params = {}) {
-    return this.equityProtection.today(params);
+    return this.equityProtection.history(params);
   }
 
   getAllocation(params = {}) {
@@ -360,6 +373,286 @@ class AccountCryptoHub {
     return this.feeSummary.snapshot(params);
   }
 
+  async buildDashboardSnapshot() {
+    const [equityHistory, allocation, positions, supplementalHoldings] =
+      await Promise.all([
+        this.equityProtection.history({ window: "today" }),
+        this.holdings({ limit: 20 }),
+        this.openPositions({ limit: 50 }),
+        this.supplementalPortfolio.activeHoldings(),
+      ]);
+    const history = equityHistory?.history || {};
+    const priceBySymbol = Object.fromEntries(
+      (allocation.items || []).map((item) => [item.symbol, item.priceUsd])
+    );
+    for (const [symbol, reference] of Object.entries(
+      allocation.referencePrices || {}
+    )) {
+      if (reference?.priceUsd) priceBySymbol[symbol] = reference.priceUsd;
+    }
+    const gateTotalUsd =
+      history.latestEquityUsd ?? allocation.totalValueUsd ?? 0;
+    const portfolio = mergePortfolio({
+      gateTotalUsd,
+      gateAllocation: allocation,
+      supplementalHoldings,
+      priceBySymbol,
+      asOf: Math.max(
+        Number(history.latestPointTs || 0),
+        Number(allocation.asOf || 0),
+        Number(positions.asOf || 0)
+      ),
+    });
+    const detailFor = (symbol) => {
+      const gateItem = (allocation.items || []).find(
+        (item) => item.symbol === symbol
+      );
+      const reference = allocation.referencePrices?.[symbol] || null;
+      return mergeSpotDetail({
+        detail: {
+          success: true,
+          asOf: allocation.asOf,
+          exchange: "gate",
+          baseAsset: symbol,
+          quoteAsset: "USDT",
+          gateCurrencyPair: `${symbol}_USDT`,
+          symbol: `${symbol}/USDT`,
+          marketType: "spot",
+          connectionStatus: allocation.connectionStatus,
+          holdingAmountBase: gateItem?.totalAmount || "0",
+          holdingValueQuote: gateItem?.valueUsd || "0.00",
+          holdingValueUsd: gateItem?.valueUsd || "0.00",
+          currentPriceQuote: gateItem?.priceUsd || reference?.priceUsd || null,
+          change24hPct:
+            gateItem?.change24hPct || reference?.change24hPct || null,
+          averageBuyPriceQuote: null,
+          averageBuyPriceMethod: "calculating",
+          averageBuyPriceScope: "calculating",
+          holdingSources: {
+            spot: gateItem?.spotAmount || "0",
+            earnUni: gateItem?.earnAmount || "0",
+            selected: "combined",
+          },
+          freshness: {
+            latestSnapshotAt: allocation.asOf,
+            lastRefreshSource: "dashboard-snapshot",
+          },
+          partialFailures: allocation.partialFailures || [],
+        },
+        portfolio,
+        symbol,
+      });
+    };
+    const connectionStatus = [
+      allocation.connectionStatus,
+      positions.connectionStatus,
+      history.connectionStatus,
+      portfolio.connectionStatus,
+    ].includes("disconnected")
+      ? "disconnected"
+      : [
+            allocation.connectionStatus,
+            positions.connectionStatus,
+            history.connectionStatus,
+            portfolio.connectionStatus,
+          ].includes("degraded")
+        ? "degraded"
+        : "connected";
+    const risk = computePortfolioRisk({
+      portfolio,
+      positions,
+      equityHistory,
+      connectionStatus,
+    });
+    return {
+      success: true,
+      asOf: Date.now(),
+      readOnly: true,
+      accountScoped: true,
+      connectionStatus,
+      portfolio,
+      risk,
+      equityHistory: history,
+      spotDetails: {
+        BTC: detailFor("BTC"),
+        ETH: detailFor("ETH"),
+      },
+      futures: {
+        summary: positions.summary,
+        positions: positions.positions,
+        partialFailures: positions.partialFailures || [],
+      },
+      sourcePolicy: {
+        gate: "authoritative_real_account",
+        supplemental: "user_supplied_current_portfolio_only",
+        supplementalIncludedInPnl: false,
+        supplementalIncludedInHistory: false,
+      },
+    };
+  }
+
+  async dashboardSnapshot({ force = false } = {}) {
+    const startedAt = Date.now();
+    const recordRead = (outcome) => {
+      metrics.cryptoAccountReads.inc({
+        function: "dashboard_snapshot",
+        outcome,
+      });
+      metrics.cryptoAccountReadDuration.observe(
+        { function: "dashboard_snapshot", outcome },
+        Math.max(0, Date.now() - startedAt) / 1_000
+      );
+    };
+    const now = Date.now();
+    const ageMs = this.dashboardCache
+      ? now - this.dashboardCache.updatedAt
+      : Infinity;
+    if (!force && this.dashboardCache && ageMs <= 5_000) {
+      recordRead("cache_fresh");
+      return {
+        ...this.dashboardCache.value,
+        cache: { status: "fresh", ageMs },
+      };
+    }
+    if (!force && this.dashboardCache && ageMs <= 60_000) {
+      if (!this.dashboardInFlight) {
+        this.dashboardInFlight = this.buildDashboardSnapshot()
+          .then((value) => {
+            this.dashboardCache = { value, updatedAt: Date.now() };
+            return value;
+          })
+          .finally(() => {
+            this.dashboardInFlight = null;
+          });
+        void this.dashboardInFlight.catch(() => {});
+      }
+      recordRead("cache_stale_revalidate");
+      return {
+        ...this.dashboardCache.value,
+        cache: { status: "stale_revalidate", ageMs },
+      };
+    }
+    if (!this.dashboardInFlight) {
+      this.dashboardInFlight = this.buildDashboardSnapshot()
+        .then((value) => {
+          this.dashboardCache = { value, updatedAt: Date.now() };
+          return value;
+        })
+        .finally(() => {
+          this.dashboardInFlight = null;
+        });
+    }
+    try {
+      const value = await this.dashboardInFlight;
+      recordRead("refreshed");
+      return { ...value, cache: { status: "refreshed", ageMs: 0 } };
+    } catch (error) {
+      recordRead("failed");
+      throw error;
+    }
+  }
+
+  subscribeDashboard(response) {
+    return this.subscribePolling(
+      response,
+      () => this.dashboardSnapshot(),
+      "snapshot"
+    );
+  }
+
+  async toolPortfolioOverview() {
+    const snapshot = await this.dashboardSnapshot();
+    return {
+      success: true,
+      asOf: snapshot.asOf,
+      readOnly: true,
+      connectionStatus: snapshot.connectionStatus,
+      portfolio: snapshot.portfolio,
+      sourcePolicy: snapshot.sourcePolicy,
+    };
+  }
+
+  async toolPortfolioRisk() {
+    const snapshot = await this.dashboardSnapshot();
+    return {
+      success: true,
+      asOf: snapshot.asOf,
+      readOnly: true,
+      connectionStatus: snapshot.connectionStatus,
+      risk: snapshot.risk,
+      sourcePolicy: snapshot.sourcePolicy,
+    };
+  }
+
+  async rebalanceSimulation(targets = {}) {
+    const snapshot = await this.dashboardSnapshot();
+    return simulateRebalance({ portfolio: snapshot.portfolio, targets });
+  }
+
+  async portfolioPerformance({ window = "30d" } = {}) {
+    const daysByWindow = { "7d": 7, "30d": 30, "90d": 90, "365d": 365 };
+    const days = daysByWindow[window];
+    if (!days) {
+      const error = new Error("crypto_equity_window_invalid");
+      error.code = "crypto_equity_window_invalid";
+      throw error;
+    }
+    const nowSec = Math.floor(Date.now() / 1_000);
+    const fromSec = nowSec - days * 24 * 60 * 60;
+    const tradeFromSec = nowSec - Math.min(days, 90) * 24 * 60 * 60;
+    const [historyResult, records, positions, fees] = await Promise.all([
+      this.equityProtection.history({ window }),
+      this.tradeRecords.snapshot({
+        from: tradeFromSec,
+        to: nowSec,
+        limit: 100,
+      }),
+      this.openPositions({ limit: 50 }),
+      this.feeSummary.snapshot({
+        from: fromSec,
+        to: nowSec,
+        includeYear: false,
+      }),
+    ]);
+    const history = historyResult.history || {};
+    const realizedPnlUsd = Number(records.summary?.totalRealizedPnlUsd || 0);
+    const unrealizedPnlUsd = Number(
+      positions.summary?.totalUnrealizedPnlUsd || 0
+    );
+    const feeUsd = Number(fees.totalFeeUsd || 0);
+    const totalChangeUsd = Number(history.changeUsd || 0);
+    return {
+      success: true,
+      readOnly: true,
+      asOf: Date.now(),
+      window,
+      history,
+      attribution: {
+        totalGateEquityChangeUsd: Number(totalChangeUsd.toFixed(2)),
+        futuresRealizedPnlUsd: Number(realizedPnlUsd.toFixed(2)),
+        futuresUnrealizedPnlUsd: Number(unrealizedPnlUsd.toFixed(2)),
+        feesUsd: Number(feeUsd.toFixed(2)),
+        fundingUsd: null,
+        spotPriceEffectUsd: null,
+        unclassifiedCapitalFlowUsd: null,
+        status: "partial",
+        guidance:
+          "Gate equity history is authoritative. Funding, spot-price attribution, deposits, withdrawals, and transfers remain unclassified until exchange evidence is available and are not reported as investment return.",
+      },
+      coverage: {
+        tradeHistoryDays: Math.min(days, 90),
+        requestedDays: days,
+        tradeRecordLimit: 100,
+        supplementalIncluded: false,
+      },
+      sourcePolicy: {
+        gate: "authoritative_real_account",
+        supplementalIncludedInHistory: false,
+        modelGenerated: false,
+      },
+    };
+  }
+
   subscribePolling(response, loader, event = "snapshot") {
     response.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -369,8 +662,11 @@ class AccountCryptoHub {
     });
     response.flushHeaders?.();
     let stopped = false;
+    let writing = false;
     const write = async () => {
-      if (stopped || response.destroyed || response.writableEnded) return;
+      if (stopped || writing || response.destroyed || response.writableEnded)
+        return;
+      writing = true;
       try {
         const payload = await loader();
         response.write(`event: ${event}\n`);
@@ -385,6 +681,8 @@ class AccountCryptoHub {
             ),
           })}\n\n`
         );
+      } finally {
+        writing = false;
       }
     };
     const timer = setInterval(write, 5_000);
@@ -518,6 +816,8 @@ class AccountCryptoHub {
   clear() {
     void this.equityProtection.stop();
     this.cache.clear();
+    this.dashboardCache = null;
+    this.dashboardInFlight = null;
     this.credentials = Object.freeze({
       apiKey: "",
       apiSecret: "",

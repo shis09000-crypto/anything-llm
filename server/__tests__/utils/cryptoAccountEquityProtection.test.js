@@ -2,6 +2,7 @@ const {
   AccountEquityProtectionService,
   SAMPLE_INTERVAL_MS,
   TASK_DESCRIPTOR,
+  capitalFlowMarkers,
 } = require("../../utils/cryptoAccount/equityProtection");
 
 function totalBalance(amount, unrealized = 0) {
@@ -15,6 +16,22 @@ function totalBalance(amount, unrealized = 0) {
 }
 
 describe("protected account equity history", () => {
+  test("marks large equity jumps for classification without calling them returns", () => {
+    expect(
+      capitalFlowMarkers([
+        { ts: 1, equityUsd: 10_000 },
+        { ts: 2, equityUsd: 10_100 },
+        { ts: 3, equityUsd: 12_000 },
+      ])
+    ).toEqual([
+      expect.objectContaining({
+        ts: 3,
+        type: "equity_change_requires_classification",
+        classifiedAsInvestmentReturn: false,
+      }),
+    ]);
+  });
+
   test("samples every 1.5 seconds but skips identical K-line points and writes", async () => {
     let now = Date.now();
     const responses = [

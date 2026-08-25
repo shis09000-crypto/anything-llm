@@ -988,6 +988,25 @@ model crypto_account_equity_snapshots {
   @@index([authUserId, sampledAt])
 }
 
+model crypto_account_supplemental_holdings {
+  id           String   @id
+  connectionId String
+  userId       Int
+  authUserId   Int
+  symbol       String
+  quantity     String
+  costBasisUsd String
+  source       String   @default("user_supplied")
+  status       String   @default("active")
+  effectiveAt  DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([connectionId, symbol])
+  @@index([authUserId, status])
+  @@index([connectionId, status])
+}
+
 model memory_candidates {
   id          Int      @id @default(autoincrement())
   userId      Int

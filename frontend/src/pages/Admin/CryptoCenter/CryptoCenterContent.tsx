@@ -9,6 +9,7 @@ import React, {
 import { useSoftSettingsShell } from "@/components/SoftSettings/context";
 import { useMotion } from "@/contexts/MotionProvider";
 import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
+import { useCryptoDashboard } from "@/hooks/cryptoHub/useCryptoDashboard";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { tabletDesktopRuntimeActive } from "@/utils/mobileRuntime";
 import CryptoTotalAssetCard from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/CryptoTotalAssetCard";
@@ -35,11 +36,8 @@ import type {
 import { markCryptoCenterPerf } from "./perf";
 import { cryptoSectionScrollEnabled } from "./sectionScrollRuntime";
 import { resolvePrivateConnectionStatus } from "./cryptoPrivateConnectionStatus";
-import {
-  buildSupplementalPortfolioSnapshot,
-  mergeSupplementalAllocation,
-  mergeSupplementalSpotResponse,
-} from "./supplementalPortfolio.js";
+import PortfolioRiskCard from "./PortfolioRiskCard";
+import PortfolioAnalyticsCard from "./PortfolioAnalyticsCard";
 
 const AssetAllocationDonutCard = React.lazy(
   () =>
@@ -1994,6 +1992,8 @@ export default function CryptoCenterContent() {
   const firstChartPerfMarkedRef = useRef(false);
   const [marketChartsEnabled, setMarketChartsEnabled] = useState(false);
   const [fullBackgroundEnabled, setFullBackgroundEnabled] = useState(false);
+  const dashboard = useCryptoDashboard({ enabled: true });
+  const useLegacyHeroFallback = dashboard.status === "error";
 
   useEffect(() => {
     return () => {
@@ -2061,7 +2061,7 @@ export default function CryptoCenterContent() {
     mode: "gate-api",
     pair: BTC_PAIR,
     market: BTC_MARKET,
-    enabled: true,
+    enabled: useLegacyHeroFallback,
   });
   const btcCandlestick = useTradingPairCandlestickData({
     mode: "gate-api",
@@ -2076,7 +2076,7 @@ export default function CryptoCenterContent() {
     mode: "gate-api",
     pair: ETH_PAIR,
     market: ETH_MARKET,
-    enabled: true,
+    enabled: useLegacyHeroFallback,
   });
   const ethCandlestick = useTradingPairCandlestickData({
     mode: "gate-api",
@@ -2090,12 +2090,13 @@ export default function CryptoCenterContent() {
   const topSpotAssets = useTopSpotAssets({ enabled: topAssetsEnabled });
   const assetAllocation = useAssetAllocationDonutData({
     initialMode: "gate",
-    enabled: true,
+    enabled: useLegacyHeroFallback,
   });
 
   useEffect(() => {
     if (heroDataPerfMarkedRef.current) return;
     const hasHeroData =
+      Boolean(dashboard.snapshot?.portfolio?.invariant?.valid) ||
       gateHistoryStatus === "connected" ||
       Boolean(btcDetail.response?.success) ||
       Boolean(ethDetail.response?.success) ||
@@ -2121,6 +2122,7 @@ export default function CryptoCenterContent() {
             ? "error"
             : "idle",
       allocationStatus: assetAllocation.gateStatus,
+      dashboardStatus: dashboard.status,
     });
   }, [
     assetAllocation.gateStatus,
@@ -2131,6 +2133,8 @@ export default function CryptoCenterContent() {
     ethDetail.loading,
     ethDetail.response?.success,
     gateHistoryStatus,
+    dashboard.snapshot?.portfolio?.invariant?.valid,
+    dashboard.status,
   ]);
 
   useEffect(() => {
@@ -2190,6 +2194,15 @@ export default function CryptoCenterContent() {
   }, [gateHistory]);
 
   useEffect(() => {
+    const history = dashboard.snapshot?.equityHistory as
+      | GateEquityHistory
+      | undefined;
+    if (!history?.points) return;
+    setGateHistory(history);
+    setGateHistoryStatus("connected");
+  }, [dashboard.snapshot?.asOf, dashboard.snapshot?.equityHistory]);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       setCurrentDateTime(currentShanghaiDateTime());
     }, 1_000);
@@ -2198,6 +2211,7 @@ export default function CryptoCenterContent() {
   }, []);
 
   useEffect(() => {
+    if (dashboard.status !== "error") return;
     let cancelled = false;
     let timer: number | null = null;
     let inflightController: AbortController | null = null;
@@ -2303,38 +2317,19 @@ export default function CryptoCenterContent() {
       if (timer) window.clearTimeout(timer);
       inflightController?.abort();
     };
-  }, [equityMode]);
-
-  const supplementalPrices = useMemo(
-    () => ({
-      BTC: btcDetail.response?.success
-        ? btcDetail.response.currentPriceQuote
-        : null,
-      ETH: ethDetail.response?.success
-        ? ethDetail.response.currentPriceQuote
-        : null,
-    }),
-    [
-      btcDetail.response?.currentPriceQuote,
-      btcDetail.response?.success,
-      ethDetail.response?.currentPriceQuote,
-      ethDetail.response?.success,
-    ]
-  );
-  const supplementalSnapshot = useMemo(
-    () => buildSupplementalPortfolioSnapshot(supplementalPrices),
-    [supplementalPrices]
-  );
+  }, [dashboard.status, equityMode]);
 
   const totalAssetParams = useMemo<CryptoTotalAssetCardProps>(() => {
     const gateConnectionStatus =
-      gateHistoryStatus === "connected"
-        ? supplementalSnapshot.applied
-          ? ("connected" as const)
-          : ("degraded" as const)
-        : gateHistoryStatus === "error"
+      dashboard.snapshot?.connectionStatus === "connected"
+        ? ("connected" as const)
+        : dashboard.snapshot?.connectionStatus === "disconnected"
           ? ("disconnected" as const)
-          : ("degraded" as const);
+          : gateHistoryStatus === "connected"
+            ? ("degraded" as const)
+            : gateHistoryStatus === "error"
+              ? ("disconnected" as const)
+              : ("degraded" as const);
     const timeStampedParams = {
       ...defaultTotalAssetParams,
       cardHeight: responsiveLayout.heroPortfolioHeight,
@@ -2352,26 +2347,27 @@ export default function CryptoCenterContent() {
       connectionStatus: gateConnectionStatus,
     };
 
-    if (!gateHistory) return timeStampedParams;
+    if (!gateHistory && !dashboard.snapshot) return timeStampedParams;
 
     return {
       ...timeStampedParams,
-      totalEquityUsd:
-        gateHistory.latestEquityUsd +
-        (supplementalSnapshot.applied ? supplementalSnapshot.totalValueUsd : 0),
-      todayPnlUsd: gateHistory.todayPnlUsd,
-      todayPnlPct: gateHistory.todayPnlPct,
-      yesterdayBaselineUsd: gateHistory.yesterdayBaselineUsd,
-      yesterdayChangePct: gateHistory.yesterdayChangePct,
-      trendPoints: gateHistory.points,
+      totalEquityUsd: dashboard.snapshot
+        ? Number(dashboard.snapshot.portfolio.totalValueUsd)
+        : gateHistory?.latestEquityUsd || 0,
+      todayPnlUsd: gateHistory?.todayPnlUsd || 0,
+      todayPnlPct: gateHistory?.todayPnlPct || 0,
+      yesterdayBaselineUsd:
+        gateHistory?.yesterdayBaselineUsd || FALLBACK_YESTERDAY_BASELINE_USD,
+      yesterdayChangePct: gateHistory?.yesterdayChangePct || 0,
+      trendPoints: gateHistory?.points || [],
     };
   }, [
     currentDateTime,
+    dashboard.snapshot,
     gateHistory,
     gateHistoryStatus,
     responsiveLayout.heroPortfolioHeight,
     responsiveLayout.spotBorderRadius,
-    supplementalSnapshot,
   ]);
 
   const responsiveDetailVisual = useMemo(
@@ -2405,14 +2401,9 @@ export default function CryptoCenterContent() {
   );
 
   const btcDetailParams = useMemo<TradingPairDetailCardProps>(() => {
-    const supplemented = mergeSupplementalSpotResponse({
-      response: btcDetail.response,
-      symbol: "BTC",
-      currentPrice: supplementalPrices.BTC,
-    });
     return buildSpotDetailParams({
-      response: supplemented.response,
-      error: btcDetail.error,
+      response: dashboard.snapshot?.spotDetails.BTC || btcDetail.response,
+      error: dashboard.error || btcDetail.error,
       preset: btcPreset,
       market: BTC_MARKET,
       visual: responsiveDetailVisual,
@@ -2420,19 +2411,15 @@ export default function CryptoCenterContent() {
   }, [
     btcDetail.error,
     btcDetail.response,
+    dashboard.error,
+    dashboard.snapshot?.spotDetails.BTC,
     responsiveDetailVisual,
-    supplementalPrices.BTC,
   ]);
 
   const ethDetailParams = useMemo<TradingPairDetailCardProps>(() => {
-    const supplemented = mergeSupplementalSpotResponse({
-      response: ethDetail.response,
-      symbol: "ETH",
-      currentPrice: supplementalPrices.ETH,
-    });
     return buildSpotDetailParams({
-      response: supplemented.response,
-      error: ethDetail.error,
+      response: dashboard.snapshot?.spotDetails.ETH || ethDetail.response,
+      error: dashboard.error || ethDetail.error,
       preset: ethPreset,
       market: ETH_MARKET,
       visual: responsiveDetailVisual,
@@ -2440,25 +2427,24 @@ export default function CryptoCenterContent() {
   }, [
     ethDetail.error,
     ethDetail.response,
+    dashboard.error,
+    dashboard.snapshot?.spotDetails.ETH,
     responsiveDetailVisual,
-    supplementalPrices.ETH,
   ]);
 
   const assetAllocationParams = useMemo<AssetAllocationDonutCardProps>(() => {
-    const displayAllocation = mergeSupplementalAllocation({
-      items: assetAllocation.activeItems,
-      totalValueUsd: assetAllocation.activeTotalValueUsd,
-      prices: supplementalPrices,
-      trustedSource:
-        assetAllocation.activeItems.length > 0 &&
-        (assetAllocation.gateStatus === "connected" ||
-          assetAllocation.gateStatus === "degraded"),
-    });
+    const dashboardItems = dashboard.snapshot?.portfolio.items || [];
+    const displayItems = dashboardItems.length
+      ? dashboardItems
+      : assetAllocation.activeItems;
+    const displayTotal = dashboardItems.length
+      ? dashboard.snapshot?.portfolio.totalValueUsd || "0.00"
+      : assetAllocation.activeTotalValueUsd;
 
     return {
       title: "资产分布",
-      totalValueUsd: displayAllocation.totalValueUsd,
-      items: displayAllocation.items,
+      totalValueUsd: displayTotal,
+      items: displayItems,
       selectedAsset: selectedAllocationAsset,
       onSelectAsset: setSelectedAllocationAsset,
       ...assetAllocationDonutDefaultVisual,
@@ -2470,11 +2456,12 @@ export default function CryptoCenterContent() {
     assetAllocation.activeItems,
     assetAllocation.activeTotalValueUsd,
     assetAllocation.gateStatus,
+    dashboard.snapshot?.portfolio.items,
+    dashboard.snapshot?.portfolio.totalValueUsd,
     responsiveLayout.heroAssetCardWidth,
     responsiveLayout.heroPortfolioHeight,
     responsiveLayout.spotBorderRadius,
     selectedAllocationAsset,
-    supplementalPrices,
   ]);
 
   return (
@@ -2572,6 +2559,37 @@ export default function CryptoCenterContent() {
                     )}
                   </div>
                 </div>
+                <div className="grid gap-3 rounded-2xl border border-[#D6A84F]/12 bg-black/35 px-4 py-3 text-xs text-white/50 sm:grid-cols-3">
+                  <div>
+                    <span className="font-black text-[#E8C46B]/80">
+                      Gate 实盘
+                    </span>
+                    <span className="ml-2">
+                      $
+                      {dashboard.snapshot?.portfolio.gate.totalValueUsd || "--"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-black text-[#E8C46B]/80">
+                      补充持仓
+                    </span>
+                    <span className="ml-2">
+                      $
+                      {dashboard.snapshot?.portfolio.supplemental
+                        .totalValueUsd || "--"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-black text-[#E8C46B]/80">
+                      数据口径
+                    </span>
+                    <span className="ml-2">
+                      补充持仓不计入 Gate 盈亏与成交历史
+                    </span>
+                  </div>
+                </div>
+                <PortfolioRiskCard snapshot={dashboard.snapshot} />
+                <PortfolioAnalyticsCard snapshot={dashboard.snapshot} />
                 <div className="h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]" />
                 <div className="flex w-full items-end justify-between gap-6">
                   <div>

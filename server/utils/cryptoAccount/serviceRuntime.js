@@ -52,6 +52,10 @@ async function executeAccountTool(hub, toolName, input = {}) {
         limit: boundedInteger(input.limit, 50, 1, 100),
         cursor: input.cursor || null,
       });
+    case "crypto_portfolio_overview":
+      return hub.toolPortfolioOverview();
+    case "crypto_portfolio_risk":
+      return hub.toolPortfolioRisk();
     default: {
       const error = new Error("crypto_account_tool_denied");
       error.code = "crypto_account_tool_denied";

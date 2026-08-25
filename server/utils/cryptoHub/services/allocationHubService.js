@@ -210,6 +210,24 @@ class AllocationHubService {
         (left, right) =>
           numberValue(right.valueUsd) - numberValue(left.valueUsd)
       );
+    const referencePrices = Object.fromEntries(
+      ["BTC", "ETH"].map((symbol) => {
+        const ticker = tickers.get(`${symbol}_${quoteAsset}`);
+        return [
+          symbol,
+          ticker?.price
+            ? {
+                priceUsd: decimalString(ticker.price, 8),
+                change24hPct:
+                  ticker.change24hPct === undefined ||
+                  ticker.change24hPct === null
+                    ? null
+                    : String(ticker.change24hPct),
+              }
+            : null,
+        ];
+      })
+    );
 
     return {
       success: true,
@@ -224,6 +242,7 @@ class AllocationHubService {
       spotValueUsd: decimalString(spotValue, 2),
       earnValueUsd: decimalString(earnValue, 2),
       items,
+      referencePrices,
       connectionStatus: partialFailures.length ? "degraded" : "connected",
       config,
       partialFailures,

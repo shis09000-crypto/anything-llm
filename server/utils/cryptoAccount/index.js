@@ -4,4 +4,5 @@ module.exports = {
   ...require("./equityProtection"),
   ...require("./equityProtectionRuntime"),
   ...require("./httpResolver"),
+  ...require("./portfolioSnapshot"),
 };

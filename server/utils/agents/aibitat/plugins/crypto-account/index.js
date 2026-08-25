@@ -427,6 +427,32 @@ const cryptoAccountActivity = createAccountTool({
     }),
 });
 
+const cryptoPortfolioOverview = createAccountTool({
+  name: "crypto_portfolio_overview",
+  description:
+    "Read the current user's consolidated crypto portfolio. It keeps Gate as the authoritative real-account source and separately identifies user-supplied supplemental holdings that affect only the current portfolio, never Gate P&L, history, fees, or trades. The response includes an item-total conservation check, timestamps, and source policy. Read-only; approval is mandatory.",
+  scope: "合并资产概览",
+  parameters: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  execute: (hub) => hub.toolPortfolioOverview(),
+});
+
+const cryptoPortfolioRisk = createAccountTool({
+  name: "crypto_portfolio_risk",
+  description:
+    "Read deterministic portfolio risk metrics and rule-based alerts for concentration, Gate account margin pressure, reference-only liquidation distance, drawdown, and data freshness. Cross-margin liquidation prices and configured leverage must never be described as a guarantee of account safety. Read-only; approval is mandatory.",
+  scope: "资产风险概览",
+  parameters: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  execute: (hub) => hub.toolPortfolioRisk(),
+});
+
 const cryptoAccountAgent = {
   name: SKILL_NAME,
   conditional: true,
@@ -437,6 +463,8 @@ const cryptoAccountAgent = {
     cryptoAccountHoldings,
     cryptoAccountPositions,
     cryptoAccountActivity,
+    cryptoPortfolioOverview,
+    cryptoPortfolioRisk,
   ],
 };
 
@@ -449,4 +477,6 @@ module.exports = {
   cryptoAccountHoldings,
   cryptoAccountOverview,
   cryptoAccountPositions,
+  cryptoPortfolioOverview,
+  cryptoPortfolioRisk,
 };

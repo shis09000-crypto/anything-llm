@@ -3,7 +3,7 @@
   "schemaVersion": "1.1",
   "id": "crypto-account-access",
   "name": "Crypto Account Access",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "kind": "security-service",
   "owner": "security",
   "criticality": "high",
@@ -16,11 +16,20 @@
     "gate-read-only",
     "account-scoped-resolution",
     "protected-equity-history",
+    "consolidated-portfolio",
+    "deterministic-portfolio-risk",
     "approval-required-tools"
   ],
   "routes": {
     "public": [],
-    "internal": ["/internal/v1/crypto/account/read"]
+    "internal": ["/internal/v1/crypto/account/read"],
+    "bindings": [
+      {
+        "method": "POST",
+        "path": "/internal/v1/crypto/account/read",
+        "capability": "crypto.account"
+      }
+    ]
   },
   "rpc": {
     "provides": [
@@ -87,6 +96,8 @@
     "gate-read-only",
     "account-scoped-resolution",
     "protected-equity-history",
+    "consolidated-portfolio",
+    "deterministic-portfolio-risk",
     "approval-required-tools"
   ],
   "nonResponsibilities": [

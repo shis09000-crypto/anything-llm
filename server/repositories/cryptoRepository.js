@@ -115,6 +115,13 @@ const CryptoRepository = {
     });
   },
 
+  listSupplementalHoldings({ where, orderBy = undefined }) {
+    return prisma.crypto_account_supplemental_holdings.findMany({
+      where,
+      ...(orderBy ? { orderBy } : {}),
+    });
+  },
+
   findUserDomainWrap({ where, orderBy = undefined }) {
     return prisma.user_domain_key_wraps.findFirst({
       where,

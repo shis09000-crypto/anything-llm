@@ -96,3 +96,10 @@ export function streamTradeRecords({ from, to, limit, ...options } = {}) {
     query: { from, to, limit },
   });
 }
+
+export function streamDashboardSnapshot(options = {}) {
+  return streamCryptoHubData({
+    ...options,
+    path: "/dashboard-stream",
+  });
+}

@@ -105,7 +105,7 @@ class AccountEquityHistoryStore {
           },
         },
         orderBy: { sampledAt: "asc" },
-        take: 2_000,
+        take: 120_000,
       })
     )
       .map(normalizeStoredPoint)
@@ -162,6 +162,84 @@ class AccountEquityHistoryStore {
       },
     });
   }
+}
+
+const HISTORY_WINDOW_DAYS = Object.freeze({
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+  "365d": 365,
+});
+
+function downsampleHistory(points = [], maxPoints = 720) {
+  if (points.length <= maxPoints) return points;
+  const bucketSize = Math.ceil(points.length / maxPoints);
+  const sampled = [];
+  for (let index = 0; index < points.length; index += bucketSize) {
+    const bucket = points.slice(index, index + bucketSize);
+    sampled.push(bucket.at(-1));
+  }
+  const latest = points.at(-1);
+  if (sampled.at(-1)?.ts !== latest?.ts) sampled.push(latest);
+  return sampled;
+}
+
+function historyPerformance(points = []) {
+  if (!points.length) {
+    return {
+      baselineUsd: 0,
+      latestEquityUsd: 0,
+      changeUsd: 0,
+      changePct: 0,
+      nav: 1,
+      maxDrawdownPct: 0,
+      currentDrawdownPct: 0,
+    };
+  }
+  const baselineUsd = points[0].equityUsd;
+  const latestEquityUsd = points.at(-1).equityUsd;
+  const changeUsd = latestEquityUsd - baselineUsd;
+  let peak = baselineUsd;
+  let maxDrawdownPct = 0;
+  let currentDrawdownPct = 0;
+  for (const point of points) {
+    peak = Math.max(peak, point.equityUsd);
+    const drawdownPct = peak > 0 ? ((peak - point.equityUsd) / peak) * 100 : 0;
+    maxDrawdownPct = Math.max(maxDrawdownPct, drawdownPct);
+    currentDrawdownPct = drawdownPct;
+  }
+  return {
+    baselineUsd: Number(baselineUsd.toFixed(2)),
+    latestEquityUsd: Number(latestEquityUsd.toFixed(2)),
+    changeUsd: Number(changeUsd.toFixed(2)),
+    changePct: baselineUsd
+      ? Number(((changeUsd / baselineUsd) * 100).toFixed(4))
+      : 0,
+    nav: baselineUsd ? Number((latestEquityUsd / baselineUsd).toFixed(6)) : 1,
+    maxDrawdownPct: Number(maxDrawdownPct.toFixed(4)),
+    currentDrawdownPct: Number(currentDrawdownPct.toFixed(4)),
+  };
+}
+
+function capitalFlowMarkers(points = []) {
+  const markers = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const deltaUsd = current.equityUsd - previous.equityUsd;
+    const deltaPct = previous.equityUsd
+      ? (deltaUsd / previous.equityUsd) * 100
+      : 0;
+    if (Math.abs(deltaUsd) < 1_000 && Math.abs(deltaPct) < 5) continue;
+    markers.push({
+      ts: current.ts,
+      type: "equity_change_requires_classification",
+      deltaUsd: Number(deltaUsd.toFixed(2)),
+      deltaPct: Number(deltaPct.toFixed(4)),
+      classifiedAsInvestmentReturn: false,
+    });
+  }
+  return markers;
 }
 
 class AccountEquityProtectionService {
@@ -479,6 +557,80 @@ class AccountEquityProtectionService {
       },
     };
   }
+
+  async history({ window = "today", sinceTs = null } = {}) {
+    if (window === "today") return this.today({ sinceTs });
+    const days = HISTORY_WINDOW_DAYS[window];
+    if (!days) {
+      const error = new Error("crypto_equity_window_invalid");
+      error.code = "crypto_equity_window_invalid";
+      throw error;
+    }
+    const windowEndAt = this.now();
+    const windowStartAt = windowEndAt - days * 24 * 60 * 60 * 1_000;
+    const allPoints = await this.store.loadWindow(
+      this.connection.id,
+      windowStartAt,
+      windowEndAt
+    );
+    const normalizedSinceTs = finiteNumber(sinceTs);
+    const visible =
+      normalizedSinceTs === null
+        ? allPoints
+        : allPoints.filter((point) => point.ts > normalizedSinceTs);
+    const sampled = downsampleHistory(visible);
+    const performance = historyPerformance(allPoints);
+    const capitalFlowCandidates = capitalFlowMarkers(allPoints);
+    return {
+      success: true,
+      accountScoped: true,
+      history: {
+        window,
+        windowStartAt,
+        windowEndAt,
+        incremental: normalizedSinceTs !== null,
+        sinceTs: normalizedSinceTs,
+        latestPointTs: allPoints.at(-1)?.ts || null,
+        historyVersion: this.historyVersion,
+        ...performance,
+        points: sampled.map((point) => {
+          const parts = shanghaiParts(point.ts);
+          const deltaUsd = point.equityUsd - performance.baselineUsd;
+          return {
+            ts: point.ts,
+            time: parts.time,
+            date: parts.date,
+            value: Number(point.equityUsd.toFixed(2)),
+            totalEquityUsd: Number(point.equityUsd.toFixed(2)),
+            nav: performance.baselineUsd
+              ? Number((point.equityUsd / performance.baselineUsd).toFixed(6))
+              : 1,
+            deltaUsd: Number(deltaUsd.toFixed(2)),
+            deltaPct: performance.baselineUsd
+              ? Number(((deltaUsd / performance.baselineUsd) * 100).toFixed(4))
+              : 0,
+            source: point.source,
+            equityMode: EQUITY_MODE,
+            persisted: Boolean(point.persisted),
+          };
+        }),
+        connectionStatus: this.lastError ? "degraded" : "connected",
+        freshness: {
+          latestSnapshotAt: allPoints.at(-1)?.ts || null,
+          latestSampleAt: this.lastSuccessAt,
+          ageMs: this.lastSuccessAt
+            ? Math.max(0, this.now() - this.lastSuccessAt)
+            : null,
+          lastError: this.lastError,
+        },
+        capitalFlowStatus: "unavailable",
+        capitalFlowCandidates,
+        capitalFlowTreatment:
+          "Deposits, withdrawals, and transfers are not classified as investment return.",
+        accountScoped: true,
+      },
+    };
+  }
 }
 
 module.exports = {
@@ -487,6 +639,9 @@ module.exports = {
   PERSIST_INTERVAL_MS,
   SAMPLE_INTERVAL_MS,
   TASK_DESCRIPTOR,
+  downsampleHistory,
+  capitalFlowMarkers,
+  historyPerformance,
   normalizeStoredPoint,
   valueFingerprint,
 };
