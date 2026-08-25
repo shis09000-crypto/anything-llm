@@ -1442,6 +1442,7 @@ type TopSpotAsset = {
   baseAsset: string;
   quoteAsset: string;
   symbol: string;
+  asOf?: number;
   holdingAmountBase: string;
   holdingValueQuote: string;
   holdingValueUsd?: string | null;
@@ -1599,12 +1600,15 @@ function useTopSpotAssets({ enabled = true } = {}) {
         if (!payload) return;
         if (cancelled) return;
 
+        const asOf = payload.asOf || Date.now();
         setState({
-          assets: Array.isArray(payload.assets) ? payload.assets : [],
+          assets: Array.isArray(payload.assets)
+            ? payload.assets.map((asset) => ({ ...asset, asOf }))
+            : [],
           status:
             payload.connectionStatus === "degraded" ? "connected" : "connected",
           error: null,
-          asOf: payload.asOf || Date.now(),
+          asOf,
         });
       } catch (error) {
         if (cancelled) return;
@@ -1689,14 +1693,20 @@ function buildSpotDetailParams({
   preset,
   market,
   visual,
+  trustedFallbackAsOf = null,
 }: {
   response: TradingPairDetailResponse | null;
   error: string | null;
   preset: TradingPairPreset;
   market: TradingPairMarketType;
   visual: typeof btcDetailVisual;
+  trustedFallbackAsOf?: number | null;
 }): TradingPairDetailCardProps {
   const real = Boolean(response?.success);
+  const hasTrustedFallback =
+    !real &&
+    Number.isFinite(Number(trustedFallbackAsOf)) &&
+    Number(trustedFallbackAsOf) > 0;
 
   return {
     baseAsset: real
@@ -1713,10 +1723,26 @@ function buildSpotDetailParams({
     iconText: preset.iconText,
     iconImage: preset.iconImage,
     accentColor: preset.accentColor,
-    holdingValueQuote: real ? (response?.holdingValueQuote ?? null) : null,
-    holdingValueUsd: real ? (response?.holdingValueUsd ?? null) : null,
-    change24hPct: real ? (response?.change24hPct ?? null) : null,
-    change24hQuote: real ? (response?.change24hQuote ?? null) : null,
+    holdingValueQuote: real
+      ? (response?.holdingValueQuote ?? null)
+      : hasTrustedFallback
+        ? preset.holdingValueQuote
+        : null,
+    holdingValueUsd: real
+      ? (response?.holdingValueUsd ?? null)
+      : hasTrustedFallback
+        ? preset.holdingValueUsd
+        : null,
+    change24hPct: real
+      ? (response?.change24hPct ?? null)
+      : hasTrustedFallback
+        ? preset.change24hPct
+        : null,
+    change24hQuote: real
+      ? (response?.change24hQuote ?? null)
+      : hasTrustedFallback
+        ? preset.change24hQuote
+        : null,
     averageBuyPriceQuote: real
       ? (response?.averageBuyPriceQuote ?? null)
       : null,
@@ -1726,16 +1752,28 @@ function buildSpotDetailParams({
     averageBuyPriceScope: real
       ? response?.averageBuyPriceScope || "unknown"
       : "unknown",
-    currentPriceQuote: real ? (response?.currentPriceQuote ?? null) : null,
-    holdingAmountBase: real ? (response?.holdingAmountBase ?? null) : null,
+    currentPriceQuote: real
+      ? (response?.currentPriceQuote ?? null)
+      : hasTrustedFallback
+        ? preset.currentPriceQuote
+        : null,
+    holdingAmountBase: real
+      ? (response?.holdingAmountBase ?? null)
+      : hasTrustedFallback
+        ? preset.holdingAmountBase
+        : null,
     lastUpdatedAt: real
       ? response?.lastUpdatedAt || response?.asOf || null
-      : null,
-    connectionStatus: resolvePrivateConnectionStatus({
-      hasTrustedData: real,
-      requestError: error,
-      upstreamStatus: response?.connectionStatus,
-    }),
+      : hasTrustedFallback
+        ? trustedFallbackAsOf
+        : null,
+    connectionStatus: hasTrustedFallback
+      ? "degraded"
+      : resolvePrivateConnectionStatus({
+          hasTrustedData: real,
+          requestError: error,
+          upstreamStatus: response?.connectionStatus,
+        }),
     ...visual,
   };
 }
@@ -1747,6 +1785,15 @@ function presetForTopSpotAsset(asset: TopSpotAsset): TradingPairPreset {
   if (preset) return preset;
 
   const isNvdaOn = asset.pair === "NVDAON_USDT";
+
+  const holdingValue = Number(asset.holdingValueQuote);
+  const changePct = Number(asset.change24hPct);
+  const change24hQuote =
+    Number.isFinite(holdingValue) &&
+    Number.isFinite(changePct) &&
+    1 + changePct / 100 !== 0
+      ? (holdingValue - holdingValue / (1 + changePct / 100)).toFixed(2)
+      : "0";
 
   return {
     id: asset.pair,
@@ -1762,7 +1809,7 @@ function presetForTopSpotAsset(asset: TopSpotAsset): TradingPairPreset {
     holdingValueQuote: asset.holdingValueQuote,
     holdingValueUsd: asset.holdingValueUsd || asset.holdingValueQuote,
     change24hPct: asset.change24hPct || "0",
-    change24hQuote: "0",
+    change24hQuote,
     averageBuyPriceQuote: null,
     averageBuyPriceMethod: "unknown",
     currentPriceQuote: asset.currentPriceQuote,
@@ -1803,8 +1850,9 @@ function TopSpotAssetDetailCard({
       preset,
       market: "spot",
       visual,
+      trustedFallbackAsOf: asset.asOf,
     });
-  }, [detail.error, detail.response, preset, visual]);
+  }, [asset.asOf, detail.error, detail.response, preset, visual]);
 
   return (
     <React.Suspense

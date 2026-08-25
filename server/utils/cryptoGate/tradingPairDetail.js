@@ -728,7 +728,10 @@ class GateTradingPairDetailService {
       partialFailures.push(...balance.partialFailures);
     }
 
-    const average = await this.averageBuyData(pairInfo, totalHoldingAmountBase);
+    // Price and balance are the critical path for the asset card. Historical
+    // cost reconstruction may scan many Gate trade-history windows, so start it
+    // in the background and return a calculating snapshot immediately.
+    const average = this.averageBuySnapshot(pairInfo, totalHoldingAmountBase);
     if (average?.partialFailure) partialFailures.push(average.partialFailure);
 
     const asOf = Math.max(
