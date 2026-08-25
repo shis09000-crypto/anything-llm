@@ -31,6 +31,13 @@ const host = new MicroModuleServiceHost({
   manifestId: "scheduler",
   role: "scheduler",
   port,
+  internalRouteCapabilities: {
+    "POST /internal/v1/scheduler/jobs/:jobId/sync": "scheduler.create",
+    "DELETE /internal/v1/scheduler/jobs/:jobId": "scheduler.create",
+    "POST /internal/v1/scheduler/jobs/:jobId/trigger": "scheduler.status",
+    "POST /internal/v1/scheduler/jobs/:jobId/runs/:runId/kill":
+      "scheduler.status",
+  },
   readiness: () => runtime.snapshot(),
   onStart: async () => {
     const security = await bootstrapSecurityContext({

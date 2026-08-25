@@ -89,6 +89,8 @@
       "responses.execution-metadata.resolve",
       "responses.capabilities",
       "responses.quiz.execute",
+      "scheduler.create",
+      "scheduler.status",
       "sync.events.append",
       "character.v2.conversations.create",
       "character.v2.conversations.retrieve",
@@ -938,6 +940,38 @@
         "timeoutMs": 30000,
         "idempotency": "required",
         "dataClassification": "confidential"
+      },
+      {
+        "id": "scheduler.create",
+        "version": "1.0",
+        "callType": "Command",
+        "requestSchema": "athena://contracts/scheduler.create/request/1.0",
+        "responseSchema": "athena://contracts/scheduler.create/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "required",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "scheduler.status",
+        "version": "1.0",
+        "callType": "Query",
+        "requestSchema": "athena://contracts/scheduler.status/request/1.0",
+        "responseSchema": "athena://contracts/scheduler.status/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 30000,
+        "idempotency": "none",
+        "dataClassification": "internal"
       }
     ]
   },
