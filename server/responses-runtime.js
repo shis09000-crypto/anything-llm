@@ -131,9 +131,13 @@ const internalRouteCapabilities = {
     "character.v2.responses.retrieve",
   "/internal/v2/character/responses/:responseId/cancel":
     "character.v2.responses.cancel",
+  "GET /internal/v2/character/sessions/:sessionId/.websocket":
+    "character.v2.sessions",
   "/internal/v2/character/conversations": "character.v2.conversations.create",
   "GET /internal/v2/character/conversations/:conversationId":
     "character.v2.conversations.retrieve",
+  "GET /internal/v2/character/conversations/:conversationId/.websocket":
+    "character.v2.sessions",
   "/internal/v2/character/conversations/:conversationId/turns":
     "character.v2.conversations.turns.create",
   "/internal/v2/character/conversations/:conversationId/turns/stream":
