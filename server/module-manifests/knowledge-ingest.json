@@ -16,11 +16,15 @@
   "capabilities": ["parse", "chunk", "embed", "index"],
   "routes": {
     "public": ["/api/document/"],
-    "internal": ["/internal/v1/knowledge/browser-ingest"]
+    "internal": [
+      "/internal/v1/knowledge/browser-ingest",
+      "/internal/v1/knowledge/metrics/recompute"
+    ]
   },
   "rpc": {
     "provides": [
       "knowledge.ingest",
+      "knowledge.metrics.recompute",
       "module.describe",
       "module.self-test",
       "module.lifecycle.query",
@@ -100,6 +104,22 @@
           "dependency_unavailable"
         ],
         "timeoutMs": 30000,
+        "idempotency": "supported",
+        "dataClassification": "internal"
+      },
+      {
+        "id": "knowledge.metrics.recompute",
+        "version": "1.0",
+        "callType": "Call",
+        "requestSchema": "athena://contracts/knowledge.ingest/request/1.0",
+        "responseSchema": "athena://contracts/knowledge.ingest/response/1.0",
+        "errorCodes": [
+          "contract_invalid",
+          "deadline_exceeded",
+          "caller_denied",
+          "dependency_unavailable"
+        ],
+        "timeoutMs": 120000,
         "idempotency": "supported",
         "dataClassification": "internal"
       },
