@@ -44,6 +44,10 @@ const host = new MicroModuleServiceHost({
   manifestId: "rag",
   role,
   port: Number(process.env.RAG_PORT || 3028),
+  internalRouteCapabilities: {
+    "GET /internal/v1/rag/dependencies": "rag.dependencies",
+    "POST /internal/v1/rag/retrieve": "rag.retrieve",
+  },
   readiness: () => ({ ...state }),
   onStart: async () => {
     await secureDatabaseStart(role);
